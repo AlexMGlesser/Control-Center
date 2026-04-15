@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Control Center</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-dot"></div>
+          <div>
+            <h1>Control Center</h1>
+            <p>Core System Dashboard</p>
+          </div>
+        </div>
+
+        <div class="sidebar-group">
+          <p class="group-label">System</p>
+          <button class="nav-tab is-active" data-tab="overview">Overview</button>
+          <button class="nav-tab" data-tab="settings">Settings</button>
+          <button class="nav-tab" data-tab="chatbot">Chatbot</button>
+          <button class="nav-tab" data-tab="event-bus">Event Bus</button>
+          <button class="nav-tab" data-tab="agent-core">Agent Core</button>
+          <button class="nav-tab" data-tab="integration-hub">Integration Hub</button>
+        </div>
+
+        <div class="sidebar-group">
+          <p class="group-label">Apps (Work In Progress)</p>
+          <div id="app-tabs"></div>
+        </div>
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div>
+            <h2 id="view-title">Overview</h2>
+            <p id="view-subtitle">System readiness and app status</p>
+          </div>
+          <div class="topbar-controls">
+            <div class="mode-controls">
+              <button class="action-btn" id="mode-desktop-btn" data-mode="desktop">Desktop Mode</button>
+              <button class="action-btn" id="mode-mobile-btn" data-mode="mobile">Mobile Mode</button>
+            </div>
+            <div class="status-pills">
+              <span class="pill">Dark Mode</span>
+              <span class="pill" id="current-mode-pill">Mode: desktop</span>
+            <span class="pill">Backend Ready</span>
+            </div>
+          </div>
+        </header>
+
+        <section id="view-overview" class="view is-visible"></section>
+        <section id="view-settings" class="view"></section>
+        <section id="view-chatbot" class="view"></section>
+        <section id="view-event-bus" class="view"></section>
+        <section id="view-agent-core" class="view"></section>
+        <section id="view-integration-hub" class="view"></section>
+        <section id="view-app" class="view"></section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

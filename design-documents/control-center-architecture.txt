@@ -1,0 +1,776 @@
+# Control Center Architecture Document
+
+## 1. Purpose
+
+This document defines the target architecture for the Control Center system based on the current design, product requirements, and functional specification documents.
+
+The goal of this architecture is to support:
+
+- A centralized Control Center application
+- An AI agent hosted through LMStudio
+- Desktop and mobile interaction modes
+- A modular multi-app system with clear boundaries
+- Secure access to local files, external APIs, desktop software, and remote servers
+- A structure that can expand as more apps and tools are added
+
+## 2. Architectural Principles
+
+The architecture should follow these principles:
+
+- Centralized orchestration: one core Control Center runtime coordinates the overall system
+- App modularity: each app is implemented as an isolated module with its own services and data access rules
+- Tool-gated AI access: the agent does not access the system directly and instead acts through approved tools and services
+- Desktop-first execution: core processing, automation, and media playback run from the desktop host
+- Mobile as a connected client: the phone experience connects into the desktop-hosted system rather than replacing it
+- Shared UI language: apps should feel consistent while remaining independently maintainable
+- Extensibility: new apps, tools, and integrations should be addable without redesigning the core system
+
+## 3. System Context
+
+At a high level, Control Center consists of five major domains:
+
+- User interaction surfaces
+- Core orchestration services
+- AI runtime and tool execution
+- App modules
+- External systems and resources
+
+### 3.1 External Actors
+
+The main external actors are:
+
+- Primary user on desktop
+- Primary user on mobile
+- LMStudio-hosted AI model
+- Desktop operating system
+- External APIs and cloud services
+- Remote servers managed by the user
+
+## 4. High-Level Architecture
+
+The recommended architecture is a modular desktop-centered platform with a service-oriented backend and multiple client surfaces.
+
+Logical structure:
+
+1. Desktop Client Layer
+2. Mobile Client Layer
+3. Control Center Core Layer
+4. AI Orchestration Layer
+5. App Services Layer
+6. Integration and Resource Layer
+
+### 4.1 Conceptual Layout
+
+```text
+[ Desktop User ]
+      |
+[ Desktop UI Shell ]
+      |
+[ Control Center Core ]----------------------[ Mobile API Gateway ]----------------[ Mobile App ]
+      |                                               |
+      |                                               |
+      +----[ AI Orchestrator ]----[ LMStudio Model ]
+      |
+      +----[ Tool Execution Gateway ]
+      |
+      +----[ App Module Host ]
+               |--- project-app
+               |--- work-app
+               |--- calendar-app
+               |--- drawing-app
+               |--- news-app
+               |--- music-app
+               |--- server-manager-app
+               |--- movie-app
+      |
+      +----[ Data and Integration Services ]
+               |--- Local File System
+               |--- VS Code / Desktop App Automation
+               |--- Google Calendar API
+               |--- Weather / News / STEM Sources
+               |--- Spotify API
+               |--- Audio Services
+               |--- SSH / Server Control Services
+```
+
+## 5. Core Architectural Components
+
+### 5.1 Desktop UI Shell
+
+The Desktop UI Shell is the main user-facing application window.
+
+Responsibilities:
+
+- Render the panel-based interface
+- Show navigation, folders, files, and tools in the left panel
+- Show the app library and app content in the right panel
+- Present system status such as AI availability, server status, and active mode
+- Provide controls to start LMStudio and the Control Center server
+- Provide mode switching between Desktop Mode and Mobile Mode
+- Support microphone input and desktop audio output
+
+This layer should remain primarily a presentation and interaction layer. Business logic should live in the Control Center Core and app services.
+
+### 5.2 Mobile App
+
+The Mobile App is a companion client connected to the desktop-hosted Control Center server.
+
+Responsibilities:
+
+- Provide the Mobile Mode audio interface
+- Stream user audio to the Control Center backend
+- Receive synthesized audio and selected status responses from the backend
+- Support mode changes and session continuity
+- Control limited remote actions through authenticated requests
+
+The mobile client should not duplicate core system logic. It should rely on the Control Center Core for orchestration, app access, and AI operations.
+
+### 5.3 Control Center Core
+
+The Control Center Core is the central runtime and application coordinator.
+
+Responsibilities:
+
+- Maintain global application state
+- Manage user session state across desktop and mobile modes
+- Route requests between UI clients, AI orchestration, and app modules
+- Enforce permissions and tool access rules
+- Start and monitor background services
+- Publish events and notifications to the UI
+
+The core should be implemented as the single source of truth for cross-app coordination.
+
+Recommended internal subsystems:
+
+- Session Manager
+- App Registry
+- Service Registry
+- Mode Manager
+- Event Bus
+- Task Coordinator
+- Notification Manager
+- Configuration Manager
+
+### 5.4 AI Orchestration Layer
+
+The AI Orchestration Layer manages all communication with the LMStudio model and governs how the agent acts within the system.
+
+Responsibilities:
+
+- Send prompts and context to the LMStudio model
+- Maintain conversation state
+- Decide which approved tools can be used
+- Interpret tool outputs and return responses to the user
+- Support stop-listening behavior and session awareness
+- Prevent the agent from bypassing app and permission boundaries
+
+Recommended internal components:
+
+- Conversation Manager
+- Prompt Builder
+- Tool Policy Engine
+- Tool Dispatcher
+- Response Formatter
+- Safety and Permission Filter
+
+### 5.5 Tool Execution Gateway
+
+The Tool Execution Gateway is the controlled interface through which the AI agent interacts with the rest of the system.
+
+Responsibilities:
+
+- Expose approved actions as structured tools
+- Validate tool inputs
+- Enforce per-app permissions
+- Log tool execution activity
+- Normalize responses back to the AI orchestration layer
+
+Examples of tool categories:
+
+- File and folder tools
+- Calendar tools
+- News and weather tools
+- Music control tools
+- Movie library and stream tools
+- Drawing asset tools
+- VS Code automation tools
+- Desktop application launch tools
+- SSH and server tools
+
+This gateway is critical to the architecture because it separates AI intent from direct system access.
+
+## 6. App Module Architecture
+
+Each app should be implemented as an isolated module running under the App Module Host managed by the Control Center Core.
+
+Each app module should contain:
+
+- UI module
+- Application service layer
+- Domain models
+- App-specific integration adapters
+- App-specific storage or file access policies
+
+Each app should expose a stable internal interface to the Control Center Core so that the core can launch the app, query state, and route agent requests to it.
+
+### 6.1 project-app Architecture
+
+Purpose:
+
+- Manage the user's personal projects and development workflows
+
+Components:
+
+- Project Explorer UI
+- Project File Service
+- IDE Launch Service
+- Copilot Automation Adapter
+- Agent Summary Service
+
+Primary integrations:
+
+- Local project folders
+- VS Code desktop application
+- GitHub Copilot Chat interaction path
+
+Functional flow:
+
+1. User or agent selects a project
+2. Project File Service exposes project structure within app rules
+3. IDE Launch Service opens VS Code when requested
+4. Copilot Automation Adapter sends or facilitates code-generation and command requests
+5. Agent Summary Service reports outcomes back to the user
+
+### 6.2 work-app Architecture
+
+Purpose:
+
+- Manage work-related and school-related projects in a separate boundary from personal projects
+
+Components:
+
+- Work Explorer UI
+- Work File Service
+- IDE Launch Service
+- Copilot Automation Adapter
+- Agent Summary Service
+
+Primary integrations:
+
+- Dedicated work and school file paths
+- VS Code desktop application
+- GitHub Copilot Chat interaction path
+
+Architecture note:
+
+work-app should reuse most of the same internal architecture as project-app while keeping its storage roots, policies, and indexing separate.
+
+### 6.3 calendar-app Architecture
+
+Purpose:
+
+- Provide read and write interaction with the user's Google Calendar
+
+Components:
+
+- Calendar UI View
+- Calendar Query Service
+- Calendar Mutation Service
+- Google Calendar Adapter
+- Audio Response Formatter
+
+Primary integrations:
+
+- Google Calendar API
+- Desktop calendar display surface
+- Voice interaction pipeline
+
+Functional flow:
+
+1. User or agent requests schedule information or a calendar change
+2. Calendar Query Service or Calendar Mutation Service validates the request
+3. Google Calendar Adapter executes the request against Google Calendar
+4. Results are returned to the UI and, when needed, formatted for audio delivery
+
+### 6.4 drawing-app Architecture
+
+Purpose:
+
+- Provide a 2D and 3D design workspace whose outputs can be reused by other apps
+
+Components:
+
+- Drawing Workspace UI
+- 2D Canvas Service
+- 3D Model Workspace Service
+- Shape Tool Service
+- Asset Storage Service
+- Asset Sharing Service
+
+Primary integrations:
+
+- Local design asset storage
+- Shared asset references for project-app and work-app
+
+Architecture note:
+
+drawing-app should treat created designs as managed assets with metadata, not only as loose files. This allows other apps to reference them reliably.
+
+### 6.5 news-app Architecture
+
+Purpose:
+
+- Aggregate weather, news, technology updates, and a daily STEM article
+
+Components:
+
+- News Dashboard UI
+- Weather Service
+- News Feed Service
+- Tech Developments Service
+- Daily STEM Service
+- Summary Formatter
+- Scheduled Refresh Service
+
+Primary integrations:
+
+- Weather data provider
+- News sources or aggregation APIs
+- STEM article source
+
+Functional flow:
+
+1. Scheduled Refresh Service triggers periodic collection jobs
+2. Source-specific services fetch and normalize external data
+3. News Dashboard UI renders the data in the defined layout
+4. Summary Formatter prepares concise mobile-mode audio summaries
+
+### 6.6 music-app Architecture
+
+Purpose:
+
+- Control playback of local music and Spotify while keeping desktop-hosted playback as the system source of truth
+
+Components:
+
+- Music Library UI
+- Local Music Service
+- Spotify Integration Service
+- Playback Controller
+- Audio Streaming Service
+- Output Device Manager
+
+Primary integrations:
+
+- Local music directories
+- Spotify APIs
+- Desktop audio subsystem
+- Mobile audio streaming channel
+
+Functional flow:
+
+1. User asks for music playback
+2. Agent or UI confirms the requested source, local or Spotify
+3. Playback Controller starts desktop playback through the selected service
+4. Output Device Manager routes audio for desktop listening or mobile streaming
+5. Audio Streaming Service relays playback to the mobile app when Mobile Mode is active
+
+### 6.7 server-manager-app Architecture
+
+Purpose:
+
+- Manage remote server machines, remote sessions, and server-hosted resources
+
+Components:
+
+- Server Inventory UI
+- Server Metadata Service
+- SSH Session Service
+- Power Control Service
+- Remote Storage Access Service
+- Server Health and Status Service
+
+Primary integrations:
+
+- SSH connectivity
+- Power management mechanisms such as Wake-on-LAN or other remote control paths
+- Remote storage or hosted services
+
+Functional flow:
+
+1. The app loads known server definitions from configuration
+2. Server Health and Status Service refreshes availability and metadata
+3. SSH Session Service opens shell access when requested
+4. Power Control Service handles start and stop operations where supported
+5. Remote Storage Access Service allows file transfer and service interaction within allowed permissions
+
+### 6.8 movie-app Architecture
+
+Purpose:
+
+- Host a local movie server, provide movie streaming, and enable desktop movie browsing and playback
+
+Components:
+
+- Movie Library UI
+- Library Index Service
+- Movie Server Control Service
+- Stream Session Service
+- Desktop Playback Controller
+- Movie Metadata Service
+
+Primary integrations:
+
+- Local movie media directories
+- Desktop playback subsystem
+- Local or controlled network stream delivery
+
+Functional flow:
+
+1. User opens movie-app and browses available movie titles
+2. Library Index Service provides searchable movie entries and metadata
+3. User starts or confirms movie server state through Movie Server Control Service
+4. Stream Session Service initializes playback or stream session for the selected title
+5. Desktop Playback Controller handles in-app watching in Desktop Mode and reports status to the UI
+
+## 7. Shared Supporting Services
+
+Several services should exist as shared infrastructure used by multiple apps.
+
+### 7.1 Authentication and Authorization Service
+
+Responsibilities:
+
+- Authenticate the primary user
+- Authenticate the mobile client to the desktop host
+- Enforce role and privilege boundaries
+- Ensure the AI agent only uses explicitly approved tools and permissions
+
+### 7.2 Configuration Service
+
+Responsibilities:
+
+- Store app settings
+- Store integration settings
+- Store mode preferences
+- Store server connection definitions
+- Store feature flags and environment values
+
+### 7.3 File Access Service
+
+Responsibilities:
+
+- Provide safe access to app-approved folders
+- Enforce per-app storage roots
+- Prevent unauthorized cross-app file access
+
+### 7.4 Audio Service
+
+Responsibilities:
+
+- Capture microphone input
+- Handle speech output
+- Route audio to desktop devices or mobile streaming
+- Support the stop-listening and mode-switching behaviors
+
+### 7.5 Notification and Activity Service
+
+Responsibilities:
+
+- Publish app events and task results
+- Report AI task progress
+- Surface GitHub Copilot completion summaries
+- Track background refresh events for news, music, and server health
+
+### 7.6 Logging and Audit Service
+
+Responsibilities:
+
+- Record system events
+- Record AI tool usage
+- Record errors and operational failures
+- Record security-relevant actions such as file edits, remote access, and server power actions
+
+## 8. Data Architecture
+
+The system should use a hybrid data model.
+
+### 8.1 Local Configuration and Metadata Store
+
+Used for:
+
+- Application configuration
+- Server definitions
+- Mode settings
+- App registry information
+- Cached news metadata
+- Asset metadata for drawing-app
+
+This can be implemented with a local embedded database or structured configuration files depending on complexity.
+
+### 8.2 App-Owned Storage Domains
+
+Each app should manage its own data domain.
+
+Examples:
+
+- project-app owns personal project directories
+- work-app owns work and school directories
+- drawing-app owns design asset storage and metadata
+- music-app owns local music indexing metadata
+- server-manager-app owns server connection definitions and status cache
+- movie-app owns movie library indexing metadata and stream session state
+
+### 8.3 External Systems as Systems of Record
+
+Some data should remain owned by external platforms.
+
+Examples:
+
+- Google Calendar remains the system of record for calendar data
+- Spotify remains the system of record for Spotify content and account data
+- Remote servers remain the system of record for remote files and services
+
+Control Center should cache and index external data where useful, but should not become the authoritative owner of those domains unless explicitly intended.
+
+## 9. Integration Architecture
+
+### 9.1 LMStudio Integration
+
+The AI model should be integrated through a dedicated adapter responsible for:
+
+- Model startup and availability checks
+- Prompt submission
+- Response retrieval
+- Error handling
+- Timeout and retry behavior
+
+### 9.2 VS Code and GitHub Copilot Integration
+
+The architecture should isolate IDE automation behind an IDE Automation Service.
+
+Responsibilities:
+
+- Open VS Code for a requested project or work path
+- Send context or prompts into the intended workflow
+- Monitor task status where possible
+- Return summaries to the Control Center Core
+
+### 9.3 Calendar Integration
+
+Google Calendar access should be handled through a dedicated adapter with token management, request validation, and normalized event models.
+
+### 9.4 News and Weather Integration
+
+External content sources should be normalized through provider adapters so source changes do not affect app-level logic.
+
+### 9.5 Spotify Integration
+
+Spotify access should be routed through a dedicated service responsible for account state, playback control, and metadata retrieval.
+
+### 9.6 Remote Server Integration
+
+Remote server access should be abstracted through separate adapters for:
+
+- SSH sessions
+- Power control
+- Remote file and service access
+
+### 9.7 Movie Streaming Integration
+
+Movie streaming should be abstracted through movie-app services that handle:
+
+- Library path resolution and metadata lookup
+- Stream session negotiation and session lifecycle
+- Desktop playback handoff and status reporting
+
+## 10. Deployment Architecture
+
+The primary deployment model is a desktop-hosted local platform with optional mobile connectivity.
+
+### 10.1 Desktop Host
+
+The desktop host runs:
+
+- Desktop UI Shell
+- Control Center Core
+- AI Orchestration Layer
+- Tool Execution Gateway
+- App Module Host
+- Local data stores
+- Audio routing and playback services
+- Mobile API Gateway
+
+### 10.2 Mobile Client
+
+The mobile device runs:
+
+- Mobile App UI
+- Audio capture and playback interface
+- Secure client connection to the Mobile API Gateway
+
+### 10.3 External Dependencies
+
+External dependencies include:
+
+- LMStudio runtime
+- Google Calendar
+- Weather and news sources
+- Spotify
+- Remote servers managed by the user
+- Local movie media storage paths
+
+## 11. Security Architecture
+
+Security is a primary architectural concern because the system can edit files, launch desktop software, access cloud services, and manage remote servers.
+
+### 11.1 Permission Model
+
+The system should define permissions at three levels:
+
+- User permissions
+- AI tool permissions
+- App resource permissions
+
+The agent should never receive unrestricted desktop access. It should only act through approved tools that validate requests before execution.
+
+### 11.2 Mobile Security
+
+Mobile connections should require authenticated sessions and encrypted transport between the mobile app and desktop host.
+
+### 11.3 Secrets Management
+
+API tokens, credentials, and remote server secrets should be stored in a protected secret store rather than plain-text configuration.
+
+### 11.4 Auditability
+
+High-impact actions should be auditable.
+
+Examples:
+
+- File edits
+- Calendar modifications
+- Desktop application launches
+- Spotify playback changes
+- SSH access
+- Server power operations
+
+## 12. Reliability and Operational Design
+
+### 12.1 Resilience
+
+The architecture should tolerate failures in external systems without destabilizing the whole platform.
+
+Examples:
+
+- If Google Calendar is unavailable, calendar-app should degrade gracefully
+- If a news source fails, news-app should continue with the remaining sources
+- If Spotify is unavailable, local music should still function
+- If the mobile app disconnects, the desktop host should continue operating normally
+
+### 12.2 Background Jobs
+
+Background tasks should be managed by a scheduler and task coordinator.
+
+Expected background jobs include:
+
+- News refresh
+- Weather refresh
+- Daily STEM article selection
+- Server status polling
+- Music library indexing
+- Asset indexing for drawing-app
+- Movie library indexing and metadata refresh
+
+### 12.3 Observability
+
+The system should provide:
+
+- Structured logs
+- Service health indicators
+- Error reporting
+- Background task status
+- Integration status visibility in the UI
+
+## 13. Scalability and Extensibility
+
+Although the initial system is desktop-hosted for a single primary user, the architecture should support controlled growth.
+
+Extensibility requirements:
+
+- New apps can be registered through the App Registry
+- New AI tools can be added through the Tool Execution Gateway
+- New external providers can be added through adapter interfaces
+- Shared infrastructure can be reused across apps instead of duplicated
+
+The modular app-service architecture is intended to make future additions predictable and low-risk.
+
+## 14. Recommended Internal Interfaces
+
+The following logical interfaces should exist between layers:
+
+- UI to Control Center Core
+- Control Center Core to AI Orchestrator
+- Control Center Core to App Module Host
+- AI Orchestrator to Tool Execution Gateway
+- App Modules to Integration Adapters
+- Mobile App to Mobile API Gateway
+
+Each interface should use stable request and response contracts so implementation details can change without breaking other layers.
+
+## 15. End-to-End Example Flows
+
+### 15.1 Voice Request for Calendar Update
+
+1. User speaks through desktop or mobile audio input
+2. Audio Service passes the request into the AI Orchestration Layer
+3. AI Orchestrator determines that a calendar tool is required
+4. Tool Execution Gateway validates and dispatches the request to calendar-app services
+5. calendar-app calls Google Calendar through its adapter
+6. Result is returned to the AI Orchestrator
+7. Response is spoken back through the Audio Service and shown in the UI
+
+### 15.2 Mobile Request to Play Music
+
+1. User issues a playback request from Mobile Mode
+2. Mobile App sends the request to the Mobile API Gateway
+3. Control Center Core routes the request to the AI Orchestrator or directly to music-app logic depending on the interaction path
+4. music-app Playback Controller starts playback on the desktop host
+5. Audio Streaming Service relays the output to the mobile client
+
+### 15.3 Agent-Assisted Coding Session
+
+1. User requests help with a project
+2. Control Center Core activates project-app or work-app
+3. IDE Automation Service opens VS Code on the appropriate path
+4. Copilot Automation Adapter carries out the requested workflow
+5. Results are captured by the Agent Summary Service
+6. The user receives a concise completion summary
+
+### 15.4 Remote Server Management Session
+
+1. User selects a server in server-manager-app
+2. Server Metadata Service and Status Service load current information
+3. User or agent requests SSH access, power control, or storage interaction
+4. The corresponding server integration service executes the approved action
+5. Activity and results are logged and surfaced in the UI
+
+### 15.5 Desktop Movie Playback Session
+
+1. User opens movie-app and browses the movie library
+2. User selects a movie and starts playback
+3. Movie Server Control Service confirms serving state and endpoint readiness
+4. Stream Session Service starts a playback session for the selected movie
+5. Desktop Playback Controller renders playback controls and streaming status in the UI
+
+## 16. Architecture Summary
+
+The Control Center architecture should be implemented as a desktop-hosted modular platform with:
+
+- A central orchestration core
+- A tool-governed AI agent connected to LMStudio
+- A companion mobile client connected through a secure server interface
+- App-specific modules for projects, work, calendar, drawing, news, music, server management, and movies
+- Shared infrastructure for security, configuration, logging, audio, scheduling, and integrations
+
+This architecture preserves the intent of the original design while giving the system a clear structure for implementation, scaling, maintenance, and future expansion.

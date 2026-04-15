@@ -1,0 +1,780 @@
+const tabMeta = {
+  overview: {
+    title: "Overview",
+    subtitle: "System readiness and app status"
+  },
+  settings: {
+    title: "Settings",
+    subtitle: "Desktop mode audio and voice preferences"
+  },
+  chatbot: {
+    title: "Chatbot",
+    subtitle: "Desktop text chat channel with your local agent"
+  },
+  "event-bus": {
+    title: "Event Bus",
+    subtitle: "Scrollable system and app events with bounded panel size"
+  },
+  "agent-core": {
+    title: "Agent Core",
+    subtitle: "AI orchestration shell and tool gateway stubs"
+  },
+  "integration-hub": {
+    title: "Integration Hub",
+    subtitle: "Backend integration surfaces prepared for app connectors"
+  }
+};
+
+const state = {
+  apps: [],
+  activeTab: "overview",
+  system: null,
+  mode: "desktop",
+  events: [],
+  settings: null,
+  settingsOptions: null,
+  chatMessages: []
+};
+
+const appTabsContainer = document.getElementById("app-tabs");
+const viewTitle = document.getElementById("view-title");
+const viewSubtitle = document.getElementById("view-subtitle");
+const overviewView = document.getElementById("view-overview");
+const settingsView = document.getElementById("view-settings");
+const chatbotView = document.getElementById("view-chatbot");
+const eventBusView = document.getElementById("view-event-bus");
+const agentCoreView = document.getElementById("view-agent-core");
+const integrationHubView = document.getElementById("view-integration-hub");
+const appView = document.getElementById("view-app");
+const currentModePill = document.getElementById("current-mode-pill");
+const modeDesktopBtn = document.getElementById("mode-desktop-btn");
+const modeMobileBtn = document.getElementById("mode-mobile-btn");
+
+async function loadApps() {
+  const res = await fetch("/api/apps");
+  const data = await res.json();
+  state.apps = data.apps ?? [];
+}
+
+async function loadSystem() {
+  const res = await fetch("/api/system");
+  return res.json();
+}
+
+async function loadEvents() {
+  const res = await fetch("/api/events?limit=120");
+  const data = await res.json();
+  state.events = data.events ?? [];
+}
+
+async function loadSettings() {
+  const res = await fetch("/api/settings");
+  const data = await res.json();
+  state.settings = data.settings;
+  state.settingsOptions = data.options;
+}
+
+async function loadChatMessages() {
+  const res = await fetch("/api/chat/messages?limit=120");
+  const data = await res.json();
+  state.chatMessages = data.messages ?? [];
+}
+
+async function switchModeRequest(targetMode) {
+  const res = await fetch("/api/mode/switch", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ targetMode, source: "control-ui" })
+  });
+  return res.json();
+}
+
+async function publishAppStatusEvent(appId) {
+  const app = state.apps.find((item) => item.id === appId);
+  const appName = app?.name || appId;
+
+  const res = await fetch("/api/events", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      appId,
+      source: "app-ui",
+      type: "status",
+      message: `${appName} posted a status update (WIP module heartbeat).`,
+      meta: {
+        route: app?.routeKey || appId
+      }
+    })
+  });
+
+  return res.json();
+}
+
+async function saveDesktopSettings(payload) {
+  const res = await fetch("/api/settings/desktop", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return res.json();
+}
+
+async function runVoiceTest(sampleText) {
+  const res = await fetch("/api/settings/desktop/test-voice", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sampleText })
+  });
+
+  return res.json();
+}
+
+async function postChatMessage(text) {
+  const res = await fetch("/api/chat/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ text })
+  });
+
+  return res.json();
+}
+
+function modeButtonsActiveState() {
+  modeDesktopBtn.classList.toggle("is-active", state.mode === "desktop");
+  modeMobileBtn.classList.toggle("is-active", state.mode === "mobile");
+  currentModePill.textContent = `Mode: ${state.mode}`;
+}
+
+function eventItem(event) {
+  return `
+    <li>
+      <div class="event-row">
+        <div class="event-meta">
+          <span>${event.appId} | ${event.type}</span>
+          <span>${new Date(event.timestamp).toLocaleTimeString()}</span>
+        </div>
+        <div class="event-message">${event.message}</div>
+      </div>
+    </li>
+  `;
+}
+
+function getRecentOverviewEvents() {
+  return state.events.slice(0, 5);
+}
+
+function renderAppTabs() {
+  appTabsContainer.innerHTML = "";
+
+  state.apps.forEach((app) => {
+    const btn = document.createElement("button");
+    btn.className = "nav-tab app-tab";
+    btn.dataset.tab = `app:${app.id}`;
+    btn.innerHTML = `<span>${app.name}</span><span class="wip-badge">WIP</span>`;
+    appTabsContainer.appendChild(btn);
+  });
+}
+
+function appCard(app) {
+  const capHtml = app.capabilities
+    .map((cap) => `<span class="cap">${cap}</span>`)
+    .join("");
+
+  return `
+    <article class="card">
+      <h3>${app.name}</h3>
+      <p>${app.description}</p>
+      <div class="caps">${capHtml}</div>
+      <div style="margin-top: 10px">
+        <span class="status wip">Work In Progress</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderOverview(system) {
+  overviewView.innerHTML = `
+    <div class="grid">
+      <article class="card stack">
+        <h3>Core Status</h3>
+        <ul class="list">
+          <li>Control Core: <span class="status ready">${system.orchestrator.controlCore}</span></li>
+          <li>App Registry: <span class="status ready">${system.orchestrator.appRegistry}</span></li>
+          <li>Tool Gateway: <span class="status wip">${system.orchestrator.toolGateway}</span></li>
+          <li>Integration Layer: <span class="status wip">${system.orchestrator.integrationLayer}</span></li>
+        </ul>
+      </article>
+
+      <article class="card stack">
+        <h3>Runtime</h3>
+        <ul class="list">
+          <li>System: ${system.name} v${system.version}</li>
+          <li>Mode: <span class="muted">${state.mode}</span></li>
+          <li>LMStudio: <span class="muted">${system.lmStudio.status}</span></li>
+          <li>Server: <span class="muted">${system.server.status}</span></li>
+        </ul>
+      </article>
+    </div>
+
+    <article class="card stack">
+      <h3>Recent Events</h3>
+      <ul class="list">
+        ${getRecentOverviewEvents().length ? getRecentOverviewEvents().map(eventItem).join("") : "<li>No events yet.</li>"}
+      </ul>
+      <div class="event-controls">
+        <button class="action-btn" id="refresh-events-btn">Refresh Events</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <h3>App Modules</h3>
+      <div class="grid">
+        ${state.apps.map(appCard).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderEventBus() {
+  eventBusView.innerHTML = `
+    <article class="card stack">
+      <h3>Event Stream</h3>
+      <p class="muted">
+        Event panel size is fixed so the app layout remains stable. Scroll to browse older events.
+      </p>
+      <div class="event-bus-panel">
+        <ul class="list">
+          ${state.events.length ? state.events.map(eventItem).join("") : "<li>No events yet.</li>"}
+        </ul>
+      </div>
+      <div class="event-controls">
+        <button class="action-btn" id="refresh-event-bus-btn">Refresh Event Bus</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderSettings() {
+  if (!state.settings || !state.settingsOptions) {
+    settingsView.innerHTML = `
+      <article class="card stack">
+        <h3>Settings Unavailable</h3>
+        <p class="muted">Settings are still loading.</p>
+      </article>
+    `;
+    return;
+  }
+
+  const desktop = state.settings.desktop;
+  const options = state.settingsOptions.desktop;
+
+  const audioOptionsHtml = options.audioDeviceOptions
+    .map((opt) => `<option value="${opt.id}" ${desktop.audioDevice === opt.id ? "selected" : ""}>${opt.label}</option>`)
+    .join("");
+
+  const voiceOptionsHtml = options.voiceOptions
+    .map((opt) => `<option value="${opt.id}" ${desktop.voice === opt.id ? "selected" : ""}>${opt.label}</option>`)
+    .join("");
+
+  const speedOptionsHtml = options.voiceSpeedOptions
+    .map((speed) => `<option value="${speed}" ${desktop.voiceSpeed === speed ? "selected" : ""}>${speed}</option>`)
+    .join("");
+
+  settingsView.innerHTML = `
+    <article class="card stack">
+      <h3>Desktop Mode Settings</h3>
+      <p class="muted">Configure audio device and voice behavior for desktop interactions.</p>
+
+      <form id="desktop-settings-form" class="settings-form">
+        <label class="settings-field">
+          <span>Audio Device</span>
+          <select name="audioDevice">${audioOptionsHtml}</select>
+        </label>
+
+        <label class="settings-field">
+          <span>Voice</span>
+          <select name="voice">${voiceOptionsHtml}</select>
+        </label>
+
+        <label class="settings-field">
+          <span>Voice Speed</span>
+          <select name="voiceSpeed">${speedOptionsHtml}</select>
+        </label>
+
+        <div class="event-controls">
+          <button type="button" class="action-btn" id="test-voice-btn">Test Voice</button>
+          <button type="submit" class="action-btn">Save Desktop Settings</button>
+        </div>
+      </form>
+    </article>
+
+    <article class="card stack">
+      <h3>Mode Notice</h3>
+      <p class="muted">
+        ${state.mode === "desktop"
+          ? "Desktop Mode is active. Settings changes apply immediately to the desktop runtime."
+          : "Mobile Mode is active. Desktop settings are still editable and will apply when Desktop Mode is active."}
+      </p>
+    </article>
+  `;
+}
+
+function chatMessageItem(message) {
+  const roleLabel = message.role === "agent" ? "Agent" : "You";
+  const roleClass = message.role === "agent" ? "role-agent" : "role-user";
+  return `
+    <li class="chat-item ${roleClass}">
+      <div class="event-meta">
+        <span>${roleLabel}</span>
+        <span>${new Date(message.timestamp).toLocaleTimeString()}</span>
+      </div>
+      <div class="event-message">${message.text}</div>
+    </li>
+  `;
+}
+
+function renderChatbot() {
+  if (state.mode !== "desktop") {
+    chatbotView.innerHTML = `
+      <article class="card stack">
+        <h3>Desktop Mode Required</h3>
+        <p class="muted">
+          Text chat with the agent is available in Desktop Mode. Switch modes using the controls in the header.
+        </p>
+      </article>
+    `;
+    return;
+  }
+
+  chatbotView.innerHTML = `
+    <article class="card stack">
+      <h3>Agent Text Chat</h3>
+      <p class="muted">Use this channel to interact with your agent through text while in Desktop Mode.</p>
+
+      <div class="chat-panel">
+        <ul class="list chat-list">
+          ${state.chatMessages.length ? state.chatMessages.map(chatMessageItem).join("") : "<li>No messages yet.</li>"}
+        </ul>
+      </div>
+
+      <form id="chat-form" class="settings-form">
+        <label class="settings-field">
+          <span>Message</span>
+          <textarea id="chat-input" name="chatInput" rows="3" placeholder="Type a message to your agent..."></textarea>
+        </label>
+        <div class="event-controls">
+          <button type="submit" class="action-btn">Send Message</button>
+        </div>
+      </form>
+    </article>
+  `;
+}
+
+function renderAgentCore() {
+  agentCoreView.innerHTML = `
+    <div class="grid">
+      <article class="card stack">
+        <h3>Agent Pipeline</h3>
+        <ul class="list">
+          <li>Conversation Manager <span class="status wip">Planned</span></li>
+          <li>Prompt Builder <span class="status wip">Planned</span></li>
+          <li>Tool Policy Engine <span class="status wip">Planned</span></li>
+          <li>Response Formatter <span class="status wip">Planned</span></li>
+        </ul>
+      </article>
+
+      <article class="card stack">
+        <h3>First Build Priority</h3>
+        <p>
+          GUI and navigation are active now. Agent internals are scaffolded so each app connector can be added without breaking the shell.
+        </p>
+      </article>
+    </div>
+  `;
+}
+
+function renderIntegrationHub() {
+  integrationHubView.innerHTML = `
+    <div class="grid">
+      <article class="card stack">
+        <h3>Ready Endpoints</h3>
+        <ul class="list">
+          <li>GET /api/health</li>
+          <li>GET /api/system</li>
+          <li>GET /api/mode</li>
+          <li>POST /api/mode/switch</li>
+          <li>GET /api/apps</li>
+          <li>GET /api/apps/:appId</li>
+          <li>POST /api/apps/:appId/connect</li>
+          <li>GET /api/settings</li>
+          <li>PUT /api/settings/desktop</li>
+          <li>POST /api/settings/desktop/test-voice</li>
+          <li>GET /api/chat/messages</li>
+          <li>POST /api/chat/messages</li>
+          <li>GET /api/events</li>
+          <li>POST /api/events</li>
+          <li>GET /api/events/stream</li>
+        </ul>
+      </article>
+
+      <article class="card stack">
+        <h3>Integration Strategy</h3>
+        <p>
+          Each app will plug into the backend through isolated connectors. The orchestrator currently returns connector stubs so module development can proceed independently.
+        </p>
+      </article>
+    </div>
+  `;
+}
+
+function renderSingleApp(appId) {
+  const app = state.apps.find((item) => item.id === appId);
+
+  if (!app) {
+    appView.innerHTML = "<article class=\"card\"><h3>Unknown app</h3><p>App module not found in registry.</p></article>";
+    return;
+  }
+
+  const capHtml = app.capabilities.map((cap) => `<li>${cap}</li>`).join("");
+
+  appView.innerHTML = `
+    <article class="card stack">
+      <h3>${app.name}</h3>
+      <p>${app.description}</p>
+      <div><span class="status wip">Work In Progress</span></div>
+    </article>
+
+    <article class="card stack">
+      <h3>Planned Capabilities</h3>
+      <ul class="list">${capHtml}</ul>
+    </article>
+
+    <article class="card stack">
+      <h3>Connector Status</h3>
+      <p>
+        Backend connector contract is prepared. Implementation is intentionally deferred while core UI and navigation are stabilized.
+      </p>
+      <div>
+        <button class="action-btn" data-action="publish-event" data-app-id="${app.id}">Publish Status Update</button>
+      </div>
+    </article>
+  `;
+}
+
+function setVisibleView(viewId) {
+  [overviewView, settingsView, chatbotView, eventBusView, agentCoreView, integrationHubView, appView].forEach((view) => {
+    view.classList.remove("is-visible");
+  });
+
+  document.getElementById(viewId).classList.add("is-visible");
+}
+
+function activateTab(tab) {
+  state.activeTab = tab;
+
+  document.querySelectorAll(".nav-tab").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.tab === tab);
+  });
+
+  if (tabMeta[tab]) {
+    viewTitle.textContent = tabMeta[tab].title;
+    viewSubtitle.textContent = tabMeta[tab].subtitle;
+  }
+
+  if (tab === "overview") {
+    setVisibleView("view-overview");
+    return;
+  }
+
+  if (tab === "agent-core") {
+    setVisibleView("view-agent-core");
+    return;
+  }
+
+  if (tab === "settings") {
+    renderSettings();
+    setVisibleView("view-settings");
+    return;
+  }
+
+  if (tab === "chatbot") {
+    renderChatbot();
+    setVisibleView("view-chatbot");
+    return;
+  }
+
+  if (tab === "event-bus") {
+    renderEventBus();
+    setVisibleView("view-event-bus");
+    return;
+  }
+
+  if (tab === "integration-hub") {
+    setVisibleView("view-integration-hub");
+    return;
+  }
+
+  if (tab.startsWith("app:")) {
+    const appId = tab.replace("app:", "");
+    const app = state.apps.find((item) => item.id === appId);
+    viewTitle.textContent = app?.name || "App";
+    viewSubtitle.textContent = "Module shell and integration-ready backend contract";
+    renderSingleApp(appId);
+    setVisibleView("view-app");
+  }
+}
+
+function wireNavigation() {
+  document.addEventListener("click", (event) => {
+    const actionButton = event.target.closest("[data-action='publish-event']");
+    if (actionButton) {
+      const appId = actionButton.dataset.appId;
+      publishAppStatusEvent(appId)
+        .then(async () => {
+          await loadEvents();
+          if (state.system) {
+            renderOverview(state.system);
+          }
+        })
+        .catch(() => {
+          // Keep the UI responsive even if the event post fails.
+        });
+      return;
+    }
+
+    const refreshButton = event.target.closest("#refresh-events-btn");
+    if (refreshButton) {
+      loadEvents()
+        .then(() => {
+          if (state.system) {
+            renderOverview(state.system);
+            if (state.activeTab === "event-bus") {
+              renderEventBus();
+            }
+          }
+        })
+        .catch(() => {
+          // Ignore refresh failures for now.
+        });
+      return;
+    }
+
+    const refreshEventBusButton = event.target.closest("#refresh-event-bus-btn");
+    if (refreshEventBusButton) {
+      loadEvents()
+        .then(() => {
+          renderEventBus();
+          if (state.system) {
+            renderOverview(state.system);
+          }
+        })
+        .catch(() => {
+          // Ignore refresh failures for now.
+        });
+      return;
+    }
+
+    const testVoiceButton = event.target.closest("#test-voice-btn");
+    if (testVoiceButton) {
+      runVoiceTest("This is a local desktop voice test.")
+        .then(async () => {
+          await loadEvents();
+          if (state.system) {
+            renderOverview(state.system);
+          }
+          if (state.activeTab === "event-bus") {
+            renderEventBus();
+          }
+        })
+        .catch(() => {
+          // Keep UI responsive if the voice test request fails.
+        });
+      return;
+    }
+
+    const settingsForm = event.target.closest("#desktop-settings-form");
+    if (settingsForm) {
+      return;
+    }
+
+    const target = event.target.closest(".nav-tab");
+    if (!target) {
+      return;
+    }
+
+    activateTab(target.dataset.tab);
+  });
+
+  document.addEventListener("submit", (event) => {
+    const form = event.target.closest("#desktop-settings-form");
+    if (!form) {
+      return;
+    }
+
+    event.preventDefault();
+    const formData = new FormData(form);
+    const payload = {
+      audioDevice: String(formData.get("audioDevice") || ""),
+      voice: String(formData.get("voice") || ""),
+      voiceSpeed: String(formData.get("voiceSpeed") || "")
+    };
+
+    saveDesktopSettings(payload)
+      .then(async (result) => {
+        if (!result.ok) {
+          return;
+        }
+
+        await loadSettings();
+        await loadEvents();
+        renderSettings();
+        if (state.system) {
+          renderOverview(state.system);
+        }
+      })
+      .catch(() => {
+        // Keep UI responsive when settings update fails.
+      });
+
+    return;
+  });
+
+  document.addEventListener("submit", (event) => {
+    const form = event.target.closest("#chat-form");
+    if (!form) {
+      return;
+    }
+
+    event.preventDefault();
+    const chatInput = form.querySelector("#chat-input");
+    const text = String(chatInput?.value || "").trim();
+    if (!text) {
+      return;
+    }
+
+    postChatMessage(text)
+      .then(async (result) => {
+        if (!result.ok) {
+          return;
+        }
+
+        await loadChatMessages();
+        await loadEvents();
+        renderChatbot();
+        if (state.system) {
+          renderOverview(state.system);
+        }
+      })
+      .catch(() => {
+        // Keep UI responsive when chat send fails.
+      });
+  });
+}
+
+function wireModeControls() {
+  modeDesktopBtn.addEventListener("click", async () => {
+    await switchModeAndRefresh("desktop");
+  });
+
+  modeMobileBtn.addEventListener("click", async () => {
+    await switchModeAndRefresh("mobile");
+  });
+}
+
+async function switchModeAndRefresh(targetMode) {
+  const result = await switchModeRequest(targetMode);
+  if (!result.ok) {
+    return;
+  }
+
+  state.mode = result.mode.currentMode;
+  modeButtonsActiveState();
+
+  await loadEvents();
+  await loadSettings();
+  await loadChatMessages();
+  if (state.system) {
+    renderOverview(state.system);
+    renderSettings();
+    renderChatbot();
+  }
+}
+
+function startEventStream() {
+  const stream = new EventSource("/api/events/stream");
+
+  stream.onmessage = (msg) => {
+    try {
+      const payload = JSON.parse(msg.data);
+      if (payload.type === "snapshot" && Array.isArray(payload.events)) {
+        state.events = payload.events;
+      }
+
+      if (payload.type === "event" && payload.event) {
+        state.events = [payload.event, ...state.events].slice(0, 120);
+      }
+
+      if (state.activeTab === "overview" && state.system) {
+        renderOverview(state.system);
+      }
+
+      if (state.activeTab === "event-bus") {
+        renderEventBus();
+      }
+
+      if (state.activeTab === "settings") {
+        renderSettings();
+      }
+
+      if (state.activeTab === "chatbot") {
+        renderChatbot();
+      }
+    } catch (error) {
+      // Ignore malformed stream events.
+    }
+  };
+}
+
+async function init() {
+  await loadApps();
+  state.system = await loadSystem();
+  state.mode = state.system.modeState?.currentMode || state.system.mode || "desktop";
+  await loadEvents();
+  await loadSettings();
+  await loadChatMessages();
+
+  renderAppTabs();
+  renderOverview(state.system);
+  renderSettings();
+  renderChatbot();
+  renderEventBus();
+  renderAgentCore();
+  renderIntegrationHub();
+
+  wireNavigation();
+  wireModeControls();
+  modeButtonsActiveState();
+  startEventStream();
+  activateTab("overview");
+}
+
+init().catch((error) => {
+  overviewView.innerHTML = `
+    <article class="card">
+      <h3>Initialization Error</h3>
+      <p class="muted">${error.message}</p>
+    </article>
+  `;
+  setVisibleView("view-overview");
+});

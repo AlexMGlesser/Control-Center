@@ -1,0 +1,78 @@
+# Control Center
+
+The Control Center is an AI-based system composed of multiple tools and apps designed to accomplish a wide range of tasks.
+An AI model running on LMStudio will be hosted within the Control Center and will act as an agent that can traverse the apps, make edits, and provide information to the user. The only entity with higher privileges than the agent is the primary user. The Control Center will serve as the central hub where every app in the system can be accessed.
+
+Each app will maintain its own method of accessing its corresponding data in order to keep the system organized and compartmentalized.
+The Control Center should also include an interface to start the LMStudio model and launch the Control Center server.
+In addition, the Control Center will act as a server that can be accessed from a mobile device through a companion app.
+
+The Control Center is the primary environment in which the AI will operate. It will provide a set of tools the agent can use to interact with other apps, edit information and data, and return results to the user.
+Each app will be able to access its own folders, API calls, and other external resources.
+
+The Control Center will feature a panel-based design. The left side will contain navigation elements such as tabs, folders, files, and tools. The right side, which will be larger, will display the apps available in the center. This area will function as a library, showing the name and a representative symbol for each app panel. It will also include a scroll bar so that additional apps can be viewed as the system grows.
+
+The Control Center will have two modes: Desktop Mode and Mobile Mode.
+
+In Desktop Mode, the user is at the computer and should be able to speak into a microphone and interact with the AI directly from the desktop. All audio output will come through the computer speakers or headset.
+
+In Mobile Mode, the user interacts through an audio-only interface while connected through a phone. All audio output will come through the phone speakers or earbuds.
+
+Switching between modes should be possible through both a toggle in the app and a voice command.
+The Control Center should also be able to open the user's desktop applications and software, especially the VS Code IDE.
+All apps in the center should follow a shared style guide unless otherwise specified.
+The agent should be able to maintain a conversation with the user while also recognizing when it should stop listening.
+
+# project-app
+
+This app will contain the user's personal projects. It will have its own folders and subfolders, which can be edited and modified by either the agent or the user. The app will also provide a way to open the IDE for the user while in Desktop Mode.
+
+In both Desktop Mode and Mobile Mode, the agent should be able to open VS Code and prompt GitHub Copilot Chat to write code and run commands.
+The agent will report back to the user when GitHub Copilot finishes and provide a summary of the result.
+
+# work-app
+
+This app and file path will be dedicated to work and school. It is similar to the project app, but focused on a different category of projects.
+
+# calendar-app
+
+This app will be connected to Google Calendar. It will be able to read the user's online calendar, display it in Desktop Mode, and provide relevant calendar information in audio-based modes. It should also be able to add events to the calendar and remove tasks.
+
+Example:
+User: "What do I have scheduled later?"
+Agent: "You have your computer science class at 3:45 PM."
+User: "Can you put Meet with Max into my calendar on Friday at 5:00 PM?"
+Agent: "Meet with Max has been scheduled for Friday at 5:00 PM."
+
+# drawing-app
+
+This is where the user will have a 2D and 3D design center. The user should be able to create designs such as pages, models, and similar assets. The designs in this app should be accessible from every other app, especially the project and work folders. There should be both a drawing feature and a shape-based interface.
+
+# news-app
+
+This app will provide access to recent news and other useful information. At set intervals, it should check several categories of information.
+It should retrieve the weather and forecast, recent news stories, and recent technology developments.
+It should also provide one interesting STEM article per day.
+
+The app will feature a windowed design. Weather will appear in a row at the bottom. News headlines and articles will appear in the top and middle-left panels, while additional articles will appear in the top-right panel. Technology developments will appear in the middle-right area.
+
+In Mobile Mode, the app should be able to provide one-sentence summaries of news headlines, technology developments, and the daily STEM article. It should also inform the user about the day's weather.
+
+# music-app
+
+This is where the agent will access the user's music. There will be two types of access: local music and Spotify. Whenever the user wants music to be played, the agent will ask whether the source should be local music or Spotify.
+
+Music playback should run from the desktop itself, even in Mobile Mode. The key difference in Mobile Mode is that the mobile app should be able to stream music from the desktop rather than opening mobile music apps directly.
+
+# server-manager-app
+
+This app should provide an interface that allows the user to manage other server computers they are running. The app should be able to open an SSH terminal into all servers the user has access to. It should also be able to power those servers on and off.
+
+If those servers host services such as storage, the app should be able to access and save data to and from them.
+It should also display key information about the servers, such as hardware, operating system, and IP address.
+
+# movie-app
+
+This app will be where the user can host a movie server and stream movies from the Control Center system. The app should provide a movie library interface for browsing titles and selecting content.
+
+In Desktop Mode, the user should be able to browse and watch movies directly in the app. The app should include playback controls and clearly display server and stream status.

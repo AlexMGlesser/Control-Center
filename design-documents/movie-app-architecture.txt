@@ -1,0 +1,152 @@
+# Movie App Architecture Document
+
+## 1. Scope
+
+This document defines the target architecture for Movie App as a module in the Control Center ecosystem.
+
+Current phase status:
+
+- Architecture and design only
+- No implementation code
+
+## 2. Architectural Goals
+
+- Host a local movie server from the desktop Control Center host
+- Stream local movie content to connected clients
+- Provide desktop browsing and in-app playback
+- Keep module boundaries aligned with Control Center app isolation model
+
+## 3. Logical Components
+
+Movie App should be designed as a modular subsystem with these components:
+
+1. Movie Library Service
+2. Metadata and Index Service
+3. Stream Session Service
+4. Local Server Control Service
+5. Desktop Playback Controller
+6. Movie App UI Layer
+7. Event Publisher Adapter
+
+## 4. Component Responsibilities
+
+### 4.1 Movie Library Service
+
+- Read configured movie library paths
+- Maintain canonical movie entries
+- Provide browse and query operations
+
+### 4.2 Metadata and Index Service
+
+- Build searchable index of titles and tags
+- Keep metadata cache synchronized with library updates
+- Expose filter-friendly query interface
+
+### 4.3 Stream Session Service
+
+- Create and manage stream sessions
+- Track session state and stream quality metrics
+- Enforce session timeouts and cleanup
+
+### 4.4 Local Server Control Service
+
+- Start and stop local movie server runtime
+- Report health and listening endpoint details
+- Expose active stream count
+
+### 4.5 Desktop Playback Controller
+
+- Coordinate selected movie playback in Desktop Mode
+- Provide control operations (play, pause, seek, volume, fullscreen)
+- Report playback position and status
+
+### 4.6 Movie App UI Layer
+
+- Library browsing interface
+- Playback view
+- Server dashboard and session visibility
+- Settings panel for library paths and stream quality defaults
+
+### 4.7 Event Publisher Adapter
+
+- Publish movie-app events into Control Center event bus
+- Include server state transitions and stream session events
+- Include playback start/stop and warning events
+
+## 5. Data Model (Conceptual)
+
+### 5.1 Movie Entity
+
+- movieId
+- title
+- year
+- genres
+- runtime
+- filePath
+- posterPath (optional)
+- subtitleTracks (optional)
+
+### 5.2 Stream Session Entity
+
+- sessionId
+- movieId
+- clientType
+- startedAt
+- status
+- qualityProfile
+- lastHeartbeat
+
+### 5.3 Server State Entity
+
+- state
+- host
+- port
+- activeSessions
+- lastUpdatedAt
+
+## 6. Control Center Integration Boundaries
+
+- App should register through app registry with its own route key and capability list
+- App should keep media paths and server settings in its own configuration domain
+- App should use tool-gated actions when invoked by the AI agent
+- App should not directly modify unrelated app resources
+
+## 7. Mode-Aware Behavior
+
+### 7.1 Desktop Mode
+
+- Full movie browsing and playback available
+- Local playback surface active
+- Server controls and diagnostics visible
+
+### 7.2 Mobile Mode
+
+- Session control and status-focused behavior
+- Desktop playback surface not required
+
+## 8. Security and Safety Considerations
+
+- Restrict server exposure to intended interfaces
+- Validate library paths and file access boundaries
+- Keep local-only defaults unless user explicitly configures external reachability
+- Log server state and stream session actions to event bus and audit paths
+
+## 9. Future Implementation Phases
+
+### Phase 1
+
+- App shell UI and static views
+- Server status stubs
+- Library index stubs
+
+### Phase 2
+
+- Real library indexing and metadata ingestion
+- Local streaming pipeline
+- Desktop playback integration
+
+### Phase 3
+
+- Performance optimization
+- Session diagnostics
+- Advanced playback and subtitle handling

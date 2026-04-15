@@ -1,0 +1,66 @@
+# Movie App Product Requirements Document
+
+## 1. Product Summary
+
+Movie App is a Control Center module for hosting a personal movie server, streaming movies, and enabling local desktop browsing and watching.
+
+## 2. Objectives
+
+- Provide a reliable movie library and browsing experience
+- Provide local server controls for hosting movie streams
+- Provide desktop in-app movie playback
+- Provide visibility into streaming status and active sessions
+
+## 3. Functional Requirements
+
+### 3.1 Library
+
+- The app must index one or more configured movie directories.
+- The app must display movies in a browsable library view.
+- The app must support search by movie title.
+- The app should support filtering by metadata fields such as genre and year.
+
+### 3.2 Server Hosting
+
+- The app must allow starting the movie server.
+- The app must allow stopping the movie server.
+- The app must show server status (offline, starting, online, error).
+- The app must display host and port details for local access.
+
+### 3.3 Streaming
+
+- The app must stream selected movies from local storage.
+- The app should expose quality profiles for streaming.
+- The app should report stream health and buffering status.
+- The app should track active sessions.
+
+### 3.4 Desktop Playback
+
+- In Desktop Mode, the user must be able to browse and select movies.
+- In Desktop Mode, the user must be able to play selected movies in-app.
+- Playback controls must include play, pause, seek, and volume.
+- The app should include fullscreen playback support.
+
+### 3.5 Control Center Integration
+
+- The app must exist as a module in the Control Center app registry.
+- The app should emit status and operational events to the event bus.
+- The app should follow shared style guide conventions.
+
+## 4. Non-Functional Requirements
+
+- UI should be responsive and smooth in desktop use.
+- Streaming startup should be fast for local network conditions.
+- Server controls should provide clear status feedback.
+- App behavior should remain local-first by default.
+
+## 5. Constraints
+
+- This phase is documentation-only.
+- No production implementation code is in scope.
+
+## 6. Acceptance Criteria for Design Phase
+
+- Movie App folder exists in workspace.
+- Design documentation is complete and structured.
+- Requirements clearly include server hosting, streaming, and desktop viewing.

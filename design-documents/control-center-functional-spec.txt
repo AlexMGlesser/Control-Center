@@ -1,0 +1,243 @@
+# Control Center Functional Specification
+
+## 1. System Summary
+
+Control Center is the central application hub for a multi-app AI system. It hosts an AI agent running on LMStudio, provides access to the apps in the ecosystem, and supports both desktop-based and phone-based interaction.
+
+The AI agent operates within Control Center and is able to move across the apps in the system, access approved resources, edit information where appropriate, and return information to the user. The primary user remains the only authority above the agent.
+
+## 2. Functional Scope
+
+The system must provide:
+
+- A centralized app hub
+- An AI agent interface
+- LMStudio startup control
+- Control Center server startup control
+- Desktop and mobile interaction modes
+- Access to app-specific folders, APIs, and external resources
+
+## 3. High-Level Structure
+
+### 3.1 Centralized App Hub
+
+Control Center will serve as the location from which every app in the system can be accessed.
+
+### 3.2 Compartmentalized App Model
+
+Each app will have its own method of accessing its corresponding data in order to keep the system organized and compartmentalized.
+
+Each app may maintain access to:
+
+- Its own folders
+- Its own API calls
+- Its own external resources
+
+### 3.3 AI Tooling Layer
+
+Control Center will provide a set of tools that the AI agent can use to:
+
+- Interact with other apps
+- Edit information and data
+- Return information to the user
+
+## 4. Startup and Connectivity
+
+### 4.1 LMStudio Integration
+
+The interface must provide a way to start the LMStudio model.
+
+### 4.2 Control Center Server
+
+The interface must provide a way to start the Control Center server.
+
+### 4.3 Mobile Connectivity
+
+Control Center must function as a server that can be connected to from a mobile device through a companion app.
+
+## 5. User Interface Layout
+
+The application will use a panel-based layout.
+
+### 5.1 Left-Side Panel
+
+The left side of the interface will contain items such as:
+
+- Tabs
+- Folders
+- Files
+- Tools
+
+### 5.2 Right-Side Panel
+
+The right side of the interface will be larger and will present the available apps in a library-style view.
+
+This panel will:
+
+- Show the name of each app
+- Show a representative symbol for each app
+- Include a scroll bar so additional apps can be viewed as they are added
+
+## 6. Interaction Modes
+
+### 6.1 Desktop Mode
+
+Desktop Mode is used when the user is physically at the computer.
+
+Functional behavior:
+
+- The user can speak into a microphone to interact with the AI
+- Audio output is delivered through the computer speakers or headset
+- The system should be able to open desktop applications and software, especially the VS Code IDE
+
+### 6.2 Mobile Mode
+
+Mobile Mode is used when the user is connected through a phone and only has access to the audio interface.
+
+Functional behavior:
+
+- Audio output is delivered through the phone speakers or earbuds
+
+### 6.3 Mode Switching
+
+The user must be able to switch between modes through:
+
+- A toggle in the app
+- A voice command
+
+## 7. Conversation Behavior
+
+The AI agent should be able to continue a conversation with the user while also recognizing when it should stop listening.
+
+## 8. Visual Consistency
+
+All apps in the system should follow a similar style guide unless a specific app is intentionally designed otherwise.
+
+## 9. App Specifications
+
+### 9.1 project-app
+
+Purpose:
+
+- Store and manage the user's personal projects
+
+Functional requirements:
+
+- Provide project folders and subfolders
+- Allow those folders and subfolders to be edited by the agent or the user
+- Allow the IDE to be opened in Desktop Mode
+- In both Desktop Mode and Mobile Mode, allow the agent to open VS Code and prompt GitHub Copilot Chat to write code and run commands
+- Require the agent to report when GitHub Copilot finishes and provide a summary
+
+### 9.2 work-app
+
+Purpose:
+
+- Store and manage work-related and school-related projects
+
+Functional requirements:
+
+- Provide a dedicated app and file path for work and school
+- Operate similarly to project-app, but for a different type of project content
+
+### 9.3 calendar-app
+
+Purpose:
+
+- Connect the system to the user's Google Calendar
+
+Functional requirements:
+
+- Read the user's online calendar
+- Display calendar information in Desktop Mode
+- Provide calendar information in audio-based modes
+- Add events to the calendar
+- Remove tasks from the calendar
+
+Example interaction:
+
+User: "What do I have scheduled later?"
+Agent: "You have your computer science class at 3:45 PM."
+User: "Can you put Meet with Max into my calendar on Friday at 5:00 PM?"
+Agent: "Meet with Max has been scheduled for Friday at 5:00 PM."
+
+### 9.4 drawing-app
+
+Purpose:
+
+- Provide a 2D and 3D design center for the user
+
+Functional requirements:
+
+- Allow creation of pages, models, and similar design assets
+- Make those assets accessible from every other app
+- Make them especially accessible from the project and work folders
+- Provide both a drawing feature and a shape-based interface
+
+### 9.5 news-app
+
+Purpose:
+
+- Provide current news and informational updates
+
+Functional requirements:
+
+- Check the weather and forecast at set intervals
+- Check recent news stories at set intervals
+- Check recent technology developments at set intervals
+- Provide one interesting STEM article per day
+
+Desktop layout requirements:
+
+- Weather appears in a row at the bottom
+- News headlines and articles appear in the top and middle-left panels
+- Additional articles appear in the top-right panel
+- Technology developments appear in the middle-right area
+
+Mobile Mode requirements:
+
+- Provide one-sentence summaries of news headlines
+- Provide one-sentence summaries of technology developments
+- Provide the daily STEM article
+- Inform the user about the day's weather
+
+### 9.6 music-app
+
+Purpose:
+
+- Provide access to the user's music library and music services
+
+Functional requirements:
+
+- Support both local music and Spotify
+- Prompt the user to choose the music source when playback is requested
+- Run music playback from the desktop itself, even in Mobile Mode
+- Stream music from the desktop to the mobile app in Mobile Mode instead of opening mobile music apps directly
+
+### 9.7 server-manager-app
+
+Purpose:
+
+- Manage the user's other server computers
+
+Functional requirements:
+
+- Provide an interface for managing servers
+- Open an SSH terminal into all accessible servers
+- Power servers on and off
+- Access and save data to and from services hosted on those servers, such as storage
+- Display server information including hardware, operating system, and IP address
+
+### 9.8 movie-app
+
+Purpose:
+
+- Host and manage a personal movie server with desktop-first movie browsing and playback
+
+Functional requirements:
+
+- Provide a browsable movie library interface
+- Start and stop the movie server from the app
+- Stream movies from desktop-hosted media storage
+- Display stream/session status and server health indicators
+- In Desktop Mode, allow direct in-app movie playback with basic playback controls

@@ -1,0 +1,115 @@
+Control Center Project Status
+Last Updated: 2026-04-15
+
+Purpose
+- This file is a quick handoff for future chat sessions so they can understand current project state without re-discovering context.
+
+Workspace Overview
+- Root workspace: D:\Control-Center
+- Core desktop app project: D:\Control-Center\control-app
+- Design docs folder: D:\Control-Center\design-documents
+- App folders currently present: project-app, work-app, calendar-app, drawing-app, news-app, music-app, server-manager-app, movie-app
+
+Current App Runtime Model
+- Control Center is now a desktop app runtime using Electron.
+- Internal backend is Express and runs locally.
+- UI is dark-mode themed and rendered in the Electron window.
+- Mobile mode and desktop mode state switching is implemented as a backend state machine.
+
+Implemented Features (control-app)
+1. Desktop shell and navigation
+- Sidebar with system tabs and app tabs.
+- App tabs are populated from backend app registry.
+- Smooth tab traversal and status cards.
+
+2. App registry (WIP modules)
+- project-app
+- work-app
+- calendar-app
+- drawing-app
+- news-app
+- music-app
+- server-manager-app
+- movie-app
+
+3. Event bus
+- In-memory event bus with bounded history.
+- API endpoints for listing, posting, and SSE streaming events.
+- Dedicated Event Bus tab with fixed-height scroll panel.
+
+4. Mode management
+- Backend mode state machine with transition history.
+- Header controls to switch Desktop/Mobile mode.
+
+5. Settings tab (desktop-focused)
+- Audio device selection.
+- Voice selection.
+- Voice speed selection.
+- Save settings endpoint.
+- Test Voice button endpoint (currently local stub behavior + event emission).
+
+6. Chatbot tab
+- Text chat available in Desktop Mode.
+- Mobile mode shows desktop-required notice.
+- Local in-memory chat service and API implemented as integration-ready stub.
+- User messages produce local stub agent replies.
+
+7. Startup script
+- PowerShell startup script exists in control-app:
+  - start-control-center.ps1
+
+Important API Endpoints
+- GET /api/health
+- GET /api/system
+- GET /api/mode
+- POST /api/mode/switch
+- GET /api/apps
+- GET /api/apps/:appId
+- POST /api/apps/:appId/connect
+- GET /api/settings
+- PUT /api/settings/desktop
+- POST /api/settings/desktop/test-voice
+- GET /api/chat/messages
+- POST /api/chat/messages
+- GET /api/events
+- POST /api/events
+- GET /api/events/stream
+
+How To Run
+From D:\Control-Center\control-app:
+- Desktop app (preferred):
+  - .\start-control-center.ps1
+  - or npm start
+- Web/backend-only fallback:
+  - npm run start:web
+
+Design Documentation Status
+- Control Center core docs are updated and include movie-app in:
+  - control-center-design.txt
+  - control-center-prd.txt
+  - control-center-functional-spec.txt
+  - control-center-architecture.txt
+- Movie app design docs created:
+  - movie-app-design.txt
+  - movie-app-prd.txt
+  - movie-app-architecture.txt
+
+Known Limits (by design)
+- No full LMStudio chat bridge implemented yet (chatbot uses local stub replies).
+- No real voice synthesis/playback pipeline yet (test-voice is stubbed endpoint behavior).
+- Most app modules are intentionally WIP shell states with connector stubs only.
+
+Recommended Next Priorities
+1. Replace chat stub with LMStudio adapter in chatbot path.
+2. Implement real voice test playback pipeline for selected desktop audio device.
+3. Add persistent settings and chat storage (file/db) instead of memory-only runtime state.
+4. Start first full app implementation (recommended: movie-app or project-app).
+5. Add app-specific event filtering in Event Bus tab.
+
+Conventions Used
+- Local-first desktop execution.
+- App isolation via module boundaries and app registry.
+- Event-driven status updates via event bus.
+- Dark-mode style tokens and consistent UI language.
+
+End of handoff.

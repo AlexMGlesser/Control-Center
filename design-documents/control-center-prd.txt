@@ -1,0 +1,217 @@
+# Control Center Product Requirements Document
+
+## 1. Product Overview
+
+Control Center is an AI-based system composed of multiple tools and apps designed to help the user complete a wide range of tasks from a single central environment.
+
+An AI model running on LMStudio will be hosted inside Control Center and will act as an agent. This agent will be able to traverse the apps in the system, make edits where permitted, and provide information back to the user. The primary user remains the only authority with higher privileges than the agent.
+
+Control Center will also function as the main application hub for the system, allowing the user to access every app from one place.
+
+## 2. Product Purpose
+
+The purpose of Control Center is to provide:
+
+- A centralized interface for all apps in the system
+- An AI agent that can interact across those apps
+- Access to both desktop and mobile workflows
+- A structured, compartmentalized system in which each app manages its own data and resources
+
+## 3. Core System Requirements
+
+### 3.1 AI Agent
+
+The AI agent must be able to:
+
+- Operate from within Control Center
+- Traverse the apps in the system
+- Edit information and data where appropriate
+- Return results and summaries to the user
+- Maintain an ongoing conversation with the user
+- Recognize when it should stop listening
+
+### 3.2 LMStudio and Server Control
+
+Control Center must include an interface that allows the user to:
+
+- Start the LMStudio model
+- Start the Control Center server
+
+Control Center will also act as a server that can be accessed through a mobile companion app.
+
+### 3.3 App Isolation and Resource Access
+
+Each app must maintain its own method of accessing its corresponding data in order to keep the system organized and compartmentalized.
+
+Each app may access its own:
+
+- Folders
+- API calls
+- External resources
+
+## 4. Interface Requirements
+
+Control Center will use a panel-based design.
+
+### 4.1 Left Panel
+
+The left panel will contain navigation and utility elements such as:
+
+- Tabs
+- Folders
+- Files
+- Tools
+
+### 4.2 Right Panel
+
+The right panel will be the larger workspace area and will display the apps available in the center.
+
+This section will function as an app library and must:
+
+- Display the name of each app
+- Display a representative symbol for each app
+- Support scrolling as more apps are added over time
+
+## 5. Operating Modes
+
+Control Center will support two modes: Desktop Mode and Mobile Mode.
+
+### 5.1 Desktop Mode
+
+In Desktop Mode:
+
+- The user is at the computer
+- The user can speak into a microphone to interact with the AI
+- Audio output is delivered through the computer speakers or headset
+- The system should be able to open desktop applications, especially the VS Code IDE
+
+### 5.2 Mobile Mode
+
+In Mobile Mode:
+
+- The user interacts through an audio-only interface on a phone
+- Audio output is delivered through the phone speakers or earbuds
+
+### 5.3 Mode Switching
+
+Switching between Desktop Mode and Mobile Mode must be possible through:
+
+- A toggle in the app
+- A voice command
+
+## 6. Style and Consistency
+
+All apps in the Control Center ecosystem should follow a shared style guide unless otherwise specified.
+
+## 7. App Requirements
+
+### 7.1 project-app
+
+project-app will contain the user's personal projects.
+
+Requirements:
+
+- It must provide its own folders and subfolders
+- Those folders and subfolders can be edited by the user or the agent
+- It must provide a way to open the IDE in Desktop Mode
+- In both Desktop Mode and Mobile Mode, the agent should be able to open VS Code and prompt GitHub Copilot Chat to write code and run commands
+- The agent must report back to the user when GitHub Copilot finishes and provide a summary
+
+### 7.2 work-app
+
+work-app will provide an app and file path dedicated to work and school.
+
+Requirements:
+
+- It should function similarly to project-app
+- It should be focused on work-related and school-related projects rather than personal projects
+
+### 7.3 calendar-app
+
+calendar-app will connect to Google Calendar.
+
+Requirements:
+
+- It must be able to read the user's online calendar
+- It must display calendar information in Desktop Mode
+- It must provide relevant calendar information in audio-based modes
+- It must be able to add events to the calendar
+- It must be able to remove tasks
+
+Example interaction:
+
+User: "What do I have scheduled later?"
+Agent: "You have your computer science class at 3:45 PM."
+User: "Can you put Meet with Max into my calendar on Friday at 5:00 PM?"
+Agent: "Meet with Max has been scheduled for Friday at 5:00 PM."
+
+### 7.4 drawing-app
+
+drawing-app will be the user's 2D and 3D design center.
+
+Requirements:
+
+- The user must be able to create designs such as pages, models, and similar assets
+- Designs created in this app should be accessible from every other app
+- Access should be especially straightforward from the project and work folders
+- The app should provide both a drawing feature and a shape-based interface
+
+### 7.5 news-app
+
+news-app will provide recent news and other useful information.
+
+Requirements:
+
+- At set intervals, it should retrieve the weather and forecast
+- At set intervals, it should retrieve recent news stories
+- At set intervals, it should retrieve recent technology developments
+- It should provide one interesting STEM article per day
+
+Interface layout:
+
+- Weather appears in a row at the bottom
+- News headlines and articles appear in the top and middle-left panels
+- Additional articles appear in the top-right panel
+- Technology developments appear in the middle-right area
+
+Mobile Mode behavior:
+
+- It should provide one-sentence summaries of news headlines
+- It should provide one-sentence summaries of technology developments
+- It should provide the daily STEM article
+- It should inform the user about the day's weather
+
+### 7.6 music-app
+
+music-app will provide access to the user's music.
+
+Requirements:
+
+- It must support two sources: local music and Spotify
+- When the user wants music to be played, the agent should ask which source to use
+- Music playback should run from the desktop itself, even in Mobile Mode
+- In Mobile Mode, the mobile app should stream music from the desktop rather than opening mobile music apps directly
+
+### 7.7 server-manager-app
+
+server-manager-app will allow the user to manage other server computers they are running.
+
+Requirements:
+
+- It must provide an interface for managing those servers
+- It should be able to open an SSH terminal into all servers the user has access to
+- It should be able to power servers on and off
+- If servers host services such as storage, it should be able to access and save data to and from them
+- It should display server information such as hardware, operating system, and IP address
+
+### 7.8 movie-app
+
+movie-app will allow the user to host a personal movie server and stream movies.
+
+Requirements:
+
+- It must provide an interface for movie library browsing and movie selection
+- It must provide controls to start and stop the movie server
+- It should display server state and active stream/session information
+- It must support movie streaming from desktop-hosted media paths
+- In Desktop Mode, it must allow browsing and watching movies directly in-app

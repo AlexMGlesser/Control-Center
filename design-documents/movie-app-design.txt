@@ -1,0 +1,116 @@
+# Movie App Design
+
+## Overview
+
+Movie App is a new module in the Control Center ecosystem focused on personal movie server hosting and movie streaming.
+
+The app should let the user:
+
+- Host and manage a local movie server
+- Build and browse a movie library
+- Stream selected movies to supported clients
+- In Desktop Mode, browse and watch movies directly in the app
+
+This phase is design-only and does not include implementation.
+
+## Primary User Goals
+
+- Keep all personal movie media in one organized library
+- Start and stop a local movie server from a single interface
+- Stream media reliably to desktop and other connected clients
+- Use a clean desktop watching experience with intuitive controls
+
+## Core Design Features
+
+### 1. Library Management
+
+Movie App should provide a library interface that can:
+
+- Index movie folders
+- Display cover art and metadata where available
+- Organize movies by title, genre, year, runtime, and rating tags
+- Search and filter quickly
+
+### 2. Server Hosting
+
+Movie App should include server controls that can:
+
+- Start the movie server
+- Stop the movie server
+- Show server status, port, and local network availability
+- Display active streaming sessions
+
+### 3. Streaming
+
+Movie App should support streaming behavior that can:
+
+- Deliver local media streams from the desktop host
+- Support bitrate and quality profiles for smooth playback
+- Track buffering and connection quality
+- Resume playback state when reconnecting
+
+### 4. Desktop Watching
+
+In Desktop Mode, Movie App should provide:
+
+- A browsing UI for selecting movies
+- A playback view with controls for play, pause, seek, volume, captions, and fullscreen
+- A smooth transition from browsing to playback
+- Optional watch history and continue-watching row
+
+## Suggested UI Structure
+
+### Left Navigation
+
+- Library
+- Watch Now
+- Server
+- Sessions
+- Settings
+
+### Main Area
+
+- Library grid/list view with posters and metadata
+- Playback surface when a movie is selected
+- Server dashboard for hosting and active stream state
+
+### Top Controls
+
+- Search bar
+- Filter controls
+- Mode and server state indicators
+
+## Integration Notes
+
+Movie App should align with Control Center architecture:
+
+- Use app-level isolation for media paths and server config
+- Publish operational events to the Control Center event bus
+- Respect Desktop Mode and Mobile Mode behavior boundaries
+- Follow the shared dark-mode style guide
+
+## Mode Behavior
+
+### Desktop Mode
+
+- Full browsing and playback interface is available
+- Movies can be watched directly in-app
+- Server controls and diagnostics are visible
+
+### Mobile Mode
+
+- Primary focus is stream control and status summaries
+- Detailed desktop playback UI is not required in this phase
+
+## Non-Goals for This Phase
+
+- No media transcoding implementation
+- No user account system
+- No DRM workflow implementation
+- No external streaming platform integration
+
+## Deliverables for Current Phase
+
+- Folder scaffold for movie-app
+- Design documents only
+- No runtime code
