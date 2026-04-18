@@ -187,8 +187,8 @@ music-app will provide access to the user's music.
 
 Requirements:
 
-- It must support two sources: local music and Spotify
-- When the user wants music to be played, the agent should ask which source to use
+- It must support local music playback only
+- When the user requests music, the agent should play from local music libraries and saved local playlists
 - Music playback should run from the desktop itself, even in Mobile Mode
 - In Mobile Mode, the mobile app should stream music from the desktop rather than opening mobile music apps directly
 

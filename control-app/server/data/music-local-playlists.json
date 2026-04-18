@@ -1,0 +1,330 @@
+{
+  "playlists": [
+    {
+      "name": "Ozzy Osbourne",
+      "count": 9,
+      "tracks": [
+        {
+          "name": "A10301A0003996230E_T-1012210516533_SoundRecording_001-001.mp3",
+          "sourcePath": "E:\\Music\\Ozzy-Osbourne\\Blizzard of Ozz\\A10301A0003996230E_T-1012210516533_SoundRecording_001-001.mp3"
+        },
+        {
+          "name": "A10301A0003996230E_T-1012210516534_SoundRecording_001-002.mp3",
+          "sourcePath": "E:\\Music\\Ozzy-Osbourne\\Blizzard of Ozz\\A10301A0003996230E_T-1012210516534_SoundRecording_001-002.mp3"
+        },
+        {
+          "name": "A10301A0003996230E_T-1012210516535_SoundRecording_001-003.mp3",
+          "sourcePath": "E:\\Music\\Ozzy-Osbourne\\Blizzard of Ozz\\A10301A0003996230E_T-1012210516535_SoundRecording_001-003.mp3"
+        },
+        {
+          "name": "A10301A0003996230E_T-1012210516536_SoundRecording_001-004.mp3",
+          "sourcePath": "E:\\Music\\Ozzy-Osbourne\\Blizzard of Ozz\\A10301A0003996230E_T-1012210516536_SoundRecording_001-004.mp3"
+        },
+        {
+          "name": "A10301A0003996230E_T-1012210516537_SoundRecording_001-005.mp3",
+          "sourcePath": "E:\\Music\\Ozzy-Osbourne\\Blizzard of Ozz\\A10301A0003996230E_T-1012210516537_SoundRecording_001-005.mp3"
+        },
+        {
+          "name": "A10301A0003996230E_T-1012210516538_SoundRecording_001-006.mp3",
+          "sourcePath": "E:\\Music\\Ozzy-Osbourne\\Blizzard of Ozz\\A10301A0003996230E_T-1012210516538_SoundRecording_001-006.mp3"
+        },
+        {
+          "name": "A10301A0003996230E_T-1012210516539_SoundRecording_001-007.mp3",
+          "sourcePath": "E:\\Music\\Ozzy-Osbourne\\Blizzard of Ozz\\A10301A0003996230E_T-1012210516539_SoundRecording_001-007.mp3"
+        },
+        {
+          "name": "A10301A0003996230E_T-1012210516540_SoundRecording_001-008.mp3",
+          "sourcePath": "E:\\Music\\Ozzy-Osbourne\\Blizzard of Ozz\\A10301A0003996230E_T-1012210516540_SoundRecording_001-008.mp3"
+        },
+        {
+          "name": "A10301A0003996230E_T-1012210516541_SoundRecording_001-009.mp3",
+          "sourcePath": "E:\\Music\\Ozzy-Osbourne\\Blizzard of Ozz\\A10301A0003996230E_T-1012210516541_SoundRecording_001-009.mp3"
+        }
+      ],
+      "source": "local-saved"
+    },
+    {
+      "name": "Terraria Calamity",
+      "count": 45,
+      "tracks": [
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Antarctic Reinforcement - Structured Mix.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Antarctic Reinforcement - Structured Mix.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Antarctic Reinforcement.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Antarctic Reinforcement.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Blessing of the Moon.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Blessing of the Moon.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Blood Coagulant.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Blood Coagulant.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Catastrophes before the calamity.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Catastrophes before the calamity.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Cosmic Disgust.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Cosmic Disgust.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Feral Amalgamation.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Feral Amalgamation.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Fly of Beelzebub.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Fly of Beelzebub.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Guardian of the Former Seas - 8-bit Mix.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Guardian of the Former Seas - 8-bit Mix.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Guardian of the Former Seas.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Guardian of the Former Seas.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Hadopelagic Pressure.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Hadopelagic Pressure.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Heaven's Hell-Sent Gift.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Heaven's Hell-Sent Gift.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Infernal Catharsis (Rebirth).mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Infernal Catharsis (Rebirth).mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Infestation.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Infestation.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Interstellar Stomper.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Interstellar Stomper.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Left Alone.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Left Alone.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Murderswarm.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Murderswarm.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Open Frenzy - 16-bit Mix.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Open Frenzy - 16-bit Mix.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Open Frenzy.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Open Frenzy.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Outcast of the Sulphurous Seas.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Outcast of the Sulphurous Seas.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Pest of the Cosmos.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Pest of the Cosmos.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Raw, Unfiltered Calamity.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Raw, Unfiltered Calamity.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Return To Slime.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Return To Slime.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Roar of the Jungle Dragon.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Roar of the Jungle Dragon.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] sanctuary.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] sanctuary.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Scourge of the Universe (Eulogy for the Ego).mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Scourge of the Universe (Eulogy for the Ego).mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Scourge of the Universe.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Scourge of the Universe.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Servants of the Scourge.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Servants of the Scourge.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Silence before the storms.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Silence before the storms.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Siren's Call - Seafoam Mix.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Siren's Call - Seafoam Mix.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Stained, Brutal Calamity.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Stained, Brutal Calamity.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Storms before the catastrophes.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Storms before the catastrophes.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] The Filthy Mind.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] The Filthy Mind.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] The Heaven-Sent Abomination.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] The Heaven-Sent Abomination.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] The Leviathan Trilogy.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] The Leviathan Trilogy.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] The Step Below Hell.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] The Step Below Hell.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] The Tale of a Cruel World.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] The Tale of a Cruel World.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Threats of the Ocean Floor.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Threats of the Ocean Floor.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Toxic Wisdom.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Toxic Wisdom.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Treasures Within The Abomination.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Treasures Within The Abomination.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Unholy Ambush.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Unholy Ambush.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Unholy Insurgency.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Unholy Insurgency.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] Universal Collapse.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] Universal Collapse.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] void.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] void.mp3"
+        },
+        {
+          "name": "[SPOTIFY-DOWNLOADER.COM] wasteland.mp3",
+          "sourcePath": "E:\\Music\\Terraria-Calamity\\[SPOTIFY-DOWNLOADER.COM] wasteland.mp3"
+        }
+      ],
+      "source": "local-saved"
+    },
+    {
+      "name": "IDKFA",
+      "count": 22,
+      "tracks": [
+        {
+          "name": "At Doom's Gate.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\At Doom's Gate.mp3"
+        },
+        {
+          "name": "Dark Halls.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Dark Halls.mp3"
+        },
+        {
+          "name": "Deep Into the Code.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Deep Into the Code.mp3"
+        },
+        {
+          "name": "Demons on the Prey.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Demons on the Prey.mp3"
+        },
+        {
+          "name": "Donna to the Rescue.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Donna to the Rescue.mp3"
+        },
+        {
+          "name": "End Game (Sweet Little Dead Bu.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\End Game (Sweet Little Dead Bu.mp3"
+        },
+        {
+          "name": "Facing the Spider.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Facing the Spider.mp3"
+        },
+        {
+          "name": "Hiding the Secrets.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Hiding the Secrets.mp3"
+        },
+        {
+          "name": "I Sawed the Demons.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\I Sawed the Demons.mp3"
+        },
+        {
+          "name": "Intermission from Doom.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Intermission from Doom.mp3"
+        },
+        {
+          "name": "Kitchen Ace.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Kitchen Ace.mp3"
+        },
+        {
+          "name": "Nobody Told Me About Id.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Nobody Told Me About Id.mp3"
+        },
+        {
+          "name": "On the Hunt.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\On the Hunt.mp3"
+        },
+        {
+          "name": "Sign of Evil.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Sign of Evil.mp3"
+        },
+        {
+          "name": "Sinister.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Sinister.mp3"
+        },
+        {
+          "name": "Suspense.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Suspense.mp3"
+        },
+        {
+          "name": "The Demons from Adrians Pen.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\The Demons from Adrians Pen.mp3"
+        },
+        {
+          "name": "The Imp's Song.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\The Imp's Song.mp3"
+        },
+        {
+          "name": "They're Going to Get You.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\They're Going to Get You.mp3"
+        },
+        {
+          "name": "Untitled.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Untitled.mp3"
+        },
+        {
+          "name": "Victory Music.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Victory Music.mp3"
+        },
+        {
+          "name": "Waltz of the Demons.mp3",
+          "sourcePath": "E:\\Music\\idkfa\\Waltz of the Demons.mp3"
+        }
+      ],
+      "source": "local-saved"
+    }
+  ],
+  "updatedAt": "2026-04-18T05:50:11.368Z"
+}

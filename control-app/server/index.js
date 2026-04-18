@@ -10,6 +10,7 @@ const clientDir = path.join(__dirname, "..", "client");
 const newsAppDir = path.join(__dirname, "..", "..", "news-app");
 const workAppDir = path.join(__dirname, "..", "..", "work-app");
 const projectAppDir = path.join(__dirname, "..", "..", "project-app");
+const musicAppDir = path.join(__dirname, "..", "..", "music-app");
 
 function createServerApp() {
   const app = express();
@@ -22,6 +23,8 @@ function createServerApp() {
   app.use("/work-app", express.static(workAppDir));
   app.use("/modules/project-app", express.static(projectAppDir));
   app.use("/project-app", express.static(projectAppDir));
+  app.use("/modules/music-app", express.static(musicAppDir));
+  app.use("/music-app", express.static(musicAppDir));
   app.use(express.static(clientDir));
 
   app.get("*", (req, res) => {

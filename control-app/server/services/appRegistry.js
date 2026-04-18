@@ -42,10 +42,10 @@ const appRegistry = [
   {
     id: "music-app",
     name: "Music App",
-    description: "Desktop-first playback for local music and Spotify.",
-    status: "wip",
+    description: "Desktop-first playback for local music.",
+    status: "online",
     routeKey: "music-app",
-    capabilities: ["local-music", "spotify", "mobile-stream"]
+    capabilities: ["local-music", "mobile-stream"]
   },
   {
     id: "server-manager-app",

@@ -88,7 +88,6 @@ Logical structure:
                |--- VS Code / Desktop App Automation
                |--- Google Calendar API
                |--- Weather / News / STEM Sources
-               |--- Spotify API
                |--- Audio Services
                |--- SSH / Server Control Services
 ```
@@ -349,13 +348,12 @@ Functional flow:
 
 Purpose:
 
-- Control playback of local music and Spotify while keeping desktop-hosted playback as the system source of truth
+- Control playback of local music while keeping desktop-hosted playback as the system source of truth
 
 Components:
 
 - Music Library UI
 - Local Music Service
-- Spotify Integration Service
 - Playback Controller
 - Audio Streaming Service
 - Output Device Manager
@@ -363,15 +361,14 @@ Components:
 Primary integrations:
 
 - Local music directories
-- Spotify APIs
 - Desktop audio subsystem
 - Mobile audio streaming channel
 
 Functional flow:
 
 1. User asks for music playback
-2. Agent or UI confirms the requested source, local or Spotify
-3. Playback Controller starts desktop playback through the selected service
+2. Agent or UI resolves the request to local files or saved local playlists
+3. Playback Controller starts desktop playback through local audio services
 4. Output Device Manager routes audio for desktop listening or mobile streaming
 5. Audio Streaming Service relays playback to the mobile app when Mobile Mode is active
 
@@ -528,7 +525,6 @@ Some data should remain owned by external platforms.
 Examples:
 
 - Google Calendar remains the system of record for calendar data
-- Spotify remains the system of record for Spotify content and account data
 - Remote servers remain the system of record for remote files and services
 
 Control Center should cache and index external data where useful, but should not become the authoritative owner of those domains unless explicitly intended.
@@ -564,9 +560,9 @@ Google Calendar access should be handled through a dedicated adapter with token 
 
 External content sources should be normalized through provider adapters so source changes do not affect app-level logic.
 
-### 9.5 Spotify Integration
+### 9.5 Local Audio Integration
 
-Spotify access should be routed through a dedicated service responsible for account state, playback control, and metadata retrieval.
+Local audio access should be routed through dedicated services responsible for library indexing, playback control, and desktop/mobile audio routing.
 
 ### 9.6 Remote Server Integration
 
@@ -616,7 +612,6 @@ External dependencies include:
 - LMStudio runtime
 - Google Calendar
 - Weather and news sources
-- Spotify
 - Remote servers managed by the user
 - Local movie media storage paths
 
@@ -651,7 +646,6 @@ Examples:
 - File edits
 - Calendar modifications
 - Desktop application launches
-- Spotify playback changes
 - SSH access
 - Server power operations
 
@@ -665,7 +659,6 @@ Examples:
 
 - If Google Calendar is unavailable, calendar-app should degrade gracefully
 - If a news source fails, news-app should continue with the remaining sources
-- If Spotify is unavailable, local music should still function
 - If the mobile app disconnects, the desktop host should continue operating normally
 
 ### 12.2 Background Jobs

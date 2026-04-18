@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Music App</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="aurora aurora-a"></div>
+    <div class="aurora aurora-b"></div>
+
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">Control Center</p>
+          <h1>Music App</h1>
+          <p class="subtitle">Local playback with a modern desktop deck.</p>
+        </div>
+        <div class="header-actions">
+          <label class="import-btn" for="audio-files">Import Audio</label>
+          <input id="audio-files" type="file" accept="audio/*" multiple />
+          <label class="import-btn" for="folder-files">Import Folder</label>
+          <input id="folder-files" type="file" accept="audio/*" webkitdirectory directory multiple />
+        </div>
+      </header>
+
+      <section class="deck-grid">
+        <article class="now-playing card">
+          <p class="section-label">Now Playing</p>
+          <h2 id="track-title">No track selected</h2>
+          <p id="track-meta">Import files to begin.</p>
+
+          <div class="visualizer" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+
+          <div class="timeline">
+            <span id="current-time">0:00</span>
+            <input id="seek" type="range" min="0" max="100" value="0" />
+            <span id="duration">0:00</span>
+          </div>
+
+          <div class="controls">
+            <button id="prev-btn" class="chip">Prev</button>
+            <button id="play-btn" class="play-btn">Play</button>
+            <button id="next-btn" class="chip">Next</button>
+          </div>
+
+          <div class="sub-controls">
+            <button id="shuffle-btn" class="chip chip-toggle" aria-pressed="false">Shuffle</button>
+            <button id="loop-btn" class="chip chip-toggle" aria-pressed="false">Loop</button>
+            <label class="volume-wrap">
+              Vol
+              <input id="volume" type="range" min="0" max="1" step="0.01" value="0.9" />
+            </label>
+          </div>
+
+          <p class="hint">Tip: drag audio files anywhere on this window to add them to the queue.</p>
+        </article>
+
+        <article class="queue card">
+          <div class="queue-head">
+            <p class="section-label">Queue</p>
+            <button id="clear-btn" class="chip danger">Clear</button>
+          </div>
+          <ul id="playlist" class="playlist"></ul>
+
+          <div class="saved-playlists">
+            <p class="section-label">Saved Playlists</p>
+            <div class="saved-controls">
+              <input id="playlist-name" type="text" placeholder="Playlist name" />
+              <button id="save-playlist-btn" class="chip">Save Queue</button>
+            </div>
+            <ul id="saved-playlists" class="saved-list"></ul>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <audio id="audio"></audio>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

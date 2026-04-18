@@ -37,8 +37,23 @@ const state = {
   chatDraft: "",
   chatStickToBottom: true,
   chatSessionStartedAt: Date.now(),
-  chatInputShouldRefocus: false
+  chatInputShouldRefocus: false,
+  musicNowPlaying: {
+    trackTitle: "No track selected",
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0,
+    queueCount: 0,
+    updatedAt: Date.now()
+  }
 };
+
+const musicStateChannel = typeof BroadcastChannel !== "undefined"
+  ? new BroadcastChannel("control-center-music-state")
+  : null;
+const musicCommandChannel = typeof BroadcastChannel !== "undefined"
+  ? new BroadcastChannel("control-center-music-command")
+  : null;
 
 const appTabsContainer = document.getElementById("app-tabs");
 const viewTitle = document.getElementById("view-title");
@@ -201,6 +216,15 @@ async function openProjectAppWindow() {
   window.open("/project-app/", "_blank", "noopener");
 }
 
+async function openMusicAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openMusicAppWindow) {
+    await window.controlCenterDesktop.openMusicAppWindow();
+    return;
+  }
+
+  window.open("/music-app/", "_blank", "noopener");
+}
+
 function addPendingUserMessage(text) {
   const pendingId = `pending-${Date.now()}`;
   state.chatMessages = [
@@ -279,6 +303,35 @@ function modeButtonsActiveState() {
   modeDesktopBtn.classList.toggle("is-active", state.mode === "desktop");
   modeMobileBtn.classList.toggle("is-active", state.mode === "mobile");
   currentModePill.textContent = `Mode: ${state.mode}`;
+}
+
+function formatDuration(seconds) {
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const minutes = Math.floor(safeSeconds / 60);
+  const remaining = Math.floor(safeSeconds % 60);
+  return `${minutes}:${String(remaining).padStart(2, "0")}`;
+}
+
+function renderMusicMiniPlayer() {
+  const music = state.musicNowPlaying || {};
+  const trackTitle = String(music.trackTitle || "No track selected");
+  const status = music.isPlaying ? "Playing" : "Paused";
+  const progress = `${formatDuration(music.currentTime)} / ${formatDuration(music.duration)}`;
+  const queueCount = Number(music.queueCount) || 0;
+
+  return `
+    <article class="card stack">
+      <h3>Mini Player</h3>
+      <p class="muted">${status} | Queue: ${queueCount} | ${progress}</p>
+      <p><strong>${trackTitle}</strong></p>
+      <div class="event-controls">
+        <button class="action-btn" data-action="music-open">Open Music App</button>
+        <button class="action-btn" data-action="music-control" data-control="prev">Prev</button>
+        <button class="action-btn" data-action="music-control" data-control="play-pause">Play/Pause</button>
+        <button class="action-btn" data-action="music-control" data-control="next">Next</button>
+      </div>
+    </article>
+  `;
 }
 
 function eventItem(event) {
@@ -371,6 +424,8 @@ function renderOverview(system) {
           <li>Server: <span class="muted">${system.server.status}</span></li>
         </ul>
       </article>
+
+      ${renderMusicMiniPlayer()}
     </div>
 
     <article class="card stack">
@@ -600,12 +655,16 @@ function renderSingleApp(appId) {
   }
 
   const capHtml = app.capabilities.map((cap) => `<li>${cap}</li>`).join("");
+  const launchButton = ["news-app", "work-app", "project-app", "music-app"].includes(app.id)
+    ? `<div><button class="action-btn" data-action="open-app" data-app-id="${app.id}">Open ${app.name}</button></div>`
+    : "";
 
   appView.innerHTML = `
     <article class="card stack">
       <h3>${app.name}</h3>
       <p>${app.description}</p>
       <div><span class="status wip">Work In Progress</span></div>
+      ${launchButton}
     </article>
 
     <article class="card stack">
@@ -690,6 +749,26 @@ function activateTab(tab) {
 
 function wireNavigation() {
   document.addEventListener("click", (event) => {
+    const openMusicButton = event.target.closest("[data-action='music-open']");
+    if (openMusicButton) {
+      openMusicAppWindow().catch(() => {
+        // Ignore launch failures for now.
+      });
+      return;
+    }
+
+    const musicControlButton = event.target.closest("[data-action='music-control']");
+    if (musicControlButton) {
+      const action = musicControlButton.dataset.control;
+      if (musicCommandChannel) {
+        musicCommandChannel.postMessage({
+          type: "music-command",
+          payload: { action }
+        });
+      }
+      return;
+    }
+
     const openAppButton = event.target.closest("[data-action='open-app']");
     if (openAppButton) {
       const appId = openAppButton.dataset.appId;
@@ -710,6 +789,13 @@ function wireNavigation() {
 
       if (appId === "project-app") {
         openProjectAppWindow().catch(() => {
+          // Ignore launch failures for now.
+        });
+        return;
+      }
+
+      if (appId === "music-app") {
+        openMusicAppWindow().catch(() => {
           // Ignore launch failures for now.
         });
         return;
@@ -816,6 +902,13 @@ function wireNavigation() {
       return;
     }
 
+    if (target.dataset.tab === "app:music-app") {
+      openMusicAppWindow().catch(() => {
+        // Ignore launch failures for now.
+      });
+      return;
+    }
+
     activateTab(target.dataset.tab);
   });
 
@@ -912,6 +1005,28 @@ function wireNavigation() {
   });
 }
 
+function initMusicBridge() {
+  if (!musicStateChannel) {
+    return;
+  }
+
+  musicStateChannel.onmessage = (event) => {
+    if (event?.data?.type !== "music-state") {
+      return;
+    }
+
+    state.musicNowPlaying = {
+      ...state.musicNowPlaying,
+      ...(event.data.payload || {}),
+      updatedAt: Date.now()
+    };
+
+    if (state.activeTab === "overview" && state.system) {
+      renderOverview(state.system);
+    }
+  };
+}
+
 function wireModeControls() {
   modeDesktopBtn.addEventListener("click", async () => {
     await switchModeAndRefresh("desktop");
@@ -954,6 +1069,21 @@ function startEventStream() {
       if (payload.type === "event" && payload.event) {
         state.events = [payload.event, ...state.events].slice(0, 120);
 
+        if (
+          payload.event.appId === "music-app" &&
+          payload.event.type === "music-command" &&
+          musicCommandChannel
+        ) {
+          musicCommandChannel.postMessage({
+            type: "music-command",
+            payload: {
+              ...(payload.event.meta || {}),
+              __eventId: payload.event.id,
+              __eventTimestamp: payload.event.timestamp
+            }
+          });
+        }
+
         if (payload.event.type === "open-app" && payload.event.meta?.tab) {
           const targetTab = String(payload.event.meta.tab);
           if (targetTab === "app:news-app") {
@@ -966,6 +1096,10 @@ function startEventStream() {
             });
           } else if (targetTab === "app:project-app") {
             openProjectAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
+          } else if (targetTab === "app:music-app") {
+            openMusicAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
           } else {
@@ -1042,6 +1176,7 @@ async function init() {
 
   wireNavigation();
   wireModeControls();
+  initMusicBridge();
   modeButtonsActiveState();
   startEventStream();
   activateTab("overview");

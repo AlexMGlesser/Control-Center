@@ -209,8 +209,8 @@ Purpose:
 
 Functional requirements:
 
-- Support both local music and Spotify
-- Prompt the user to choose the music source when playback is requested
+- Support local music playback only
+- Resolve playback requests against local libraries and saved local playlists
 - Run music playback from the desktop itself, even in Mobile Mode
 - Stream music from the desktop to the mobile app in Mobile Mode instead of opening mobile music apps directly
 

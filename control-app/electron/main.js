@@ -4,6 +4,8 @@ import { fileURLToPath } from "url";
 import { startServer } from "../server/index.js";
 import { serverConfig } from "../server/config.js";
 
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -12,6 +14,7 @@ let mainWindow = null;
 let newsWindow = null;
 let workAppWindow = null;
 let projectAppWindow = null;
+let musicAppWindow = null;
 
 function createMainWindow() {
   const win = new BrowserWindow({
@@ -120,6 +123,34 @@ function openProjectAppWindow() {
   });
 }
 
+function openMusicAppWindow() {
+  if (musicAppWindow && !musicAppWindow.isDestroyed()) {
+    musicAppWindow.focus();
+    return;
+  }
+
+  musicAppWindow = new BrowserWindow({
+    width: 1560,
+    height: 980,
+    minWidth: 1200,
+    minHeight: 760,
+    backgroundColor: "#070f13",
+    title: "Music App",
+    parent: mainWindow || undefined,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  musicAppWindow.loadURL(`http://localhost:${serverConfig.port}/music-app/`);
+
+  musicAppWindow.on("closed", () => {
+    musicAppWindow = null;
+  });
+}
+
 async function ensureBackendServer() {
   try {
     backendServer = await startServer();
@@ -163,6 +194,11 @@ app.whenReady()
 
     ipcMain.handle("project-app:open", () => {
       openProjectAppWindow();
+      return { ok: true };
+    });
+
+    ipcMain.handle("music-app:open", () => {
+      openMusicAppWindow();
       return { ok: true };
     });
 
@@ -214,6 +250,7 @@ app.on("before-quit", () => {
   ipcMain.removeHandler("news-app:open");
   ipcMain.removeHandler("work-app:open");
   ipcMain.removeHandler("project-app:open");
+  ipcMain.removeHandler("music-app:open");
   ipcMain.removeHandler("dialog:choose-directory");
 
   if (backendServer) {

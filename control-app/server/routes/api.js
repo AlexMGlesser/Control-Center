@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { existsSync, statSync } from "fs";
+import path from "path";
 import { systemConfig } from "../config.js";
 import { getAllApps, getAppById } from "../services/appRegistry.js";
 import { addAppMessage } from "../services/appMessageService.js";
@@ -40,6 +42,16 @@ import {
   openProjectNode,
   launchApp
 } from "../services/projectService.js";
+import {
+  addTrackToPlaylist,
+  createMusicPlaylist,
+  getMusicLibraryState,
+  listMusicArtists,
+  listMusicGenres,
+  listMusicPlaylists,
+  listMusicTracks,
+  syncLocalMusicPlaylists
+} from "../services/musicLibraryService.js";
 
 const router = Router();
 let honorificToggle = false;
@@ -423,6 +435,125 @@ router.get("/apps/news-app/briefing", async (req, res) => {
       details: error.message
     });
   }
+});
+
+router.get("/apps/music-app/library", (req, res) => {
+  res.json(getMusicLibraryState());
+});
+
+router.get("/apps/music-app/library/tracks", (req, res) => {
+  const result = listMusicTracks({
+    artist: req.query.artist,
+    genre: req.query.genre,
+    query: req.query.query,
+    limit: req.query.limit
+  });
+  res.json(result);
+});
+
+router.get("/apps/music-app/library/artists", (req, res) => {
+  res.json({ ok: true, artists: listMusicArtists() });
+});
+
+router.get("/apps/music-app/library/genres", (req, res) => {
+  res.json({ ok: true, genres: listMusicGenres() });
+});
+
+router.get("/apps/music-app/local-file", (req, res) => {
+  const rawPath = String(req.query.path || "").trim();
+  if (!rawPath) {
+    res.status(400).json({
+      ok: false,
+      code: "MUSIC_FILE_PATH_REQUIRED",
+      message: "Query parameter 'path' is required."
+    });
+    return;
+  }
+
+  let resolvedPath = "";
+  try {
+    resolvedPath = path.resolve(rawPath);
+  } catch {
+    res.status(400).json({
+      ok: false,
+      code: "MUSIC_FILE_PATH_INVALID",
+      message: "Invalid local file path."
+    });
+    return;
+  }
+
+  if (!existsSync(resolvedPath)) {
+    res.status(404).json({
+      ok: false,
+      code: "MUSIC_FILE_NOT_FOUND",
+      message: "Local music file was not found."
+    });
+    return;
+  }
+
+  try {
+    const stat = statSync(resolvedPath);
+    if (!stat.isFile()) {
+      res.status(400).json({
+        ok: false,
+        code: "MUSIC_FILE_NOT_A_FILE",
+        message: "Path does not point to a file."
+      });
+      return;
+    }
+  } catch {
+    res.status(500).json({
+      ok: false,
+      code: "MUSIC_FILE_STAT_FAILED",
+      message: "Could not read local file metadata."
+    });
+    return;
+  }
+
+  res.sendFile(resolvedPath, (error) => {
+    if (!error) {
+      return;
+    }
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        ok: false,
+        code: "MUSIC_FILE_STREAM_FAILED",
+        message: "Could not stream local music file."
+      });
+    }
+  });
+});
+
+router.get("/apps/music-app/playlists", (req, res) => {
+  res.json(listMusicPlaylists());
+});
+
+router.post("/apps/music-app/local-playlists/sync", (req, res) => {
+  try {
+    const result = syncLocalMusicPlaylists(req.body?.playlists);
+    res.json(result);
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "MUSIC_LOCAL_PLAYLIST_SYNC_FAILED",
+      message: error.message || "Could not sync local music playlists."
+    });
+  }
+});
+
+router.post("/apps/music-app/playlists", (req, res) => {
+  handleProjectAction(res, () => createMusicPlaylist(req.body?.name));
+});
+
+router.post("/apps/music-app/playlists/:playlistName/tracks", (req, res) => {
+  handleProjectAction(res, () =>
+    addTrackToPlaylist({
+      playlistName: req.params.playlistName,
+      trackId: req.body?.trackId,
+      trackName: req.body?.trackName
+    })
+  );
 });
 
 router.get("/apps/work-app/projects", (req, res) => {

@@ -19,6 +19,14 @@ import {
   getWorkProjects,
   openProjectNode
 } from "./projectService.js";
+import {
+  addTrackToPlaylist,
+  createMusicPlaylist,
+  listMusicArtists,
+  listMusicGenres,
+  listMusicPlaylists,
+  listMusicTracks
+} from "./musicLibraryService.js";
 
 const TOOL_DEFINITIONS = [
   { name: "get_system_state", description: "Get Control Center system runtime state." },
@@ -34,7 +42,13 @@ const TOOL_DEFINITIONS = [
   { name: "list_events", description: "List recent event bus entries." },
   { name: "publish_event", description: "Publish an event to event bus." },
   { name: "create_project", description: "Create and register a new project folder, with optional app open." },
-  { name: "open_project", description: "Open a managed project by name or id and optionally open the app UI." }
+  { name: "open_project", description: "Open a managed project by name or id and optionally open the app UI." },
+  { name: "list_music_tracks", description: "List music tracks with optional genre, artist, or query filters." },
+  { name: "list_music_artists", description: "List available artists in the music catalog." },
+  { name: "list_music_genres", description: "List available genres in the music catalog." },
+  { name: "list_music_playlists", description: "List playlists and included tracks." },
+  { name: "create_music_playlist", description: "Create a new playlist by name." },
+  { name: "add_track_to_playlist", description: "Add a track to a playlist using trackId or trackName." }
 ];
 
 export function getToolDefinitions() {
@@ -69,13 +83,13 @@ export function executeToolCall(toolName, args = {}) {
     }
 
     case "open_app": {
-      const target = String(args.target || args.appId || "").trim();
+      const target = String(args.target || args.appId || args.app_name || "").trim();
       if (!target) {
         return fail("INVALID_OPEN_TARGET", "open_app requires a target or appId.");
       }
 
       const isSystemTab = ["overview", "settings", "chatbot", "event-bus", "agent-core", "integration-hub"].includes(target);
-      const windowApps = ["news-app", "work-app", "project-app"];
+      const windowApps = ["news-app", "work-app", "project-app", "music-app"];
       const isWindowApp = windowApps.includes(target);
       const app = isSystemTab ? null : getAppById(target);
 
@@ -284,6 +298,47 @@ export function executeToolCall(toolName, args = {}) {
         });
       } catch (error) {
         return fail(error?.code || "OPEN_PROJECT_FAILED", error?.message || "Failed to open project.");
+      }
+    }
+
+    case "list_music_tracks": {
+      const result = listMusicTracks({
+        artist: args.artist,
+        genre: args.genre,
+        query: args.query,
+        limit: args.limit
+      });
+      return ok(result);
+    }
+
+    case "list_music_artists":
+      return ok({ artists: listMusicArtists() });
+
+    case "list_music_genres":
+      return ok({ genres: listMusicGenres() });
+
+    case "list_music_playlists":
+      return ok(listMusicPlaylists());
+
+    case "create_music_playlist": {
+      try {
+        return ok(createMusicPlaylist(args.name));
+      } catch (error) {
+        return fail(error?.code || "CREATE_PLAYLIST_FAILED", error?.message || "Failed to create playlist.");
+      }
+    }
+
+    case "add_track_to_playlist": {
+      try {
+        return ok(
+          addTrackToPlaylist({
+            playlistName: args.playlistName,
+            trackId: args.trackId,
+            trackName: args.trackName
+          })
+        );
+      } catch (error) {
+        return fail(error?.code || "ADD_TRACK_FAILED", error?.message || "Failed to add track to playlist.");
       }
     }
 

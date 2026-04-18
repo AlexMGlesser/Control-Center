@@ -60,7 +60,7 @@ In Mobile Mode, the app should be able to provide one-sentence summaries of news
 
 # music-app
 
-This is where the agent will access the user's music. There will be two types of access: local music and Spotify. Whenever the user wants music to be played, the agent will ask whether the source should be local music or Spotify.
+This is where the agent will access the user's music. Playback should be local-only, using imported files and saved local playlists.
 
 Music playback should run from the desktop itself, even in Mobile Mode. The key difference in Mobile Mode is that the mobile app should be able to stream music from the desktop rather than opening mobile music apps directly.
 

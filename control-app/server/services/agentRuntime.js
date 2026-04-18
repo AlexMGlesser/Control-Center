@@ -74,8 +74,10 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
   } else {
     // Filter succeeded, use its tool calls and messages
     let resolvedToolCalls = ensureNewsOpenCall(filterResult.toolCalls, userText, origin);
+    resolvedToolCalls = ensureMusicOpenCall(resolvedToolCalls, userText, origin);
     resolvedToolCalls = ensureNamedProjectOpenCall(resolvedToolCalls, userText, origin);
     resolvedToolCalls = ensureWorkProjectOpenCall(resolvedToolCalls, userText, origin);
+    resolvedToolCalls = ensureMusicPlaybackCommandCall(resolvedToolCalls, userText, origin);
     toolCalls = resolvedToolCalls;
     safeMessages = Array.isArray(filterResult.safeMessages) ? [...filterResult.safeMessages] : [];
     
@@ -92,8 +94,35 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
     })
   );
 
+  let postToolAgentMessage = "";
+  const explicitPlaylistIntent = origin?.type === "user" ? extractPlaylistPlayTarget(userText) : null;
+  const implicitPlaylistIntent = origin?.type === "user" ? extractImplicitPlaylistPlayTarget(userText) : null;
+  const playlistIntent = explicitPlaylistIntent || implicitPlaylistIntent;
+  const artistIntent = origin?.type === "user" ? extractArtistPlayTarget(userText) : null;
+  if (playlistIntent || artistIntent) {
+    const orchestration = resolveRequestedMusicPlayback(toolResults, {
+      playlistIntent,
+      artistIntent
+    });
+    if (orchestration.playResult) {
+      toolResults.push(orchestration.playResult);
+    }
+    if (orchestration.extraLookupResult) {
+      toolResults.push(orchestration.extraLookupResult);
+    }
+    postToolAgentMessage = orchestration.agentMessage || "";
+  }
+
   const summary = summarizeToolResults(toolResults);
-  const agentMessages = safeMessages;
+  let agentMessages = safeMessages;
+  if (postToolAgentMessage) {
+    agentMessages = [postToolAgentMessage];
+  } else if (!agentMessages.length || /executing command/i.test(agentMessages[0])) {
+    const synthesized = synthesizeToolMessages(toolResults);
+    if (synthesized.length) {
+      agentMessages = synthesized;
+    }
+  }
   const agentText = agentMessages[0] || safeText || "";
 
   return {
@@ -437,6 +466,36 @@ function buildDeterministicToolCalls(userText, origin) {
   const prompt = String(userText || "").toLowerCase();
   const calls = [];
 
+  const explicitPlaylistTarget = extractPlaylistPlayTarget(prompt);
+  const implicitPlaylistTarget = explicitPlaylistTarget || extractImplicitPlaylistPlayTarget(prompt);
+  const playlistPlayTarget = explicitPlaylistTarget || implicitPlaylistTarget;
+  if (playlistPlayTarget) {
+    calls.push({ tool: "open_app", args: { target: "music-app" } });
+    calls.push({ tool: "list_music_playlists", args: {} });
+    return calls;
+  }
+
+  const artistPlayTarget = extractArtistPlayTarget(prompt);
+  if (artistPlayTarget) {
+    calls.push({ tool: "open_app", args: { target: "music-app" } });
+    calls.push({
+      tool: "publish_event",
+      args: {
+        appId: "music-app",
+        source: "agent",
+        type: "music-command",
+        message: `Agent requested local artist playback: ${artistPlayTarget.artistName}.`,
+        meta: {
+          action: "play-artist",
+          artistName: artistPlayTarget.artistName,
+          localOnly: true,
+          openApp: true
+        }
+      }
+    });
+    return calls;
+  }
+
   const openProjectTarget = extractProjectOpenTarget(prompt);
   if (openProjectTarget) {
     calls.push({
@@ -463,6 +522,56 @@ function buildDeterministicToolCalls(userText, origin) {
     calls.push({ tool: "open_app", args: { target: "work-app" } });
   }
 
+  // Check for music app open intent
+  if (/\b(open|launch|start|show)\b.*\b(music|music app|player)\b/.test(prompt)) {
+    calls.push({ tool: "open_app", args: { target: "music-app" } });
+  }
+
+  if (/\b(list|show|what)\b.*\bgenres?\b|\bgenres?\b.*\b(music|songs|tracks)\b/.test(prompt)) {
+    calls.push({ tool: "list_music_genres", args: {} });
+    return calls;
+  }
+
+  if (/\b(list|show|what)\b.*\bartists?\b|\bartists?\b.*\b(music|songs|tracks)\b/.test(prompt)) {
+    calls.push({ tool: "list_music_artists", args: {} });
+    return calls;
+  }
+
+  if (/\b(list|show|what|my)\b.*\bplaylists?\b/.test(prompt)) {
+    calls.push({ tool: "list_music_playlists", args: {} });
+    return calls;
+  }
+
+  const createPlaylistMatch = prompt.match(/\b(?:create|make)\s+(?:a\s+)?playlist\s+(.+)$/);
+  if (createPlaylistMatch && createPlaylistMatch[1]) {
+    calls.push({ tool: "create_music_playlist", args: { name: createPlaylistMatch[1].trim() } });
+    return calls;
+  }
+
+  const addTrackMatch = prompt.match(/\badd\s+(.+?)\s+to\s+playlist\s+(.+)$/);
+  if (addTrackMatch && addTrackMatch[1] && addTrackMatch[2]) {
+    calls.push({
+      tool: "add_track_to_playlist",
+      args: {
+        trackName: addTrackMatch[1].trim(),
+        playlistName: addTrackMatch[2].trim()
+      }
+    });
+    return calls;
+  }
+
+  const byArtistMatch = prompt.match(/\b(?:songs|tracks)\s+(?:by|from)\s+(.+)$/);
+  if (byArtistMatch && byArtistMatch[1]) {
+    calls.push({ tool: "list_music_tracks", args: { artist: byArtistMatch[1].trim() } });
+    return calls;
+  }
+
+  const byGenreMatch = prompt.match(/\b(?:songs|tracks)\s+(?:in|for)\s+(.+?)\s+genre\b/);
+  if (byGenreMatch && byGenreMatch[1]) {
+    calls.push({ tool: "list_music_tracks", args: { genre: byGenreMatch[1].trim() } });
+    return calls;
+  }
+
   // Check for project app intent (including plurals)
   if (/\b(projects?|project app|open project|show project|my project|personal projects?)\b/.test(prompt)) {
     calls.push({ tool: "open_app", args: { target: "project-app" } });
@@ -482,11 +591,87 @@ function buildMessagesForToolCalls(calls) {
       return "Opening News App.";
     } else if (target === "work-app") {
       return "Opening Work App.";
+    } else if (target === "music-app") {
+      return "Opening Music App.";
     } else if (target === "project-app") {
       return "Opening Personal Projects.";
+    } else if (call?.tool === "list_music_genres") {
+      return "Checking available music genres.";
+    } else if (call?.tool === "list_music_artists") {
+      return "Checking available artists.";
+    } else if (call?.tool === "list_music_playlists") {
+      return "Checking your playlists.";
+    } else if (call?.tool === "create_music_playlist") {
+      return "Creating that playlist now.";
+    } else if (call?.tool === "add_track_to_playlist") {
+      return "Adding that track to your playlist.";
+    } else if (call?.tool === "list_music_tracks") {
+      return "Fetching matching tracks.";
+    } else if (call?.tool === "publish_event" && String(call?.args?.type || "") === "music-command") {
+      return "Starting that playlist now.";
     }
     return "Executing command...";
   });
+}
+
+function synthesizeToolMessages(toolResults) {
+  if (!Array.isArray(toolResults) || !toolResults.length) {
+    return [];
+  }
+
+  const primary = toolResults[0];
+  const result = primary?.result || {};
+
+  if (!result.ok) {
+    return [];
+  }
+
+  if (primary.tool === "list_music_genres") {
+    const genres = Array.isArray(result.genres) ? result.genres : [];
+    if (!genres.length) {
+      return ["Sir, no genres are available yet."];
+    }
+    return [`Sir, available genres are: ${genres.join(", ")}.`];
+  }
+
+  if (primary.tool === "list_music_artists") {
+    const artists = Array.isArray(result.artists) ? result.artists : [];
+    if (!artists.length) {
+      return ["Boss Man, no artists are available yet."];
+    }
+    return [`Boss Man, available artists are: ${artists.join(", ")}.`];
+  }
+
+  if (primary.tool === "list_music_playlists") {
+    const playlists = Array.isArray(result.playlists) ? result.playlists : [];
+    if (!playlists.length) {
+      return ["Sir, you do not have any playlists yet. Say 'create playlist <name>' to start one."];
+    }
+    const summary = playlists.map((playlist) => `${playlist.name} (${playlist.count || 0})`).join(", ");
+    return [`Sir, your playlists are: ${summary}.`];
+  }
+
+  if (primary.tool === "create_music_playlist") {
+    const name = result.playlist?.name || "that playlist";
+    return [`Boss Man, created playlist ${name}.`];
+  }
+
+  if (primary.tool === "add_track_to_playlist") {
+    const playlistName = result.playlist?.name || "the playlist";
+    const trackTitle = result.track?.title || "that track";
+    return [`Sir, added ${trackTitle} to ${playlistName}.`];
+  }
+
+  if (primary.tool === "list_music_tracks") {
+    const tracks = Array.isArray(result.tracks) ? result.tracks : [];
+    if (!tracks.length) {
+      return ["Boss Man, I found no matching tracks."];
+    }
+    const preview = tracks.slice(0, 6).map((track) => `${track.title} by ${track.artist}`).join(", ");
+    return [`Boss Man, here are matching tracks: ${preview}.`];
+  }
+
+  return [];
 }
 
 async function generateLmStudioOutput(userText, origin = { type: "user" }) {
@@ -601,6 +786,52 @@ function generateLocalLlmOutput(userText) {
     ].join("\n");
   }
 
+  const explicitPlaylistPlayTarget = extractPlaylistPlayTarget(prompt);
+  const implicitPlaylistPlayTarget = explicitPlaylistPlayTarget || extractImplicitPlaylistPlayTarget(prompt);
+  const playlistPlayTarget = explicitPlaylistPlayTarget || implicitPlaylistPlayTarget;
+  if (playlistPlayTarget) {
+    return [
+      '{{"tool":"open_app","args":{"target":"music-app"}} | {"tool":"list_music_playlists","args":{}}}',
+      '{"response":"Finding the best playlist match now."}'
+    ].join("\n");
+  }
+
+  const artistPlayTarget = extractArtistPlayTarget(prompt);
+  if (artistPlayTarget) {
+    return [
+      '{{"tool":"open_app","args":{"target":"music-app"}} | {"tool":"publish_event","args":{"appId":"music-app","source":"agent","type":"music-command","message":"Agent requested local artist playback","meta":{"action":"play-artist","artistName":"' + escapeJsonString(artistPlayTarget.artistName) + '","localOnly":true,"openApp":true}}}}',
+      '{"response":"Playing local tracks by ' + escapeJsonString(artistPlayTarget.artistName) + '."}'
+    ].join("\n");
+  }
+
+  if (/\b(open|launch|start|show)\b.*\b(music|music app|player)\b/.test(prompt)) {
+    return [
+      '{"tool":"open_app","args":{"target":"music-app"}}',
+      '{"response":"Opening Music App."}'
+    ].join("\n");
+  }
+
+  if (/(list|show|what).*(genres?)|genres?.*(music|songs|tracks)/.test(prompt)) {
+    return [
+      '{"tool":"list_music_genres","args":{}}',
+      '{"response":"Fetching music genres."}'
+    ].join("\n");
+  }
+
+  if (/(list|show|what).*(artists?)|artists?.*(music|songs|tracks)/.test(prompt)) {
+    return [
+      '{"tool":"list_music_artists","args":{}}',
+      '{"response":"Fetching music artists."}'
+    ].join("\n");
+  }
+
+  if (/(list|show|what|my).*(playlists?)/.test(prompt)) {
+    return [
+      '{"tool":"list_music_playlists","args":{}}',
+      '{"response":"Fetching your playlists."}'
+    ].join("\n");
+  }
+
   const openProjectTarget = extractProjectOpenTarget(prompt);
   if (openProjectTarget) {
     return [
@@ -707,6 +938,25 @@ function ensureWorkProjectOpenCall(toolCalls, userText, origin) {
   return currentCalls;
 }
 
+function ensureMusicOpenCall(toolCalls, userText, origin) {
+  const currentCalls = Array.isArray(toolCalls) ? [...toolCalls] : [];
+  if (!shouldAutoOpenMusicForUser(userText, origin)) {
+    return currentCalls;
+  }
+
+  const alreadyOpen = currentCalls.some(
+    (call) =>
+      call?.tool === "open_app" &&
+      String(call?.args?.target || call?.args?.appId || call?.args?.app_name || "") === "music-app"
+  );
+
+  if (alreadyOpen) {
+    return currentCalls;
+  }
+
+  return [...currentCalls, { tool: "open_app", args: { target: "music-app" } }];
+}
+
 function shouldAutoOpenNewsForUser(userText, origin) {
   if (origin?.type !== "user") {
     return false;
@@ -717,6 +967,21 @@ function shouldAutoOpenNewsForUser(userText, origin) {
   const isNegative = /\b(don't|do not|no|not)\b.*\b(news|headlines|open)\b/.test(prompt);
 
   return hasNewsIntent && !isNegative;
+}
+
+function shouldAutoOpenMusicForUser(userText, origin) {
+  if (origin?.type !== "user") {
+    return false;
+  }
+
+  const prompt = String(userText || "").toLowerCase();
+  const hasMusicIntent =
+    /\b(open|launch|start|show)\b.*\b(music|music app|player)\b/.test(prompt) ||
+    /\bplay\b.*\b(music|song|songs|playlist|playlists)\b/.test(prompt) ||
+    Boolean(extractArtistPlayTarget(prompt));
+  const isNegative = /\b(don'?t|do not|no|not)\b.*\b(open|launch|start|show|play)\b.*\b(music|player|playlist)\b/.test(prompt);
+
+  return hasMusicIntent && !isNegative;
 }
 
 function ensureNamedProjectOpenCall(toolCalls, userText, origin) {
@@ -753,6 +1018,186 @@ function ensureNamedProjectOpenCall(toolCalls, userText, origin) {
       }
     }
   ];
+}
+
+function ensureMusicPlaybackCommandCall(toolCalls, userText, origin) {
+  const currentCalls = Array.isArray(toolCalls) ? [...toolCalls] : [];
+  if (origin?.type !== "user") {
+    return currentCalls;
+  }
+
+  const explicitPlaylistTarget = extractPlaylistPlayTarget(userText);
+  const implicitPlaylistTarget = explicitPlaylistTarget || extractImplicitPlaylistPlayTarget(userText);
+  const playlistTarget = explicitPlaylistTarget || implicitPlaylistTarget;
+  const artistTarget = extractArtistPlayTarget(userText);
+  if (!playlistTarget && !artistTarget) {
+    return currentCalls;
+  }
+
+  const sanitizedCalls = currentCalls.filter(
+    (call) =>
+      call?.tool !== "publish_event" &&
+      call?.tool !== "list_music_tracks"
+  );
+
+  const hasOpenMusic = sanitizedCalls.some(
+    (call) =>
+      call?.tool === "open_app" &&
+      String(call?.args?.target || call?.args?.appId || call?.args?.app_name || "") === "music-app"
+  );
+
+  const hasPlaylistLookup = sanitizedCalls.some((call) => call?.tool === "list_music_playlists");
+  const hasMusicCommand = sanitizedCalls.some(
+    (call) =>
+      call?.tool === "publish_event" &&
+      String(call?.args?.appId || "") === "music-app" &&
+      String(call?.args?.type || "") === "music-command"
+  );
+
+  const nextCalls = [...sanitizedCalls];
+  if (!hasOpenMusic) {
+    nextCalls.push({ tool: "open_app", args: { target: "music-app" } });
+  }
+
+  if (playlistTarget) {
+    if (!hasPlaylistLookup) {
+      nextCalls.push({ tool: "list_music_playlists", args: {} });
+    }
+    return nextCalls;
+  }
+
+  if (artistTarget) {
+    if (!hasMusicCommand) {
+      nextCalls.push({
+        tool: "publish_event",
+        args: {
+          appId: "music-app",
+          source: "agent",
+          type: "music-command",
+          message: `Agent requested local artist playback: ${artistTarget.artistName}.`,
+          meta: {
+            action: "play-artist",
+            artistName: artistTarget.artistName,
+            localOnly: true,
+            openApp: true
+          }
+        }
+      });
+    }
+    return nextCalls;
+  }
+
+  return nextCalls;
+}
+
+function extractPlaylistPlayTarget(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  if (!/\b(play|start)\b/.test(text) || !/\bplaylist\b/.test(text)) {
+    return null;
+  }
+
+  const patterns = [
+    /\b(?:play|start)\s+(?:the\s+)?playlist\s*[,:-]?\s*(.+)$/,
+    /\b(?:play|start)\s+(?:my\s+)?(.+?)\s+playlist\b(?:\s+for\s+me)?$/,
+    /\bplaylist\s*[,:-]?\s*(.+)$/
+  ];
+
+  let playlistName = "";
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      playlistName = match[1];
+      break;
+    }
+  }
+
+  if (!playlistName) {
+    return null;
+  }
+
+  playlistName = playlistName
+    .replace(/[.?!]+$/, "")
+    .replace(/\b(for me|please)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!playlistName || playlistName.length < 2) {
+    return null;
+  }
+
+  return { playlistName };
+}
+
+function extractImplicitPlaylistPlayTarget(prompt) {
+  const text = String(prompt || "").toLowerCase();
+
+  if (!/\b(play|start)\b/.test(text)) {
+    return null;
+  }
+
+  if (/\bplaylist\b/.test(text)) {
+    return null;
+  }
+
+  if (/\b(next|previous|prev|pause|resume|stop|shuffle|loop|volume)\b/.test(text)) {
+    return null;
+  }
+
+  const match = text.match(/\b(?:play|start)\s+(.+?)\s*$/);
+  if (!match || !match[1]) {
+    return null;
+  }
+
+  const playlistName = match[1]
+    .replace(/\b(for me|please)\b/gi, "")
+    .replace(/^\s*(?:my|the)\s+/i, "")
+    .replace(/\b(song|songs|track|tracks|music)\b/gi, "")
+    .replace(/[.?!]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!playlistName || playlistName.length < 2) {
+    return null;
+  }
+
+  if (/^(music|song|songs|something|anything)$/i.test(playlistName)) {
+    return null;
+  }
+
+  return { playlistName, implicit: true };
+}
+
+function extractArtistPlayTarget(prompt) {
+  const text = String(prompt || "").toLowerCase();
+
+  if (/\bplaylist\b/.test(text)) {
+    return null;
+  }
+
+  let match = text.match(/\b(?:play|start)\s+(?:some\s+)?(.+?)\s+(?:for me|please)\s*$/);
+  if (!match || !match[1]) {
+    match = text.match(/\b(?:play|start)\s+(?:some\s+)?(.+)$/);
+  }
+
+  if (!match || !match[1]) {
+    return null;
+  }
+
+  const artistName = match[1]
+    .replace(/\b(music|song|songs|track|tracks)\b/g, "")
+    .replace(/[.?!]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!artistName || artistName.length < 2) {
+    return null;
+  }
+
+  if (/^(music|song|songs|something|anything)$/i.test(artistName)) {
+    return null;
+  }
+
+  return { artistName };
 }
 
 function extractProjectOpenTarget(prompt) {
@@ -803,6 +1248,216 @@ function summarizeToolResults(toolResults) {
   });
 
   return `Tool execution summary:\n${lines.join("\n")}`;
+}
+
+function normalizePlaylistName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/["']/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\b(the|my|some|playlist|playlists|for me|please|song|songs|track|tracks|music)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function scorePlaylistMatch(requestedName, candidateName) {
+  const requested = normalizePlaylistName(requestedName);
+  const candidate = normalizePlaylistName(candidateName);
+  if (!requested || !candidate) {
+    return 0;
+  }
+
+  if (requested === candidate) {
+    return 100;
+  }
+
+  if (candidate.includes(requested)) {
+    return 90;
+  }
+
+  if (requested.includes(candidate)) {
+    return 80;
+  }
+
+  const requestTokens = new Set(requested.split(" ").filter(Boolean));
+  const candidateTokens = new Set(candidate.split(" ").filter(Boolean));
+  if (!requestTokens.size || !candidateTokens.size) {
+    return 0;
+  }
+
+  let overlap = 0;
+  requestTokens.forEach((token) => {
+    if (candidateTokens.has(token)) {
+      overlap += 1;
+    }
+  });
+
+  const overlapRatio = overlap / Math.max(requestTokens.size, candidateTokens.size);
+  if (overlapRatio <= 0) {
+    return 0;
+  }
+
+  return Math.round(overlapRatio * 70);
+}
+
+function resolveRequestedMusicPlayback(toolResults, { playlistIntent, artistIntent }) {
+  const requestedName = String(playlistIntent?.playlistName || artistIntent?.artistName || "").trim();
+  if (!requestedName) {
+    return {
+      playResult: null,
+      extraLookupResult: null,
+      agentMessage: "Sir, tell me which playlist to play."
+    };
+  }
+
+  let lookupEntry = Array.isArray(toolResults)
+    ? toolResults.find((entry) => entry?.tool === "list_music_playlists" && entry?.result?.ok)
+    : null;
+  let extraLookupResult = null;
+
+  if (!lookupEntry) {
+    const lookupResult = executeToolCall("list_music_playlists", {});
+    extraLookupResult = {
+      tool: "list_music_playlists",
+      args: {},
+      result: lookupResult
+    };
+    lookupEntry = lookupResult?.ok ? extraLookupResult : null;
+  }
+
+  const playlists = Array.isArray(lookupEntry?.result?.playlists) ? lookupEntry.result.playlists : [];
+  const localPlaylists = playlists.filter((playlist) => String(playlist?.source || "") === "local-saved");
+
+  if (!localPlaylists.length) {
+    if (artistIntent) {
+      const fallbackArtistCall = buildPlayArtistCall(requestedName);
+      const fallbackArtistResult = executeToolCall(fallbackArtistCall.tool, fallbackArtistCall.args);
+      return {
+        playResult: { ...fallbackArtistCall, result: fallbackArtistResult },
+        extraLookupResult,
+        agentMessage: fallbackArtistResult?.ok
+          ? `Playing tracks by ${requestedName} now, sir.`
+          : `Sir, I could not start playback for ${requestedName}.`
+      };
+    }
+
+    return {
+      playResult: null,
+      extraLookupResult,
+      agentMessage: "Sir, I could not find any saved local playlists to play yet."
+    };
+  }
+
+  let best = null;
+  localPlaylists.forEach((playlist) => {
+    const nameScore = scorePlaylistMatch(requestedName, playlist?.name || "");
+    const contentScore = scorePlaylistContentMatch(requestedName, playlist);
+    const score = Math.max(nameScore, contentScore);
+    if (!best || score > best.score) {
+      best = { playlist, score };
+    }
+  });
+
+  if (!best || best.score < 35) {
+    if (artistIntent) {
+      const fallbackArtistCall = buildPlayArtistCall(requestedName);
+      const fallbackArtistResult = executeToolCall(fallbackArtistCall.tool, fallbackArtistCall.args);
+      return {
+        playResult: { ...fallbackArtistCall, result: fallbackArtistResult },
+        extraLookupResult,
+        agentMessage: fallbackArtistResult?.ok
+          ? `I could not find a close playlist match, so I am playing tracks by ${requestedName}, sir.`
+          : `Sir, I could not match ${requestedName} to a playlist or start artist playback.`
+      };
+    }
+
+    const options = localPlaylists.slice(0, 6).map((item) => item.name).join(", ");
+    return {
+      playResult: null,
+      extraLookupResult,
+      agentMessage: `Sir, I could not match '${requestedName}' to a playlist. Available playlists: ${options}.`
+    };
+  }
+
+  const selectedName = String(best.playlist?.name || requestedName).trim();
+  const playCall = buildPlayPlaylistCall(selectedName, requestedName, best.score, best.playlist);
+  const playResult = executeToolCall(playCall.tool, playCall.args);
+
+  if (!playResult?.ok) {
+    return {
+      playResult: { ...playCall, result: playResult },
+      extraLookupResult,
+      agentMessage: `Sir, I found playlist ${selectedName}, but playback failed: ${playResult.message || "unknown error"}.`
+    };
+  }
+
+  return {
+    playResult: { ...playCall, result: playResult },
+    extraLookupResult,
+    agentMessage: `Starting playlist ${selectedName} now, sir.`
+  };
+}
+
+function buildPlayPlaylistCall(selectedName, requestedName, matchScore, playlist = null) {
+  return {
+    tool: "publish_event",
+    args: {
+      appId: "music-app",
+      source: "agent",
+      type: "music-command",
+      message: `Agent requested playlist playback: ${selectedName}.`,
+      meta: {
+        action: "play-playlist",
+        playlistName: selectedName,
+        requestedName,
+        matchScore,
+        tracks: Array.isArray(playlist?.tracks)
+          ? playlist.tracks.map((track) => ({
+              name: String(track?.name || track?.title || "").trim(),
+              title: String(track?.title || "").trim(),
+              artist: String(track?.artist || "").trim(),
+              sourcePath: String(track?.sourcePath || "").trim(),
+              audioUrl: String(track?.audioUrl || "").trim()
+            }))
+          : [],
+        openApp: true
+      }
+    }
+  };
+}
+
+function buildPlayArtistCall(artistName) {
+  return {
+    tool: "publish_event",
+    args: {
+      appId: "music-app",
+      source: "agent",
+      type: "music-command",
+      message: `Agent requested artist playback: ${artistName}.`,
+      meta: {
+        action: "play-artist",
+        artistName,
+        openApp: true
+      }
+    }
+  };
+}
+
+function scorePlaylistContentMatch(requestedName, playlist) {
+  const tracks = Array.isArray(playlist?.tracks) ? playlist.tracks : [];
+  if (!tracks.length) {
+    return 0;
+  }
+
+  let bestScore = 0;
+  tracks.forEach((track) => {
+    const artistScore = scorePlaylistMatch(requestedName, track?.artist || "");
+    const titleScore = scorePlaylistMatch(requestedName, track?.title || "");
+    const nameScore = scorePlaylistMatch(requestedName, track?.name || "");
+    bestScore = Math.max(bestScore, artistScore, titleScore, nameScore);
+  });
+
+  return bestScore;
 }
 
 function escapeJsonString(value) {
