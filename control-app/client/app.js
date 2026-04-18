@@ -33,7 +33,11 @@ const state = {
   events: [],
   settings: null,
   settingsOptions: null,
-  chatMessages: []
+  chatMessages: [],
+  chatDraft: "",
+  chatStickToBottom: true,
+  chatSessionStartedAt: Date.now(),
+  chatInputShouldRefocus: false
 };
 
 const appTabsContainer = document.getElementById("app-tabs");
@@ -49,6 +53,8 @@ const appView = document.getElementById("view-app");
 const currentModePill = document.getElementById("current-mode-pill");
 const modeDesktopBtn = document.getElementById("mode-desktop-btn");
 const modeMobileBtn = document.getElementById("mode-mobile-btn");
+const startupSplash = document.getElementById("startup-splash");
+const appShell = document.getElementById("app-shell");
 
 async function loadApps() {
   const res = await fetch("/api/apps");
@@ -77,7 +83,13 @@ async function loadSettings() {
 async function loadChatMessages() {
   const res = await fetch("/api/chat/messages?limit=120");
   const data = await res.json();
-  state.chatMessages = data.messages ?? [];
+  const sessionStart = Number(state.chatSessionStartedAt) || Date.now();
+  const serverMessages = (data.messages ?? []).filter((message) => {
+    const timestamp = Date.parse(String(message?.timestamp || ""));
+    return Number.isFinite(timestamp) && timestamp >= sessionStart;
+  });
+  const pendingMessages = state.chatMessages.filter((message) => message.meta?.pending);
+  state.chatMessages = [...serverMessages, ...pendingMessages].slice(-120);
 }
 
 async function switchModeRequest(targetMode) {
@@ -150,6 +162,119 @@ async function postChatMessage(text) {
   return res.json();
 }
 
+async function postAppMessageToAgent(appId, message, meta = {}) {
+  const res = await fetch(`/api/apps/${appId}/agent-message`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ message, meta })
+  });
+
+  return res.json();
+}
+
+async function openNewsAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openNewsAppWindow) {
+    await window.controlCenterDesktop.openNewsAppWindow();
+    return;
+  }
+
+  window.open("/news-app/", "_blank", "noopener");
+}
+
+async function openWorkAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openWorkAppWindow) {
+    await window.controlCenterDesktop.openWorkAppWindow();
+    return;
+  }
+
+  window.open("/work-app/", "_blank", "noopener");
+}
+
+async function openProjectAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openProjectAppWindow) {
+    await window.controlCenterDesktop.openProjectAppWindow();
+    return;
+  }
+
+  window.open("/project-app/", "_blank", "noopener");
+}
+
+function addPendingUserMessage(text) {
+  const pendingId = `pending-${Date.now()}`;
+  state.chatMessages = [
+    ...state.chatMessages,
+    {
+      id: pendingId,
+      role: "user",
+      text,
+      timestamp: new Date().toISOString(),
+      meta: {
+        pending: true
+      }
+    }
+  ].slice(-120);
+
+  return pendingId;
+}
+
+function removePendingUserMessage(pendingId) {
+  state.chatMessages = state.chatMessages.filter((message) => message.id !== pendingId);
+}
+
+function ensureChatInputFocus(retryCount = 0) {
+  if (state.activeTab !== "chatbot") {
+    return;
+  }
+
+  const input = document.getElementById("chat-input");
+  if (!input) {
+    if (retryCount < 3) {
+      window.setTimeout(() => ensureChatInputFocus(retryCount + 1), 60);
+    }
+    return;
+  }
+
+  input.focus();
+  const valueLength = String(input.value || "").length;
+  input.setSelectionRange(valueLength, valueLength);
+}
+
+function bindChatPanelState() {
+  const panel = document.getElementById("chat-panel");
+  const input = document.getElementById("chat-input");
+
+  if (input) {
+    input.value = state.chatDraft;
+    input.addEventListener("input", (event) => {
+      state.chatDraft = event.target.value;
+    });
+
+    if (state.chatInputShouldRefocus && state.activeTab === "chatbot") {
+      window.requestAnimationFrame(() => {
+        ensureChatInputFocus();
+      });
+      state.chatInputShouldRefocus = false;
+    }
+  }
+
+  if (!panel) {
+    return;
+  }
+
+  panel.addEventListener("scroll", () => {
+    const distanceFromBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
+    state.chatStickToBottom = distanceFromBottom < 28;
+  });
+
+  if (state.chatStickToBottom) {
+    window.requestAnimationFrame(() => {
+      panel.scrollTop = panel.scrollHeight;
+    });
+  }
+}
+
 function modeButtonsActiveState() {
   modeDesktopBtn.classList.toggle("is-active", state.mode === "desktop");
   modeMobileBtn.classList.toggle("is-active", state.mode === "mobile");
@@ -174,6 +299,27 @@ function getRecentOverviewEvents() {
   return state.events.slice(0, 5);
 }
 
+function isAppOnline(app) {
+  const status = String(app?.status || "").toLowerCase();
+  return status === "live" || status === "online" || status === "ready";
+}
+
+function appTabBadge(app) {
+  if (isAppOnline(app)) {
+    return '<span class="online-badge">ONLINE</span>';
+  }
+
+  return '<span class="wip-badge">WIP</span>';
+}
+
+function appStatusPill(app) {
+  if (isAppOnline(app)) {
+    return '<span class="status ready">Online</span>';
+  }
+
+  return '<span class="status wip">Work In Progress</span>';
+}
+
 function renderAppTabs() {
   appTabsContainer.innerHTML = "";
 
@@ -181,7 +327,7 @@ function renderAppTabs() {
     const btn = document.createElement("button");
     btn.className = "nav-tab app-tab";
     btn.dataset.tab = `app:${app.id}`;
-    btn.innerHTML = `<span>${app.name}</span><span class="wip-badge">WIP</span>`;
+    btn.innerHTML = `<span>${app.name}</span>${appTabBadge(app)}`;
     appTabsContainer.appendChild(btn);
   });
 }
@@ -192,12 +338,12 @@ function appCard(app) {
     .join("");
 
   return `
-    <article class="card">
+    <article class="card app-module-card" data-action="open-app" data-app-id="${app.id}" role="button" tabindex="0" aria-label="Open ${app.name}">
       <h3>${app.name}</h3>
       <p>${app.description}</p>
       <div class="caps">${capHtml}</div>
       <div style="margin-top: 10px">
-        <span class="status wip">Work In Progress</span>
+        ${appStatusPill(app)}
       </div>
     </article>
   `;
@@ -333,8 +479,9 @@ function renderSettings() {
 function chatMessageItem(message) {
   const roleLabel = message.role === "agent" ? "Agent" : "You";
   const roleClass = message.role === "agent" ? "role-agent" : "role-user";
+  const pendingClass = message.meta?.pending ? "is-pending" : "";
   return `
-    <li class="chat-item ${roleClass}">
+    <li class="chat-item ${roleClass} ${pendingClass}">
       <div class="event-meta">
         <span>${roleLabel}</span>
         <span>${new Date(message.timestamp).toLocaleTimeString()}</span>
@@ -361,8 +508,9 @@ function renderChatbot() {
     <article class="card stack">
       <h3>Agent Text Chat</h3>
       <p class="muted">Use this channel to interact with your agent through text while in Desktop Mode.</p>
+      <p class="muted">Agent responses are processed through a command filter and tool runtime before being returned.</p>
 
-      <div class="chat-panel">
+      <div class="chat-panel" id="chat-panel">
         <ul class="list chat-list">
           ${state.chatMessages.length ? state.chatMessages.map(chatMessageItem).join("") : "<li>No messages yet.</li>"}
         </ul>
@@ -379,6 +527,8 @@ function renderChatbot() {
       </form>
     </article>
   `;
+
+  bindChatPanelState();
 }
 
 function renderAgentCore() {
@@ -422,6 +572,9 @@ function renderIntegrationHub() {
           <li>POST /api/settings/desktop/test-voice</li>
           <li>GET /api/chat/messages</li>
           <li>POST /api/chat/messages</li>
+          <li>GET /api/agent/context</li>
+          <li>GET /api/agent/tools</li>
+          <li>POST /api/agent/respond</li>
           <li>GET /api/events</li>
           <li>POST /api/events</li>
           <li>GET /api/events/stream</li>
@@ -537,6 +690,35 @@ function activateTab(tab) {
 
 function wireNavigation() {
   document.addEventListener("click", (event) => {
+    const openAppButton = event.target.closest("[data-action='open-app']");
+    if (openAppButton) {
+      const appId = openAppButton.dataset.appId;
+
+      if (appId === "news-app") {
+        openNewsAppWindow().catch(() => {
+          // Ignore launch failures for now.
+        });
+        return;
+      }
+
+      if (appId === "work-app") {
+        openWorkAppWindow().catch(() => {
+          // Ignore launch failures for now.
+        });
+        return;
+      }
+
+      if (appId === "project-app") {
+        openProjectAppWindow().catch(() => {
+          // Ignore launch failures for now.
+        });
+        return;
+      }
+
+      activateTab(`app:${appId}`);
+      return;
+    }
+
     const actionButton = event.target.closest("[data-action='publish-event']");
     if (actionButton) {
       const appId = actionButton.dataset.appId;
@@ -613,6 +795,27 @@ function wireNavigation() {
       return;
     }
 
+    if (target.dataset.tab === "app:news-app") {
+      openNewsAppWindow().catch(() => {
+        // Ignore launch failures for now.
+      });
+      return;
+    }
+
+    if (target.dataset.tab === "app:work-app") {
+      openWorkAppWindow().catch(() => {
+        // Ignore launch failures for now.
+      });
+      return;
+    }
+
+    if (target.dataset.tab === "app:project-app") {
+      openProjectAppWindow().catch(() => {
+        // Ignore launch failures for now.
+      });
+      return;
+    }
+
     activateTab(target.dataset.tab);
   });
 
@@ -663,22 +866,49 @@ function wireNavigation() {
       return;
     }
 
+    const pendingId = addPendingUserMessage(text);
+    state.chatDraft = "";
+    state.chatStickToBottom = true;
+    state.chatInputShouldRefocus = true;
+    renderChatbot();
+    ensureChatInputFocus();
+
     postChatMessage(text)
       .then(async (result) => {
+        removePendingUserMessage(pendingId);
+
         if (!result.ok) {
+          renderChatbot();
           return;
         }
 
         await loadChatMessages();
         await loadEvents();
         renderChatbot();
+        ensureChatInputFocus();
         if (state.system) {
           renderOverview(state.system);
         }
       })
       .catch(() => {
+        removePendingUserMessage(pendingId);
+        state.chatInputShouldRefocus = true;
+        renderChatbot();
+        ensureChatInputFocus();
         // Keep UI responsive when chat send fails.
       });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    const chatInput = event.target.closest("#chat-input");
+    if (!chatInput) {
+      return;
+    }
+
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      chatInput.closest("form")?.requestSubmit();
+    }
   });
 }
 
@@ -723,6 +953,37 @@ function startEventStream() {
 
       if (payload.type === "event" && payload.event) {
         state.events = [payload.event, ...state.events].slice(0, 120);
+
+        if (payload.event.type === "open-app" && payload.event.meta?.tab) {
+          const targetTab = String(payload.event.meta.tab);
+          if (targetTab === "app:news-app") {
+            openNewsAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
+          } else if (targetTab === "app:work-app") {
+            openWorkAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
+          } else if (targetTab === "app:project-app") {
+            openProjectAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
+          } else {
+            activateTab(targetTab);
+          }
+        }
+
+        if (payload.event.source === "chat" || String(payload.event.type || "").startsWith("chat")) {
+          loadChatMessages()
+            .then(() => {
+              if (state.activeTab === "chatbot") {
+                renderChatbot();
+              }
+            })
+            .catch(() => {
+              // Ignore chat refresh failures from the event stream.
+            });
+        }
       }
 
       if (state.activeTab === "overview" && state.system) {
@@ -740,10 +1001,27 @@ function startEventStream() {
       if (state.activeTab === "chatbot") {
         renderChatbot();
       }
+
+      if (state.activeTab.startsWith("app:") && state.activeTab !== "app:news-app") {
+        const appId = state.activeTab.replace("app:", "");
+        renderSingleApp(appId);
+      }
     } catch (error) {
       // Ignore malformed stream events.
     }
   };
+}
+
+function runStartupSequence() {
+  if (!startupSplash || !appShell) {
+    return;
+  }
+
+  appShell.classList.add("is-ready");
+
+  window.setTimeout(() => {
+    startupSplash.classList.add("is-hidden");
+  }, 3600);
 }
 
 async function init() {
@@ -767,6 +1045,7 @@ async function init() {
   modeButtonsActiveState();
   startEventStream();
   activateTab("overview");
+  runStartupSequence();
 }
 
 init().catch((error) => {

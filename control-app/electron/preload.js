@@ -1,5 +1,14 @@
-import { contextBridge } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("controlCenterDesktop", {
-  runtime: "electron"
+  runtime: "electron",
+  openNewsAppWindow: () => ipcRenderer.invoke("news-app:open"),
+  openWorkAppWindow: () => ipcRenderer.invoke("work-app:open"),
+  openProjectAppWindow: () => ipcRenderer.invoke("project-app:open"),
+  chooseDirectory: (defaultPath) => {
+    const normalizedPath = typeof defaultPath === "string" ? defaultPath.trim() : "";
+    return ipcRenderer.invoke("dialog:choose-directory", {
+      defaultPath: normalizedPath || undefined
+    });
+  }
 });

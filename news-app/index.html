@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>News App</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="news-app-root">
+      <header class="news-header">
+        <h1>News App</h1>
+        <p>Live weather, top headlines, technology updates, and one STEM feature.</p>
+      </header>
+
+      <section class="news-controls">
+        <form id="location-form" class="news-toolbar-form">
+          <input id="location-input" name="location" class="news-input" type="text" value="Placentia, CA" placeholder="Enter a city" />
+          <button type="submit" class="action-btn">Load Briefing</button>
+          <button type="button" id="refresh-btn" class="action-btn">Refresh</button>
+        </form>
+        <p id="status-text" class="muted"></p>
+      </section>
+
+      <section class="weather-block">
+        <h2>Weather</h2>
+        <div id="weather-content"></div>
+      </section>
+
+      <section id="news-grid" class="news-grid"></section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Project App</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="projects-app-root">
+      <header class="projects-header">
+        <h1>Personal Projects</h1>
+        <p>Personal projects, coding workflows, and IDE launch integration.</p>
+      </header>
+
+      <section class="app-toolbar">
+        <div class="toolbar-label">Tools</div>
+        <div class="toolbar-buttons">
+          <button class="tool-btn" data-tool="vscode" title="Open VSCode">VSCode</button>
+          <button class="tool-btn" data-tool="lmstudio" title="Open LMStudio">LMStudio</button>
+          <button class="tool-btn" data-tool="powershell" title="Open PowerShell">PowerShell</button>
+          <button class="tool-btn" data-tool="vmware" title="Open VMware Workstation">VMware</button>
+          <button class="tool-btn" data-tool="android-studio" title="Open Android Studio">Android Studio</button>
+        </div>
+        <div class="toolbar-label">Projects</div>
+        <div class="toolbar-buttons">
+          <button class="tool-btn project-action-btn" id="create-project-btn" type="button">+ Create Project</button>
+          <button class="tool-btn project-action-btn" id="delete-project-btn" type="button" disabled>Delete Project</button>
+        </div>
+      </section>
+
+      <section class="projects-container">
+        <div class="projects-grid" id="projects-grid"></div>
+        <div class="file-tree-panel" id="file-tree-panel">
+          <div class="tree-header">
+            <h3 id="tree-title">Select a project</h3>
+            <button class="close-tree-btn" id="close-tree-btn">✕</button>
+          </div>
+          <div class="tree-content" id="tree-content"></div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

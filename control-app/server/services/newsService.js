@@ -1,0 +1,1 @@
+export { getNewsBriefing } from "../../../news-app/newsService.js";

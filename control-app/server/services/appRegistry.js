@@ -3,7 +3,7 @@ const appRegistry = [
     id: "project-app",
     name: "Project App",
     description: "Personal projects, coding workflows, and IDE launch integration.",
-    status: "wip",
+    status: "online",
     routeKey: "project-app",
     capabilities: ["files", "ide", "agent-summary"]
   },
@@ -11,7 +11,7 @@ const appRegistry = [
     id: "work-app",
     name: "Work App",
     description: "Work and school projects with isolated file boundaries.",
-    status: "wip",
+    status: "online",
     routeKey: "work-app",
     capabilities: ["files", "ide", "agent-summary"]
   },
@@ -35,7 +35,7 @@ const appRegistry = [
     id: "news-app",
     name: "News App",
     description: "Weather, headlines, tech updates, and daily STEM content.",
-    status: "wip",
+    status: "live",
     routeKey: "news-app",
     capabilities: ["weather", "news", "tech", "daily-stem"]
   },

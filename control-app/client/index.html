@@ -7,7 +7,19 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <div id="startup-splash" class="startup-splash" aria-hidden="true">
+      <div class="startup-grid"></div>
+      <div class="startup-core-ring"></div>
+      <div class="startup-core-ring startup-core-ring-secondary"></div>
+      <div class="startup-scanline"></div>
+      <div class="startup-content">
+        <p class="startup-label">CONTROL CENTER</p>
+        <h1>Neural Interface Booting</h1>
+        <p class="startup-sub">Initializing local agent runtime, tool gateway, and system modules...</p>
+      </div>
+    </div>
+
+    <div id="app-shell" class="app-shell app-shell--hidden">
       <aside class="sidebar">
         <div class="brand">
           <div class="brand-dot"></div>

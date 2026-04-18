@@ -7,12 +7,21 @@ import apiRouter from "./routes/api.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDir = path.join(__dirname, "..", "client");
+const newsAppDir = path.join(__dirname, "..", "..", "news-app");
+const workAppDir = path.join(__dirname, "..", "..", "work-app");
+const projectAppDir = path.join(__dirname, "..", "..", "project-app");
 
 function createServerApp() {
   const app = express();
 
   app.use(express.json());
   app.use("/api", apiRouter);
+  app.use("/modules/news-app", express.static(newsAppDir));
+  app.use("/news-app", express.static(newsAppDir));
+  app.use("/modules/work-app", express.static(workAppDir));
+  app.use("/work-app", express.static(workAppDir));
+  app.use("/modules/project-app", express.static(projectAppDir));
+  app.use("/project-app", express.static(projectAppDir));
   app.use(express.static(clientDir));
 
   app.get("*", (req, res) => {

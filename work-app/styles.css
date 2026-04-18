@@ -1,0 +1,558 @@
+:root {
+  --bg: #071015;
+  --panel: #0f222b;
+  --panel-soft: #112833;
+  --line: rgba(140, 201, 216, 0.24);
+  --line-strong: rgba(140, 201, 216, 0.44);
+  --text: #e6f7fb;
+  --muted: #9eb7be;
+  --accent: #3ac2d4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  color: var(--text);
+  background: radial-gradient(circle at 15% 15%, #15313a 0%, transparent 45%),
+    linear-gradient(160deg, #04090c 0%, #071015 40%, #0a1519 100%);
+  font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+}
+
+.projects-app-root {
+  padding: 22px;
+  display: grid;
+  gap: 14px;
+  min-height: 100vh;
+}
+
+.projects-header {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(145deg, rgba(17, 36, 43, 0.9), rgba(12, 26, 31, 0.9));
+}
+
+.projects-header h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.projects-header p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.app-toolbar {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(9, 21, 27, 0.82);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-label {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.toolbar-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tool-btn {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(15, 32, 38, 0.9);
+  color: var(--text);
+  padding: 9px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.tool-btn:hover {
+  border-color: var(--line-strong);
+  background: rgba(20, 40, 48, 0.95);
+}
+
+.projects-container {
+  display: grid;
+  grid-template-columns: 1fr 0fr;
+  gap: 12px;
+  transition: grid-template-columns 0.3s ease;
+  align-items: start;
+}
+
+.projects-container.tree-open {
+  grid-template-columns: 372px minmax(0, 1fr);
+}
+
+.projects-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 280px));
+  justify-content: start;
+  align-content: start;
+  grid-auto-rows: minmax(94px, auto);
+}
+
+.project-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: linear-gradient(152deg, rgba(17, 36, 43, 0.84), rgba(10, 22, 28, 0.86));
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.project-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  background: linear-gradient(152deg, rgba(20, 42, 50, 0.92), rgba(14, 28, 33, 0.92));
+}
+
+.project-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(58, 194, 212, 0.28);
+}
+
+.project-action-btn {
+  min-width: 132px;
+}
+
+.project-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.project-path {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.file-tree-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(9, 21, 27, 0.82);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 0;
+  width: 0;
+  overflow: hidden;
+  transition: width 0.3s ease;
+  min-height: 72vh;
+}
+
+.projects-container.tree-open .file-tree-panel {
+  width: 100%;
+  height: 72vh;
+}
+
+.tree-header {
+  border-bottom: 1px solid var(--line);
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tree-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.close-tree-btn {
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0;
+}
+
+.close-tree-btn:hover {
+  color: var(--accent);
+}
+
+.tree-content {
+  overflow: hidden;
+  padding: 12px;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tree-node {
+  margin-left: 0;
+  line-height: 1.5;
+}
+
+.tree-node.nested {
+  margin-left: 18px;
+}
+
+.tree-toggle {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 0.8rem;
+  width: 16px;
+  text-align: center;
+}
+
+.tree-name {
+  color: var(--text);
+  margin-left: 4px;
+}
+
+.tree-name.file {
+  color: var(--muted);
+}
+
+.tree-name.folder {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.file-tree-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.tree-toolbar-separator {
+  width: 1px;
+  height: 24px;
+  background: var(--line);
+  margin: 0 4px;
+}
+
+.tree-status {
+  margin: 10px 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 0.8rem;
+}
+
+.tree-status-info {
+  color: var(--muted);
+}
+
+.tree-status-success {
+  color: #8de6b4;
+  border-color: rgba(141, 230, 180, 0.35);
+  background: rgba(34, 71, 53, 0.35);
+}
+
+.tree-status-error {
+  color: #ffb3b3;
+  border-color: rgba(255, 120, 120, 0.35);
+  background: rgba(84, 31, 31, 0.3);
+}
+
+.file-op-btn {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  color: var(--accent);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.file-op-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+.file-op-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.file-op-btn-static {
+  min-width: 64px;
+}
+
+.file-tree-graph {
+  overflow: auto;
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(7, 17, 22, 0.75);
+  --graph-scale: 1;
+  --graph-width: 280px;
+  --graph-height: 220px;
+}
+
+.graph-canvas {
+  position: relative;
+  width: var(--graph-width);
+  height: var(--graph-height);
+  transform: scale(var(--graph-scale));
+  transform-origin: top left;
+}
+
+.connection-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.graph-nodes {
+  position: relative;
+  min-height: var(--graph-height);
+  min-width: var(--graph-width);
+}
+
+.graph-node {
+  position: absolute;
+  width: 144px;
+  min-height: 72px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  appearance: none;
+  color: inherit;
+  font: inherit;
+  padding: 10px;
+}
+
+.graph-node:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(58, 194, 212, 0.2);
+}
+
+.graph-node.selected {
+  border-color: var(--accent);
+  background: var(--panel-soft);
+  box-shadow: 0 0 16px rgba(58, 194, 212, 0.4);
+}
+
+.graph-node.folder-node {
+  border-color: var(--line-strong);
+}
+
+.graph-node.folder-node:hover {
+  border-color: var(--accent);
+}
+
+.node-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 32px;
+  border-radius: 8px;
+  background: rgba(58, 194, 212, 0.12);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.node-name {
+  font-size: 0.75rem;
+  text-align: center;
+  color: var(--text);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.graph-node.folder-node .node-name {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.dialog-overlay.is-visible {
+  opacity: 1;
+}
+
+.dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 8, 12, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.dialog-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 430px);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  padding: 18px;
+  background: linear-gradient(145deg, rgba(16, 34, 40, 0.96), rgba(10, 21, 26, 0.98));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+}
+
+.dialog-panel-danger {
+  border-color: rgba(255, 120, 120, 0.35);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.dialog-close-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.dialog-description {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.dialog-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.dialog-field {
+  display: grid;
+  gap: 6px;
+}
+
+.dialog-field span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.dialog-field input,
+.dialog-field select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(9, 21, 27, 0.92);
+  color: var(--text);
+  padding: 10px 12px;
+  font: inherit;
+  outline: none;
+}
+
+.dialog-field input:focus,
+.dialog-field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(58, 194, 212, 0.25);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.dialog-directory-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.dialog-directory-row input[readonly] {
+  color: var(--muted);
+}
+
+.dialog-btn {
+  border-radius: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  font: inherit;
+  border: 1px solid var(--line);
+}
+
+.dialog-btn-secondary {
+  background: rgba(15, 32, 38, 0.6);
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.dialog-btn-secondary:hover {
+  background: rgba(22, 44, 52, 0.75);
+  color: var(--accent);
+}
+
+.dialog-btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.dialog-btn-danger {
+  background: #d96d6d;
+  border-color: #d96d6d;
+  color: #fff;
+}
+
+@media (max-width: 1200px) {
+  .projects-container.tree-open {
+    grid-template-columns: 1fr;
+  }
+
+  .file-tree-panel {
+    width: auto !important;
+  }
+
+  .projects-container.tree-open .file-tree-panel {
+    width: 100%;
+  }
+}
