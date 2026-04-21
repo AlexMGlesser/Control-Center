@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Calendar App</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="calendar-shell">
+      <section class="calendar-hero">
+        <div>
+          <p class="eyebrow">Schedule cockpit</p>
+          <h1>Calendar App</h1>
+          <p class="hero-copy">
+            A monthly view of your schedule with agenda details, day summaries, and agent-ready command hints.
+          </p>
+        </div>
+        <div class="hero-stats" id="hero-stats"></div>
+      </section>
+
+      <section class="calendar-layout">
+        <article class="calendar-panel month-panel">
+          <header class="month-toolbar">
+            <div>
+              <p class="eyebrow">Month view</p>
+              <h2 id="month-label">Loading...</h2>
+            </div>
+            <div class="toolbar-actions">
+              <button type="button" class="action-btn ghost" data-action="prev-month">Previous</button>
+              <button type="button" class="action-btn" data-action="today">Today</button>
+              <button type="button" class="action-btn ghost" data-action="next-month">Next</button>
+            </div>
+          </header>
+
+          <div class="weekday-row">
+            <span>Sun</span>
+            <span>Mon</span>
+            <span>Tue</span>
+            <span>Wed</span>
+            <span>Thu</span>
+            <span>Fri</span>
+            <span>Sat</span>
+          </div>
+
+          <div class="month-grid" id="month-grid"></div>
+        </article>
+
+        <aside class="calendar-rail">
+          <article class="calendar-panel agenda-panel">
+            <header>
+              <p class="eyebrow">Selected day</p>
+              <h2 id="selected-date-label">Loading...</h2>
+            </header>
+            <div id="selected-day-events" class="agenda-stack"></div>
+          </article>
+
+          <article class="calendar-panel command-panel">
+            <header>
+              <p class="eyebrow">Agent skills</p>
+              <h2>Voice and chat phrases</h2>
+            </header>
+            <ul class="command-list">
+              <li>Open my calendar</li>
+              <li>What do I have planned for the rest of the day?</li>
+              <li>Read my calendar to me</li>
+              <li>Add dentist appointment to my calendar for next Tuesday at 4 PM</li>
+              <li>Remove dentist appointment from my calendar</li>
+            </ul>
+            <p class="muted">
+              The agent only opens the calendar app when you explicitly ask it to open your calendar. Read requests can stay voice-only.
+            </p>
+          </article>
+        </aside>
+      </section>
+
+      <p id="status-text" class="status-text"></p>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

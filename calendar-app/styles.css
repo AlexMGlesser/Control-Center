@@ -1,0 +1,355 @@
+:root {
+  --bg: #071117;
+  --panel: rgba(13, 24, 31, 0.82);
+  --panel-strong: rgba(15, 28, 36, 0.96);
+  --ink: #edf6f8;
+  --muted: #91a4ad;
+  --line: rgba(157, 187, 197, 0.14);
+  --accent: #1ea896;
+  --accent-soft: rgba(30, 168, 150, 0.16);
+  --gold: #d7a64c;
+  --coral: #ef7d68;
+  --plum: #b083ff;
+  --shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+  --radius-xl: 28px;
+  --radius-lg: 20px;
+  --radius-md: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(30, 168, 150, 0.2), transparent 28%),
+    radial-gradient(circle at top right, rgba(215, 166, 76, 0.16), transparent 24%),
+    linear-gradient(180deg, #09141b 0%, #050c11 100%);
+}
+
+.calendar-shell {
+  width: min(1480px, calc(100vw - 40px));
+  margin: 24px auto 36px;
+  display: grid;
+  gap: 20px;
+}
+
+.calendar-hero,
+.calendar-panel {
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(161, 193, 202, 0.12);
+  box-shadow: var(--shadow);
+}
+
+.calendar-hero {
+  padding: 28px 30px;
+  border-radius: var(--radius-xl);
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 24px;
+  overflow: hidden;
+  position: relative;
+}
+
+.calendar-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -40px -40px auto;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(30, 168, 150, 0.22), transparent 68%);
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.4rem, 3vw, 3.5rem);
+  line-height: 1;
+}
+
+h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.55rem;
+}
+
+.hero-copy,
+.muted,
+.status-text {
+  color: var(--muted);
+}
+
+.hero-copy {
+  max-width: 62ch;
+  margin-top: 12px;
+  line-height: 1.55;
+}
+
+.hero-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+.stat-card {
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  background: var(--panel-strong);
+  border: 1px solid rgba(161, 193, 202, 0.1);
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.55rem;
+}
+
+.calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(320px, 0.9fr);
+  gap: 20px;
+}
+
+.calendar-panel {
+  border-radius: var(--radius-xl);
+  padding: 22px;
+}
+
+.month-toolbar,
+.toolbar-actions,
+.weekday-row,
+.day-heading,
+.agenda-card-header {
+  display: flex;
+  align-items: center;
+}
+
+.month-toolbar {
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.toolbar-actions {
+  gap: 10px;
+}
+
+.action-btn {
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  padding: 11px 16px;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 140ms ease, opacity 140ms ease, background 140ms ease;
+}
+
+.action-btn:hover {
+  transform: translateY(-1px);
+}
+
+.action-btn.ghost {
+  background: rgba(161, 193, 202, 0.08);
+  color: var(--ink);
+}
+
+.weekday-row {
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.weekday-row span {
+  width: calc((100% - 60px) / 7);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.day-card {
+  min-height: 132px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(10, 20, 27, 0.82);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  cursor: pointer;
+}
+
+.day-card:hover {
+  border-color: rgba(30, 168, 150, 0.44);
+}
+
+.day-card.is-outside {
+  opacity: 0.48;
+}
+
+.day-card.is-selected {
+  background: rgba(30, 168, 150, 0.14);
+  border-color: rgba(30, 168, 150, 0.52);
+}
+
+.day-card.is-today .day-number {
+  background: #edf6f8;
+  color: #071117;
+}
+
+.day-heading {
+  justify-content: space-between;
+}
+
+.day-number {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-weight: 700;
+}
+
+.event-count {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.day-preview,
+.agenda-stack,
+.command-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mini-event,
+.agenda-card {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(18, 31, 39, 0.94);
+  border: 1px solid rgba(161, 193, 202, 0.08);
+}
+
+.mini-event {
+  border-left: 4px solid var(--accent);
+}
+
+.mini-event.accent-gold,
+.agenda-card.accent-gold {
+  border-left-color: var(--gold);
+}
+
+.mini-event.accent-coral,
+.agenda-card.accent-coral {
+  border-left-color: var(--coral);
+}
+
+.mini-event.accent-plum,
+.agenda-card.accent-plum {
+  border-left-color: var(--plum);
+}
+
+.mini-event strong,
+.agenda-card strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.mini-event span,
+.agenda-card p,
+.agenda-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.calendar-rail {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
+.agenda-panel,
+.command-panel {
+  background: var(--panel-strong);
+}
+
+.agenda-empty {
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(161, 193, 202, 0.06);
+}
+
+.command-list {
+  padding-left: 18px;
+  margin: 14px 0;
+}
+
+.command-list li {
+  line-height: 1.5;
+}
+
+.status-text {
+  min-height: 1.4em;
+  padding-inline: 6px;
+}
+
+@media (max-width: 1080px) {
+  .calendar-hero,
+  .calendar-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .calendar-shell {
+    width: min(100vw - 24px, 100%);
+    margin: 12px auto 24px;
+  }
+
+  .calendar-hero,
+  .calendar-panel {
+    padding: 18px;
+  }
+
+  .month-grid {
+    gap: 8px;
+  }
+
+  .day-card {
+    min-height: 112px;
+    padding: 10px;
+  }
+
+  .toolbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}

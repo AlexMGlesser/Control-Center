@@ -3,10 +3,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { serverConfig } from "./config.js";
 import apiRouter from "./routes/api.js";
+import { attachVoiceWebSocket } from "./services/voiceService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDir = path.join(__dirname, "..", "client");
+const calendarAppDir = path.join(__dirname, "..", "..", "calendar-app");
 const newsAppDir = path.join(__dirname, "..", "..", "news-app");
 const workAppDir = path.join(__dirname, "..", "..", "work-app");
 const projectAppDir = path.join(__dirname, "..", "..", "project-app");
@@ -17,6 +19,8 @@ function createServerApp() {
 
   app.use(express.json());
   app.use("/api", apiRouter);
+  app.use("/modules/calendar-app", express.static(calendarAppDir));
+  app.use("/calendar-app", express.static(calendarAppDir));
   app.use("/modules/news-app", express.static(newsAppDir));
   app.use("/news-app", express.static(newsAppDir));
   app.use("/modules/work-app", express.static(workAppDir));
@@ -41,6 +45,7 @@ export function startServer() {
     const server = app
       .listen(serverConfig.port, serverConfig.host, () => {
         console.log(`Control Center running at http://localhost:${serverConfig.port}`);
+        attachVoiceWebSocket(server);
         resolve(server);
       })
       .on("error", (error) => {

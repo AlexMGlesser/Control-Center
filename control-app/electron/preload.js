@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("controlCenterDesktop", {
   runtime: "electron",
+  openCalendarAppWindow: () => ipcRenderer.invoke("calendar-app:open"),
   openNewsAppWindow: () => ipcRenderer.invoke("news-app:open"),
   openWorkAppWindow: () => ipcRenderer.invoke("work-app:open"),
   openProjectAppWindow: () => ipcRenderer.invoke("project-app:open"),

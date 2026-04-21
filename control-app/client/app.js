@@ -25,6 +25,8 @@ const tabMeta = {
   }
 };
 
+import { initVoice, stopVoice, getVoiceState, isVoiceActive } from "./voice.js";
+
 const state = {
   apps: [],
   activeTab: "overview",
@@ -45,7 +47,10 @@ const state = {
     duration: 0,
     queueCount: 0,
     updatedAt: Date.now()
-  }
+  },
+  voiceStatus: "off",
+  voiceTranscript: "",
+  voiceAgentText: ""
 };
 
 const musicStateChannel = typeof BroadcastChannel !== "undefined"
@@ -198,6 +203,15 @@ async function openNewsAppWindow() {
   window.open("/news-app/", "_blank", "noopener");
 }
 
+async function openCalendarAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openCalendarAppWindow) {
+    await window.controlCenterDesktop.openCalendarAppWindow();
+    return;
+  }
+
+  window.open("/calendar-app/", "_blank", "noopener");
+}
+
 async function openWorkAppWindow() {
   if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openWorkAppWindow) {
     await window.controlCenterDesktop.openWorkAppWindow();
@@ -223,6 +237,31 @@ async function openMusicAppWindow() {
   }
 
   window.open("/music-app/", "_blank", "noopener");
+}
+
+async function lmStudioStart() {
+  const res = await fetch("/api/lmstudio/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+  return res.json();
+}
+
+async function lmStudioStop() {
+  const res = await fetch("/api/lmstudio/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+  return res.json();
+}
+
+async function refreshSystemStatus() {
+  state.system = await loadSystem();
+  if (state.activeTab === "overview") {
+    renderOverview(state.system);
+  }
 }
 
 function addPendingUserMessage(text) {
@@ -402,6 +441,98 @@ function appCard(app) {
   `;
 }
 
+function renderLmStudioCard(system) {
+  const lm = system.lmStudio || {};
+  const status = String(lm.status || "not_connected");
+  const model = String(lm.model || "");
+  const isConnected = status === "connected";
+  const statusClass = isConnected ? "ready" : (status === "error" ? "wip" : "muted");
+  const statusLabel = isConnected ? "Connected" : (status === "error" ? "Error" : "Offline");
+  const errorHtml = lm.lastError ? `<li class="muted" style="font-size:0.78em">Last error: ${lm.lastError}</li>` : "";
+  const modelHtml = model ? `<li>Model: <span class="muted">${model}</span></li>` : "";
+
+  return `
+    <article class="card stack">
+      <h3>LMStudio</h3>
+      <ul class="list">
+        <li>Status: <span class="status ${statusClass}">${statusLabel}</span></li>
+        ${modelHtml}
+        ${errorHtml}
+      </ul>
+      <div class="event-controls">
+        <button class="action-btn" data-action="lmstudio-start" ${isConnected ? "disabled" : ""}>Start Model</button>
+        <button class="action-btn" data-action="lmstudio-stop" ${!isConnected ? "disabled" : ""}>Stop Model</button>
+      </div>
+      <p class="muted" id="lmstudio-feedback" style="font-size:0.8em;min-height:1.2em"></p>
+    </article>
+  `;
+}
+
+function renderVoiceCard(system) {
+  const voice = system.voice || {};
+  const whisperOk = voice.whisperReady;
+  const piperOk = voice.piperReady;
+  const allReady = whisperOk && piperOk;
+  const vs = state.voiceStatus;
+  const isActive = vs !== "off" && vs !== "error";
+
+  const statusLabels = {
+    off: "Off",
+    connecting: "Connecting...",
+    ready: "Ready",
+    listening: "Listening",
+    recording: "Recording...",
+    processing: "Processing...",
+    speaking: "Speaking...",
+    error: "Error"
+  };
+
+  const statusClasses = {
+    off: "muted",
+    connecting: "wip",
+    ready: "ready",
+    listening: "ready",
+    recording: "wip",
+    processing: "wip",
+    speaking: "wip",
+    error: "wip"
+  };
+
+  const statusLabel = statusLabels[vs] || vs;
+  const statusClass = statusClasses[vs] || "muted";
+
+  const setupWarning = !allReady
+    ? `<li class="muted" style="font-size:0.78em">Run voice/setup-voice.ps1 to install Whisper &amp; Piper</li>`
+    : "";
+
+  const transcriptHtml = state.voiceTranscript
+    ? `<li class="muted" style="font-size:0.78em">You: "${state.voiceTranscript}"</li>`
+    : "";
+  const agentHtml = state.voiceAgentText
+    ? `<li class="muted" style="font-size:0.78em">Jarvis: "${state.voiceAgentText}"</li>`
+    : "";
+
+  return `
+    <article class="card stack">
+      <h3>Voice Assistant</h3>
+      <ul class="list">
+        <li>Status: <span class="status ${statusClass}">${statusLabel}</span></li>
+        <li>Whisper: <span class="status ${whisperOk ? "ready" : "muted"}">${whisperOk ? "Ready" : "Not installed"}</span></li>
+        <li>Piper TTS: <span class="status ${piperOk ? "ready" : "muted"}">${piperOk ? "Ready" : "Not installed"}</span></li>
+        ${setupWarning}
+        ${transcriptHtml}
+        ${agentHtml}
+      </ul>
+      <div class="event-controls">
+        <button class="action-btn" data-action="voice-toggle" ${!allReady ? "disabled" : ""}>
+          ${isActive ? "Stop Listening" : "Start Listening"}
+        </button>
+      </div>
+      <p class="muted" id="voice-feedback" style="font-size:0.8em;min-height:1.2em"></p>
+    </article>
+  `;
+}
+
 function renderOverview(system) {
   overviewView.innerHTML = `
     <div class="grid">
@@ -420,11 +551,12 @@ function renderOverview(system) {
         <ul class="list">
           <li>System: ${system.name} v${system.version}</li>
           <li>Mode: <span class="muted">${state.mode}</span></li>
-          <li>LMStudio: <span class="muted">${system.lmStudio.status}</span></li>
           <li>Server: <span class="muted">${system.server.status}</span></li>
         </ul>
       </article>
 
+      ${renderLmStudioCard(system)}
+      ${renderVoiceCard(system)}
       ${renderMusicMiniPlayer()}
     </div>
 
@@ -655,7 +787,7 @@ function renderSingleApp(appId) {
   }
 
   const capHtml = app.capabilities.map((cap) => `<li>${cap}</li>`).join("");
-  const launchButton = ["news-app", "work-app", "project-app", "music-app"].includes(app.id)
+  const launchButton = ["calendar-app", "news-app", "work-app", "project-app", "music-app"].includes(app.id)
     ? `<div><button class="action-btn" data-action="open-app" data-app-id="${app.id}">Open ${app.name}</button></div>`
     : "";
 
@@ -749,6 +881,90 @@ function activateTab(tab) {
 
 function wireNavigation() {
   document.addEventListener("click", (event) => {
+    const lmStartButton = event.target.closest("[data-action='lmstudio-start']");
+    if (lmStartButton && !lmStartButton.disabled) {
+      lmStartButton.disabled = true;
+      lmStartButton.textContent = "Loading...";
+      const feedback = document.getElementById("lmstudio-feedback");
+      if (feedback) feedback.textContent = "Starting model — this may take a moment...";
+      lmStudioStart()
+        .then(async (result) => {
+          await refreshSystemStatus();
+          const fb = document.getElementById("lmstudio-feedback");
+          if (fb) fb.textContent = result.ok ? "Model loaded." : (result.message || "Failed to start.");
+        })
+        .catch(async () => {
+          await refreshSystemStatus();
+        });
+      return;
+    }
+
+    const lmStopButton = event.target.closest("[data-action='lmstudio-stop']");
+    if (lmStopButton && !lmStopButton.disabled) {
+      lmStopButton.disabled = true;
+      lmStopButton.textContent = "Stopping...";
+      const feedback = document.getElementById("lmstudio-feedback");
+      if (feedback) feedback.textContent = "Unloading model...";
+      lmStudioStop()
+        .then(async (result) => {
+          await refreshSystemStatus();
+          const fb = document.getElementById("lmstudio-feedback");
+          if (fb) fb.textContent = result.ok ? "Model unloaded." : (result.message || "Failed to stop.");
+        })
+        .catch(async () => {
+          await refreshSystemStatus();
+        });
+      return;
+    }
+
+    const voiceToggleButton = event.target.closest("[data-action='voice-toggle']");
+    if (voiceToggleButton && !voiceToggleButton.disabled) {
+      const voiceState = getVoiceState();
+      if (voiceState.status === "off" || voiceState.status === "error") {
+        initVoice({
+          onStatusChange: (status) => {
+            state.voiceStatus = status;
+            if (state.activeTab === "overview" && state.system) {
+              renderOverview(state.system);
+            }
+          },
+          onTranscript: (text) => {
+            state.voiceTranscript = text;
+            if (state.activeTab === "overview" && state.system) {
+              renderOverview(state.system);
+            }
+          },
+          onAgentText: (text) => {
+            state.voiceAgentText = text;
+            if (state.activeTab === "overview" && state.system) {
+              renderOverview(state.system);
+            }
+            // Also reload chat messages so voice commands appear in chatbot
+            loadChatMessages().then(() => {
+              if (state.activeTab === "chatbot") renderChatbot();
+            }).catch(() => {});
+          },
+          onWake: () => {
+            state.voiceTranscript = "";
+            state.voiceAgentText = "";
+          },
+          onError: (msg) => {
+            const fb = document.getElementById("voice-feedback");
+            if (fb) fb.textContent = msg;
+          }
+        });
+      } else {
+        stopVoice();
+        state.voiceStatus = "off";
+        state.voiceTranscript = "";
+        state.voiceAgentText = "";
+        if (state.activeTab === "overview" && state.system) {
+          renderOverview(state.system);
+        }
+      }
+      return;
+    }
+
     const openMusicButton = event.target.closest("[data-action='music-open']");
     if (openMusicButton) {
       openMusicAppWindow().catch(() => {
@@ -772,6 +988,13 @@ function wireNavigation() {
     const openAppButton = event.target.closest("[data-action='open-app']");
     if (openAppButton) {
       const appId = openAppButton.dataset.appId;
+
+      if (appId === "calendar-app") {
+        openCalendarAppWindow().catch(() => {
+          // Ignore launch failures for now.
+        });
+        return;
+      }
 
       if (appId === "news-app") {
         openNewsAppWindow().catch(() => {
@@ -1086,7 +1309,11 @@ function startEventStream() {
 
         if (payload.event.type === "open-app" && payload.event.meta?.tab) {
           const targetTab = String(payload.event.meta.tab);
-          if (targetTab === "app:news-app") {
+          if (targetTab === "app:calendar-app") {
+            openCalendarAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
+          } else if (targetTab === "app:news-app") {
             openNewsAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
@@ -1158,6 +1385,43 @@ function runStartupSequence() {
   }, 3600);
 }
 
+function autoStartVoice() {
+  const voice = state.system?.voice;
+  if (!voice?.whisperReady || !voice?.piperReady) return;
+
+  initVoice({
+    onStatusChange: (status) => {
+      state.voiceStatus = status;
+      if (state.activeTab === "overview" && state.system) {
+        renderOverview(state.system);
+      }
+    },
+    onTranscript: (text) => {
+      state.voiceTranscript = text;
+      if (state.activeTab === "overview" && state.system) {
+        renderOverview(state.system);
+      }
+    },
+    onAgentText: (text) => {
+      state.voiceAgentText = text;
+      if (state.activeTab === "overview" && state.system) {
+        renderOverview(state.system);
+      }
+      loadChatMessages().then(() => {
+        if (state.activeTab === "chatbot") renderChatbot();
+      }).catch(() => {});
+    },
+    onWake: () => {
+      state.voiceTranscript = "";
+      state.voiceAgentText = "";
+    },
+    onError: (msg) => {
+      const fb = document.getElementById("voice-feedback");
+      if (fb) fb.textContent = msg;
+    }
+  });
+}
+
 async function init() {
   await loadApps();
   state.system = await loadSystem();
@@ -1181,6 +1445,7 @@ async function init() {
   startEventStream();
   activateTab("overview");
   runStartupSequence();
+  autoStartVoice();
 }
 
 init().catch((error) => {

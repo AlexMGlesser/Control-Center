@@ -1,5 +1,5 @@
 Control Center Project Status
-Last Updated: 2026-04-15
+Last Updated: 2026-04-21
 
 Purpose
 - This file is a quick handoff for future chat sessions so they can understand current project state without re-discovering context.
@@ -15,6 +15,7 @@ Current App Runtime Model
 - Internal backend is Express and runs locally.
 - UI is dark-mode themed and rendered in the Electron window.
 - Mobile mode and desktop mode state switching is implemented as a backend state machine.
+- Agent runtime uses deterministic intent routing first, with local model fallback for non-deterministic prompts.
 
 Implemented Features (control-app)
 1. Desktop shell and navigation
@@ -58,6 +59,23 @@ Implemented Features (control-app)
 - PowerShell startup script exists in control-app:
   - start-control-center.ps1
 
+8. Calendar app (implemented)
+- Standalone Calendar app is served from the root workspace `calendar-app` folder.
+- Calendar app opens in its own Electron window when explicitly requested.
+- Month grid + selected-day agenda UI is functional in dark mode.
+- Backend service persists events to `control-app/server/data/calendar-events.json`.
+- Calendar tool operations implemented:
+  - read today/tomorrow/week/specific date
+  - read rest of day
+  - add event
+  - remove event
+
+9. Voice pipeline (in progress)
+- Whisper + Piper service modules were added under `control-app/server/services`.
+- Local voice websocket route is active and clients can connect.
+- Voice setup assets/scripts exist under `control-app/voice`.
+- Voice stack is functional for connectivity, with tuning/stability work ongoing.
+
 Important API Endpoints
 - GET /api/health
 - GET /api/system
@@ -74,6 +92,11 @@ Important API Endpoints
 - GET /api/events
 - POST /api/events
 - GET /api/events/stream
+- GET /api/apps/calendar-app/month
+- GET /api/apps/calendar-app/events
+- GET /api/apps/calendar-app/events/remaining
+- POST /api/apps/calendar-app/events
+- DELETE /api/apps/calendar-app/events/:eventId
 
 How To Run
 From D:\Control-Center\control-app:
@@ -95,15 +118,15 @@ Design Documentation Status
   - movie-app-architecture.txt
 
 Known Limits (by design)
-- No full LMStudio chat bridge implemented yet (chatbot uses local stub replies).
-- No real voice synthesis/playback pipeline yet (test-voice is stubbed endpoint behavior).
-- Most app modules are intentionally WIP shell states with connector stubs only.
+- LLM/tool-call responses can still vary by phrasing when prompts are far from supported deterministic patterns.
+- Voice stack binaries/assets are large and should remain intentionally scoped during commits.
+- Some app modules are still intentionally WIP shell states.
 
 Recommended Next Priorities
-1. Replace chat stub with LMStudio adapter in chatbot path.
-2. Implement real voice test playback pipeline for selected desktop audio device.
-3. Add persistent settings and chat storage (file/db) instead of memory-only runtime state.
-4. Start first full app implementation (recommended: movie-app or project-app).
+1. Add recurring events and event editing support to the calendar service and UI.
+2. Add deterministic parsing for more natural calendar add/remove phrases and explicit confirmations.
+3. Stabilize voice pipeline end-to-end (record, transcribe, route command, speak response).
+4. Add persistent settings and chat storage (file/db) instead of memory-only runtime state.
 5. Add app-specific event filtering in Event Bus tab.
 
 Conventions Used

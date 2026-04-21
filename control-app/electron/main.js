@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { startServer } from "../server/index.js";
 import { serverConfig } from "../server/config.js";
+import { onShutdownRequested } from "../server/routes/api.js";
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
@@ -11,10 +12,16 @@ const __dirname = path.dirname(__filename);
 
 let backendServer = null;
 let mainWindow = null;
+let calendarAppWindow = null;
 let newsWindow = null;
 let workAppWindow = null;
 let projectAppWindow = null;
 let musicAppWindow = null;
+let calendarAppWindowPending = false;
+let newsAppWindowPending = false;
+let workAppWindowPending = false;
+let projectAppWindowPending = false;
+let musicAppWindowPending = false;
 
 function createMainWindow() {
   const win = new BrowserWindow({
@@ -45,6 +52,11 @@ function openNewsAppWindow() {
     return;
   }
 
+  if (newsAppWindowPending) {
+    return;
+  }
+
+  newsAppWindowPending = true;
   newsWindow = new BrowserWindow({
     width: 1560,
     height: 980,
@@ -62,8 +74,51 @@ function openNewsAppWindow() {
 
   newsWindow.loadURL(`http://localhost:${serverConfig.port}/news-app/`);
 
+  newsWindow.once("ready-to-show", () => {
+    newsAppWindowPending = false;
+  });
+
   newsWindow.on("closed", () => {
     newsWindow = null;
+    newsAppWindowPending = false;
+  });
+}
+
+function openCalendarAppWindow() {
+  if (calendarAppWindow && !calendarAppWindow.isDestroyed()) {
+    calendarAppWindow.focus();
+    return;
+  }
+
+  if (calendarAppWindowPending) {
+    return;
+  }
+
+  calendarAppWindowPending = true;
+  calendarAppWindow = new BrowserWindow({
+    width: 1560,
+    height: 980,
+    minWidth: 1200,
+    minHeight: 760,
+    backgroundColor: "#0d1417",
+    title: "Calendar App",
+    parent: mainWindow || undefined,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  calendarAppWindow.loadURL(`http://localhost:${serverConfig.port}/calendar-app/`);
+
+  calendarAppWindow.once("ready-to-show", () => {
+    calendarAppWindowPending = false;
+  });
+
+  calendarAppWindow.on("closed", () => {
+    calendarAppWindow = null;
+    calendarAppWindowPending = false;
   });
 }
 
@@ -73,6 +128,11 @@ function openWorkAppWindow() {
     return;
   }
 
+  if (workAppWindowPending) {
+    return;
+  }
+
+  workAppWindowPending = true;
   workAppWindow = new BrowserWindow({
     width: 1560,
     height: 980,
@@ -90,8 +150,13 @@ function openWorkAppWindow() {
 
   workAppWindow.loadURL(`http://localhost:${serverConfig.port}/work-app/`);
 
+  workAppWindow.once("ready-to-show", () => {
+    workAppWindowPending = false;
+  });
+
   workAppWindow.on("closed", () => {
     workAppWindow = null;
+    workAppWindowPending = false;
   });
 }
 
@@ -101,6 +166,11 @@ function openProjectAppWindow() {
     return;
   }
 
+  if (projectAppWindowPending) {
+    return;
+  }
+
+  projectAppWindowPending = true;
   projectAppWindow = new BrowserWindow({
     width: 1560,
     height: 980,
@@ -118,8 +188,13 @@ function openProjectAppWindow() {
 
   projectAppWindow.loadURL(`http://localhost:${serverConfig.port}/project-app/`);
 
+  projectAppWindow.once("ready-to-show", () => {
+    projectAppWindowPending = false;
+  });
+
   projectAppWindow.on("closed", () => {
     projectAppWindow = null;
+    projectAppWindowPending = false;
   });
 }
 
@@ -129,6 +204,11 @@ function openMusicAppWindow() {
     return;
   }
 
+  if (musicAppWindowPending) {
+    return;
+  }
+
+  musicAppWindowPending = true;
   musicAppWindow = new BrowserWindow({
     width: 1560,
     height: 980,
@@ -146,14 +226,20 @@ function openMusicAppWindow() {
 
   musicAppWindow.loadURL(`http://localhost:${serverConfig.port}/music-app/`);
 
+  musicAppWindow.once("ready-to-show", () => {
+    musicAppWindowPending = false;
+  });
+
   musicAppWindow.on("closed", () => {
     musicAppWindow = null;
+    musicAppWindowPending = false;
   });
 }
 
 async function ensureBackendServer() {
   try {
     backendServer = await startServer();
+    onShutdownRequested(() => app.quit());
     return;
   } catch (error) {
     if (error?.code !== "EADDRINUSE") {
@@ -182,6 +268,11 @@ app.whenReady()
   .then(async () => {
     await ensureBackendServer();
     createMainWindow();
+    ipcMain.handle("calendar-app:open", () => {
+      openCalendarAppWindow();
+      return { ok: true };
+    });
+
     ipcMain.handle("news-app:open", () => {
       openNewsAppWindow();
       return { ok: true };

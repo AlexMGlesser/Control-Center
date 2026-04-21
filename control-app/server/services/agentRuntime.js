@@ -41,26 +41,24 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
     return projectCreationResult;
   }
 
-  const providedOutput = String(llmOutput || "").trim();
-  const rawOutput = providedOutput || (await generateLmStudioOutput(userText, origin));
-  const filterResult = filterAgentOutput(rawOutput, getToolNamesSet());
-
-  // Fallback: if filter failed but we detect keywords, inject tool calls deterministically
+  // Fast path: try deterministic tool calls BEFORE hitting the LLM
   let toolCalls = [];
   let safeMessages = [];
   let safeText = "";
+  let rawOutput = "";
 
-  if (!filterResult.ok) {
-    // Try deterministic tool injection even if LLM output was invalid
-    const fallbackCalls = buildDeterministicToolCalls(userText, origin);
-    
-    if (fallbackCalls.length > 0) {
-      // We detected keywords, so generate tool calls deterministically
-      toolCalls = fallbackCalls;
-      safeMessages = buildMessagesForToolCalls(fallbackCalls);
-      safeText = safeMessages[0] || filterResult.safeText || "Executing command...";
-    } else {
-      // No keywords detected, return the filter error
+  const deterministicCalls = buildDeterministicToolCalls(userText, origin);
+  if (deterministicCalls.length > 0) {
+    toolCalls = deterministicCalls;
+    safeMessages = buildMessagesForToolCalls(deterministicCalls);
+    safeText = safeMessages[0] || "Executing command...";
+  } else {
+    // No deterministic match — fall back to LLM
+    const providedOutput = String(llmOutput || "").trim();
+    rawOutput = providedOutput || (await generateLmStudioOutput(userText, origin));
+    const filterResult = filterAgentOutput(rawOutput, getToolNamesSet());
+
+    if (!filterResult.ok) {
       return {
         ok: false,
         code: filterResult.code,
@@ -71,7 +69,7 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
         toolResults: []
       };
     }
-  } else {
+
     // Filter succeeded, use its tool calls and messages
     let resolvedToolCalls = ensureNewsOpenCall(filterResult.toolCalls, userText, origin);
     resolvedToolCalls = ensureMusicOpenCall(resolvedToolCalls, userText, origin);
@@ -80,16 +78,28 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
     resolvedToolCalls = ensureMusicPlaybackCommandCall(resolvedToolCalls, userText, origin);
     toolCalls = resolvedToolCalls;
     safeMessages = Array.isArray(filterResult.safeMessages) ? [...filterResult.safeMessages] : [];
-    
+
     if (toolCalls.length > filterResult.toolCalls.length && !safeMessages.length) {
       safeMessages = buildMessagesForToolCalls(toolCalls.slice(filterResult.toolCalls.length));
     }
     safeText = safeMessages[0] || filterResult.safeText || "";
   }
 
+  const seenOpenAppTargets = new Set();
+  const dedupedToolCalls = toolCalls.filter((call) => {
+    if (call?.tool === "open_app") {
+      const target = String(call?.args?.target || call?.args?.appId || call?.args?.app_name || "").trim();
+      if (!target || seenOpenAppTargets.has(target)) {
+        return false;
+      }
+      seenOpenAppTargets.add(target);
+    }
+    return true;
+  });
+
   const toolResults = await Promise.all(
-    toolCalls.map(async (call) => {
-      const result = executeToolCall(call.tool, call.args);
+    dedupedToolCalls.map(async (call) => {
+      const result = await executeToolCall(call.tool, call.args);
       return { tool: call.tool, args: call.args, result };
     })
   );
@@ -100,7 +110,7 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
   const playlistIntent = explicitPlaylistIntent || implicitPlaylistIntent;
   const artistIntent = origin?.type === "user" ? extractArtistPlayTarget(userText) : null;
   if (playlistIntent || artistIntent) {
-    const orchestration = resolveRequestedMusicPlayback(toolResults, {
+    const orchestration = await resolveRequestedMusicPlayback(toolResults, {
       playlistIntent,
       artistIntent
     });
@@ -117,10 +127,12 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
   let agentMessages = safeMessages;
   if (postToolAgentMessage) {
     agentMessages = [postToolAgentMessage];
-  } else if (!agentMessages.length || /executing command/i.test(agentMessages[0])) {
+  } else {
     const synthesized = synthesizeToolMessages(toolResults);
     if (synthesized.length) {
       agentMessages = synthesized;
+    } else if (!agentMessages.length || /executing command/i.test(agentMessages[0])) {
+      agentMessages = [];
     }
   }
   const agentText = agentMessages[0] || safeText || "";
@@ -239,7 +251,7 @@ async function handleProjectCreationConversation(userText, origin) {
         openApp: true
       };
 
-      const createResult = executeToolCall("create_project", createArgs);
+      const createResult = await executeToolCall("create_project", createArgs);
       const toolResults = [{ tool: "create_project", args: createArgs, result: createResult }];
       const toolSummary = summarizeToolResults(toolResults);
 
@@ -314,7 +326,7 @@ async function handleProjectCreationConversation(userText, origin) {
       openApp: true
     };
 
-    const createResult = executeToolCall("create_project", createArgs);
+    const createResult = await executeToolCall("create_project", createArgs);
     const toolResults = [{ tool: "create_project", args: createArgs, result: createResult }];
     const toolSummary = summarizeToolResults(toolResults);
 
@@ -429,7 +441,15 @@ function extractProjectName(text) {
 
   const namedPattern = raw.match(/(?:called|named|name it|project name is)\s+(.+)$/i);
   if (namedPattern) {
-    return namedPattern[1].trim();
+    let candidate = namedPattern[1].trim();
+    // Strip trailing drive/path location phrases
+    candidate = candidate
+      .replace(/\b(?:and\s+)?(?:put|place|save|store)\s+(?:it\s+)?(?:in|on|at|into|to|under)\s+(?:my\s+)?(?:[a-z]\s*:?\s*(?:drive)?|[a-z]:\\[^\s]*)\b.*/i, "")
+      .replace(/\b(?:in|on|at|into|to|under)\s+(?:my\s+)?(?:[a-z]\s*:?\s*(?:drive)?|[a-z]:\\[^\s]*)\b.*/i, "")
+      .trim();
+    if (candidate) {
+      return candidate;
+    }
   }
 
   const driveAndNamePattern = raw.match(
@@ -441,7 +461,17 @@ function extractProjectName(text) {
 
   const genericCreatePattern = raw.match(/(?:create|make|new|start)\s+(?:a\s+)?(?:new\s+)?project\s+(.+)$/i);
   if (genericCreatePattern) {
-    return genericCreatePattern[1].trim();
+    let candidate = genericCreatePattern[1].trim();
+    // Strip drive/path location phrases so they don't become the project name
+    candidate = candidate
+      .replace(/\b(?:and\s+)?(?:put|place|save|store)\s+(?:it\s+)?(?:in|on|at|into|to|under)\s+(?:my\s+)?(?:[a-z]\s*:?\s*(?:drive)?|[a-z]:\\[^\s]*)\b.*/i, "")
+      .replace(/\b(?:in|on|at|into|to|under)\s+(?:my\s+)?(?:[a-z]\s*:?\s*(?:drive)?|[a-z]:\\[^\s]*)\b.*/i, "")
+      .trim();
+    if (candidate) {
+      return candidate;
+    }
+    // If stripping left nothing, the user only specified a location — no name yet
+    return null;
   }
 
   if (/^[\w\s\-.]{2,}$/.test(raw) && !raw.includes("\\") && !raw.includes("/")) {
@@ -463,15 +493,92 @@ function buildDeterministicToolCalls(userText, origin) {
     return [];
   }
 
+  const rawText = String(userText || "").trim();
   const prompt = String(userText || "").toLowerCase();
   const calls = [];
+
+  // Check for shutdown intent
+  if (/\b(shut\s*down|power\s*off|turn\s*(your)?\s*self\s*off)\b/.test(prompt) ||
+      /\b(exit|quit|close)\b.*\b(app|control\s*center|system|everything|yourself)\b/.test(prompt)) {
+    calls.push({ tool: "shutdown_app", args: {} });
+    return calls;
+  }
+
+  if (extractCalendarOpenIntent(prompt)) {
+    calls.push({ tool: "open_app", args: { target: "calendar-app" } });
+    return calls;
+  }
+
+  const calendarCreateIntent = extractCalendarCreateIntent(rawText);
+  if (calendarCreateIntent) {
+    calls.push({
+      tool: "create_calendar_event",
+      args: calendarCreateIntent
+    });
+    return calls;
+  }
+
+  const calendarDeleteIntent = extractCalendarDeleteIntent(rawText);
+  if (calendarDeleteIntent) {
+    calls.push({
+      tool: "delete_calendar_event",
+      args: calendarDeleteIntent
+    });
+    return calls;
+  }
+
+  if (extractRemainingCalendarIntent(prompt)) {
+    calls.push({ tool: "get_remaining_calendar_events", args: {} });
+    return calls;
+  }
+
+  const calendarRangeIntent = extractCalendarRangeIntent(prompt);
+  if (calendarRangeIntent) {
+    calls.push({
+      tool: "list_calendar_events",
+      args: {
+        start: calendarRangeIntent.start,
+        end: calendarRangeIntent.end,
+        limit: 50,
+        summaryLabel: calendarRangeIntent.label
+      }
+    });
+    return calls;
+  }
+
+  const calendarSpecificDateIntent = extractCalendarSpecificDateIntent(rawText);
+  if (calendarSpecificDateIntent) {
+    calls.push({
+      tool: "list_calendar_events",
+      args: {
+        start: calendarSpecificDateIntent.start,
+        end: calendarSpecificDateIntent.end,
+        limit: 50,
+        summaryLabel: calendarSpecificDateIntent.label
+      }
+    });
+    return calls;
+  }
+
+  if (extractCalendarReadIntent(prompt)) {
+    const range = getTodayIsoRange();
+    calls.push({
+      tool: "list_calendar_events",
+      args: {
+        start: range.start,
+        end: range.end,
+        limit: 25
+      }
+    });
+    return calls;
+  }
 
   const explicitPlaylistTarget = extractPlaylistPlayTarget(prompt);
   const implicitPlaylistTarget = explicitPlaylistTarget || extractImplicitPlaylistPlayTarget(prompt);
   const playlistPlayTarget = explicitPlaylistTarget || implicitPlaylistTarget;
   if (playlistPlayTarget) {
     calls.push({ tool: "open_app", args: { target: "music-app" } });
-    calls.push({ tool: "list_music_playlists", args: {} });
+    calls.push({ tool: "list_music_playlists", args: { localOnly: true } });
     return calls;
   }
 
@@ -510,16 +617,33 @@ function buildDeterministicToolCalls(userText, origin) {
   }
 
   // Check for news intent
-  if (/\b(news|headline|headlines?|what'?s the news|show me news|open news)\b/.test(prompt)) {
+  if (/\b(news|headline|headlines?|what'?s the news|show me news|open news|read me.*(news|headlines?)|brief me|briefing)\b/.test(prompt)) {
     const isNegative = /\b(don't|do not|no|not)\b.*\b(news|headlines?|open)\b/.test(prompt);
     if (!isNegative) {
       calls.push({ tool: "open_app", args: { target: "news-app" } });
+      calls.push({ tool: "get_news_summary", args: {} });
     }
   }
 
   // Check for work app intent
   if (/\b(work|work app|open work|show work|my work)\b/.test(prompt)) {
     calls.push({ tool: "open_app", args: { target: "work-app" } });
+  }
+
+  // Check for music playback control commands (pause, resume, next, prev, stop)
+  const musicControlAction = extractMusicControlAction(prompt);
+  if (musicControlAction) {
+    calls.push({
+      tool: "publish_event",
+      args: {
+        appId: "music-app",
+        source: "agent",
+        type: "music-command",
+        message: `Agent requested ${musicControlAction}.`,
+        meta: { action: musicControlAction }
+      }
+    });
+    return calls;
   }
 
   // Check for music app open intent
@@ -538,7 +662,7 @@ function buildDeterministicToolCalls(userText, origin) {
   }
 
   if (/\b(list|show|what|my)\b.*\bplaylists?\b/.test(prompt)) {
-    calls.push({ tool: "list_music_playlists", args: {} });
+    calls.push({ tool: "list_music_playlists", args: { localOnly: true } });
     return calls;
   }
 
@@ -587,7 +711,9 @@ function buildMessagesForToolCalls(calls) {
 
   return calls.map((call) => {
     const target = call?.args?.target || call?.args?.appId || "";
-    if (target === "news-app") {
+    if (target === "calendar-app") {
+      return "Opening Calendar App.";
+    } else if (target === "news-app") {
       return "Opening News App.";
     } else if (target === "work-app") {
       return "Opening Work App.";
@@ -607,7 +733,17 @@ function buildMessagesForToolCalls(calls) {
       return "Adding that track to your playlist.";
     } else if (call?.tool === "list_music_tracks") {
       return "Fetching matching tracks.";
+    } else if (call?.tool === "get_remaining_calendar_events" || call?.tool === "list_calendar_events") {
+      return "Checking your calendar.";
+    } else if (call?.tool === "create_calendar_event") {
+      return "Adding that to your calendar.";
+    } else if (call?.tool === "delete_calendar_event") {
+      return "Removing that from your calendar.";
     } else if (call?.tool === "publish_event" && String(call?.args?.type || "") === "music-command") {
+      const action = String(call?.args?.meta?.action || "");
+      if (action === "play-pause") return "Done.";
+      if (action === "next") return "Skipping to the next track.";
+      if (action === "prev") return "Going back to the previous track.";
       return "Starting that playlist now.";
     }
     return "Executing command...";
@@ -617,6 +753,13 @@ function buildMessagesForToolCalls(calls) {
 function synthesizeToolMessages(toolResults) {
   if (!Array.isArray(toolResults) || !toolResults.length) {
     return [];
+  }
+
+  // Check for news summary anywhere in results (may come alongside open_app)
+  const newsResult = toolResults.find((r) => r?.tool === "get_news_summary" && r?.result?.ok);
+  if (newsResult) {
+    const summary = newsResult.result.summary || newsResult.result.digest || "No news available right now.";
+    return [`Sir, here's your news briefing. ${summary}`];
   }
 
   const primary = toolResults[0];
@@ -643,7 +786,11 @@ function synthesizeToolMessages(toolResults) {
   }
 
   if (primary.tool === "list_music_playlists") {
-    const playlists = Array.isArray(result.playlists) ? result.playlists : [];
+    const rawPlaylists = Array.isArray(result.playlists) ? result.playlists : [];
+    const localOnlyRequested = Boolean(primary?.args?.localOnly);
+    const playlists = localOnlyRequested
+      ? rawPlaylists.filter((playlist) => String(playlist?.source || "").toLowerCase() === "local-saved")
+      : rawPlaylists;
     if (!playlists.length) {
       return ["Sir, you do not have any playlists yet. Say 'create playlist <name>' to start one."];
     }
@@ -669,6 +816,43 @@ function synthesizeToolMessages(toolResults) {
     }
     const preview = tracks.slice(0, 6).map((track) => `${track.title} by ${track.artist}`).join(", ");
     return [`Boss Man, here are matching tracks: ${preview}.`];
+  }
+
+  if (primary.tool === "get_remaining_calendar_events") {
+    const events = Array.isArray(result.events) ? result.events : [];
+    if (!events.length) {
+      return ["Sir, the rest of your day is clear."];
+    }
+
+    return [`Sir, for the rest of ${result.dateLabel || "today"}, you have ${formatCalendarEventSummary(events)}.`];
+  }
+
+  if (primary.tool === "list_calendar_events") {
+    const events = Array.isArray(result.events) ? result.events : [];
+    const summaryLabel = String(primary?.args?.summaryLabel || "that window").trim();
+    if (!events.length) {
+      return [`Boss Man, your calendar is clear for ${summaryLabel}.`];
+    }
+
+    return [`Boss Man, for ${summaryLabel}, I found ${formatCalendarEventSummary(events)}.`];
+  }
+
+  if (primary.tool === "create_calendar_event") {
+    const event = result.event || result?.result?.event;
+    if (!event?.title) {
+      return ["Sir, I added that calendar event."];
+    }
+
+    return [`Sir, added ${event.title} for ${event.startLabel} on ${formatCalendarDateKey(event.startDateKey)}.`];
+  }
+
+  if (primary.tool === "delete_calendar_event") {
+    const event = result.event || result?.result?.event;
+    if (!event?.title) {
+      return ["Sir, I removed that calendar event."];
+    }
+
+    return [`Sir, removed ${event.title} from your calendar.`];
   }
 
   return [];
@@ -783,6 +967,44 @@ function generateLocalLlmOutput(userText) {
     return [
       '{"tool":"open_app","args":{"target":"news-app"}}',
       '{"response":"Opening News App."}'
+    ].join("\n");
+  }
+
+  if (extractCalendarOpenIntent(prompt)) {
+    return [
+      '{"tool":"open_app","args":{"target":"calendar-app"}}',
+      '{"response":"Opening Calendar App."}'
+    ].join("\n");
+  }
+
+  if (extractRemainingCalendarIntent(prompt)) {
+    return [
+      '{"tool":"get_remaining_calendar_events","args":{}}',
+      '{"response":"Checking the rest of your day."}'
+    ].join("\n");
+  }
+
+  const calendarRangeIntent = extractCalendarRangeIntent(prompt);
+  if (calendarRangeIntent) {
+    return [
+      `{"tool":"list_calendar_events","args":{"start":"${calendarRangeIntent.start}","end":"${calendarRangeIntent.end}","limit":50,"summaryLabel":"${escapeJsonString(calendarRangeIntent.label)}"}}`,
+      `{"response":"Checking ${escapeJsonString(calendarRangeIntent.label)}."}`
+    ].join("\n");
+  }
+
+  const calendarSpecificDateIntent = extractCalendarSpecificDateIntent(String(userText || ""));
+  if (calendarSpecificDateIntent) {
+    return [
+      `{"tool":"list_calendar_events","args":{"start":"${calendarSpecificDateIntent.start}","end":"${calendarSpecificDateIntent.end}","limit":50,"summaryLabel":"${escapeJsonString(calendarSpecificDateIntent.label)}"}}`,
+      `{"response":"Checking ${escapeJsonString(calendarSpecificDateIntent.label)}."}`
+    ].join("\n");
+  }
+
+  if (extractCalendarReadIntent(prompt)) {
+    const todayRange = getTodayIsoRange();
+    return [
+      `{"tool":"list_calendar_events","args":{"start":"${todayRange.start}","end":"${todayRange.end}","limit":25}}`,
+      '{"response":"Checking your calendar."}'
     ].join("\n");
   }
 
@@ -1046,7 +1268,9 @@ function ensureMusicPlaybackCommandCall(toolCalls, userText, origin) {
       String(call?.args?.target || call?.args?.appId || call?.args?.app_name || "") === "music-app"
   );
 
-  const hasPlaylistLookup = sanitizedCalls.some((call) => call?.tool === "list_music_playlists");
+  const hasLocalPlaylistLookup = sanitizedCalls.some(
+    (call) => call?.tool === "list_music_playlists" && Boolean(call?.args?.localOnly)
+  );
   const hasMusicCommand = sanitizedCalls.some(
     (call) =>
       call?.tool === "publish_event" &&
@@ -1060,8 +1284,8 @@ function ensureMusicPlaybackCommandCall(toolCalls, userText, origin) {
   }
 
   if (playlistTarget) {
-    if (!hasPlaylistLookup) {
-      nextCalls.push({ tool: "list_music_playlists", args: {} });
+    if (!hasLocalPlaylistLookup) {
+      nextCalls.push({ tool: "list_music_playlists", args: { localOnly: true } });
     }
     return nextCalls;
   }
@@ -1088,6 +1312,417 @@ function ensureMusicPlaybackCommandCall(toolCalls, userText, origin) {
   }
 
   return nextCalls;
+}
+
+function extractMusicControlAction(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  if (/\b(pause|unpause|un-?pause|resume)\b.*\b(music|song|track|player|playback)\b/.test(text) ||
+      /\b(music|song|track|player|playback)\b.*\b(pause|unpause|un-?pause|resume)\b/.test(text) ||
+      /^\s*(pause|unpause|un-?pause|resume)\b/.test(text)) {
+    return "play-pause";
+  }
+  if (/\b(next|skip)\b.*\b(song|track|music)\b/.test(text) ||
+      /\b(song|track|music)\b.*\b(next|skip)\b/.test(text) ||
+      /^\s*(next|skip)\s*(song|track)?/i.test(text) ||
+      /\bskip\s*(this)?\b/.test(text)) {
+    return "next";
+  }
+  if (/\b(prev|previous|go back|last)\b.*\b(song|track|music)\b/.test(text) ||
+      /\b(song|track|music)\b.*\b(prev|previous|go back)\b/.test(text) ||
+      /^\s*(prev|previous)\s*(song|track)?/i.test(text)) {
+    return "prev";
+  }
+  return null;
+}
+
+function extractCalendarOpenIntent(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  return /\b(open|launch)\b.*\b(calendar|calendar app)\b/.test(text);
+}
+
+function extractRemainingCalendarIntent(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  return /\b(what do i have planned for the rest of the day|rest of the day|later today|what'?s left today|what is left today)\b/.test(text);
+}
+
+function extractCalendarRangeIntent(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  if (extractCalendarOpenIntent(text) || extractRemainingCalendarIntent(text)) {
+    return null;
+  }
+  if (/\b(add|create|schedule|put)\b/.test(text) && /\b(calendar|my\s+calendar)\b/.test(text)) {
+    return null;
+  }
+
+  const tomorrowPattern = /\b(read|what|what'?s|what is|tell me|show me)?\b.*\b(tomorrow(?:'s)?|tomorrows)\b.*\b(plan|plans|calendar|schedule|calendar instances?)\b|\b(read|what|what'?s|what is|tell me|show me)\b.*\b(plan|plans|calendar|schedule|calendar instances?)\b.*\bfor tomorrow\b/;
+  if (tomorrowPattern.test(text)) {
+    const range = getTomorrowIsoRange();
+    return { ...range, label: "tomorrow" };
+  }
+
+  const weekPattern = /\b(read|what|what'?s|what is|tell me|show me)\b.*\b(this week|the rest of the week|rest of the week|this week's|weeks plan|week plan)\b.*\b(plan|plans|calendar|schedule|calendar instances?)?\b|\b(read|what|what'?s|what is|tell me|show me)\b.*\b(plan|plans|calendar|schedule|calendar instances?)\b.*\b(this week|the rest of the week|rest of the week)\b/;
+  if (weekPattern.test(text)) {
+    const range = /rest of the week/.test(text) ? getRestOfWeekIsoRange() : getThisWeekIsoRange();
+    return {
+      ...range,
+      label: /rest of the week/.test(text) ? "the rest of the week" : "this week"
+    };
+  }
+
+  return null;
+}
+
+function extractCalendarSpecificDateIntent(rawText) {
+  const text = String(rawText || "").trim();
+  const lower = text.toLowerCase();
+  if (!text) {
+    return null;
+  }
+
+  const hasReadIntent = /\b(read|what|what'?s|what is|tell me|show me)\b/.test(lower);
+  const hasScheduleNoun = /\b(calendar|schedule|calendar instances?|plan|plans)\b/.test(lower);
+  const hasImplicitCalendarRead = /\bwhat\s+do\s+i\s+have\b/.test(lower) || /\bwhat'?s\s+on\b/.test(lower);
+  if (!hasReadIntent || (!hasScheduleNoun && !hasImplicitCalendarRead)) {
+    return null;
+  }
+
+  if (extractCalendarOpenIntent(lower) || extractRemainingCalendarIntent(lower) || extractCalendarRangeIntent(lower)) {
+    return null;
+  }
+
+  const onForMatch = text.match(/\b(?:on|for)\s+([^?.!]+)$/i);
+  const dateCandidate = onForMatch?.[1] || text;
+  const parsedDate = parseCalendarSpecificDate(dateCandidate);
+  if (!parsedDate) {
+    return null;
+  }
+
+  const range = getDateIsoRange(parsedDate);
+  return {
+    ...range,
+    label: formatHumanDate(parsedDate)
+  };
+}
+
+function extractCalendarReadIntent(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  if (extractCalendarOpenIntent(text) || extractRemainingCalendarIntent(text) || extractCalendarRangeIntent(text)) {
+    return false;
+  }
+
+  return /\b(read|what|what'?s|what is|tell me|show me)\b.*\b(calendar|schedule|calendar instances?|plan|plans)\b/.test(text);
+}
+
+function extractCalendarCreateIntent(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) {
+    return null;
+  }
+
+  const patterns = [
+    /^(?:add|create|schedule)\s+(.+?)\s+to\s+my\s+calendar(?:\s+(?:for|on)\s+(.+))?$/i,
+    /^(?:add|create|schedule)\s+(.+?)\s+(?:for|on)\s+(.+?)\s+to\s+my\s+calendar$/i,
+    /^(?:add|create|schedule)\s+(.+?)\s+to\s+my\s+calendar\s+(.+)$/i,
+    /^(?:put)\s+(.+?)\s+(?:for|on)\s+(.+?)\s+on\s+my\s+calendar$/i,
+    /^(?:put)\s+(.+?)\s+on\s+my\s+calendar(?:\s+(?:for|on)\s+(.+))?$/i,
+    /^(?:put)\s+(.+?)\s+on\s+my\s+calendar\s+(.+)$/i
+  ];
+
+  let title = "";
+  let whenText = "";
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match || !match[1]) {
+      continue;
+    }
+
+    title = String(match[1] || "").trim();
+    whenText = String(match[2] || "").trim();
+    break;
+  }
+
+  if (!title) {
+    return null;
+  }
+
+  if (!whenText) {
+    const inlineWhenMatch = title.match(/\b(today|tomorrow|next\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)|sunday|monday|tuesday|wednesday|thursday|friday|saturday|january|february|march|april|may|june|july|august|september|october|november|december|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\b.*$/i);
+    if (inlineWhenMatch && inlineWhenMatch.index > 0) {
+      whenText = inlineWhenMatch[0].trim();
+      title = title.slice(0, inlineWhenMatch.index).trim();
+      title = title.replace(/\b(for|on)\s*$/i, "").trim();
+    }
+  }
+
+  const startDate = parseNaturalCalendarDateTime(whenText);
+  if (!title || !startDate) {
+    return null;
+  }
+
+  const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+  return {
+    title,
+    startsAt: startDate.toISOString(),
+    endsAt: endDate.toISOString()
+  };
+}
+
+function extractCalendarDeleteIntent(rawText) {
+  const text = String(rawText || "").trim();
+  const match = text.match(/^(?:remove|delete|cancel)\s+(.+?)\s+from\s+my\s+calendar$/i);
+  if (!match || !match[1]) {
+    return null;
+  }
+
+  return { title: match[1].trim() };
+}
+
+function parseNaturalCalendarDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  const lower = raw.toLowerCase();
+  let base = new Date();
+  base.setSeconds(0, 0);
+
+  if (/\btomorrow\b/.test(lower)) {
+    base.setDate(base.getDate() + 1);
+  } else if (!/\btoday\b/.test(lower)) {
+    const parsedDate = parseCalendarSpecificDate(raw);
+    if (parsedDate) {
+      base = new Date(parsedDate);
+    } else {
+      return null;
+    }
+  }
+
+  const explicitAtTimeMatch = lower.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  const allTimeMatches = Array.from(lower.matchAll(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/g));
+  const timeMatch = explicitAtTimeMatch || (allTimeMatches.length ? allTimeMatches[allTimeMatches.length - 1] : null);
+  const hasNoon = /\bnoon\b/.test(lower);
+  const hasMidnight = /\bmidnight\b/.test(lower);
+  const hourPart = Number(timeMatch?.[1] || (hasNoon ? 12 : hasMidnight ? 12 : 9));
+  const minutePart = Number(timeMatch?.[2] || 0);
+  const meridiem = hasNoon ? "pm" : hasMidnight ? "am" : String(timeMatch?.[3] || "").toLowerCase();
+  let hour = Number.isFinite(hourPart) ? hourPart : 9;
+
+  if (!meridiem && (hour < 0 || hour > 23)) {
+    return null;
+  }
+
+  if (meridiem === "pm" && hour < 12) {
+    hour += 12;
+  }
+
+  if (meridiem === "am" && hour === 12) {
+    hour = 0;
+  }
+
+  base.setHours(hour, minutePart, 0, 0);
+  return Number.isNaN(base.getTime()) ? null : base;
+}
+
+function getTodayIsoRange() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(23, 59, 59, 999);
+  return {
+    start: start.toISOString(),
+    end: end.toISOString()
+  };
+}
+
+function getTomorrowIsoRange() {
+  const start = new Date();
+  start.setDate(start.getDate() + 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(23, 59, 59, 999);
+  return {
+    start: start.toISOString(),
+    end: end.toISOString()
+  };
+}
+
+function getThisWeekIsoRange() {
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - start.getDay());
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return {
+    start: start.toISOString(),
+    end: end.toISOString()
+  };
+}
+
+function getRestOfWeekIsoRange() {
+  const now = new Date();
+  const start = new Date(now);
+  const end = new Date(now);
+  end.setDate(end.getDate() + (6 - end.getDay()));
+  end.setHours(23, 59, 59, 999);
+  return {
+    start: start.toISOString(),
+    end: end.toISOString()
+  };
+}
+
+function getDateIsoRange(date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(23, 59, 59, 999);
+  return {
+    start: start.toISOString(),
+    end: end.toISOString()
+  };
+}
+
+function parseCalendarSpecificDate(value) {
+  const raw = String(value || "")
+    .replace(/\b(out|please|for me)\b/gi, " ")
+    .replace(/[,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw) {
+    return null;
+  }
+
+  const lower = raw.toLowerCase();
+  if (/\b(today|tomorrow|this week|rest of the week|next week)\b/.test(lower)) {
+    return null;
+  }
+
+  const isoMatch = raw.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (isoMatch) {
+    const parsed = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  const slashMatch = raw.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (slashMatch) {
+    const month = Number(slashMatch[1]) - 1;
+    const day = Number(slashMatch[2]);
+    const providedYear = Number(slashMatch[3]);
+    const currentYear = new Date().getFullYear();
+    const year = Number.isFinite(providedYear) && providedYear > 0
+      ? (providedYear < 100 ? 2000 + providedYear : providedYear)
+      : currentYear;
+    const parsed = new Date(year, month, day);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  const monthNameMatch = raw.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:\s+(\d{2,4}))?\b/i);
+  if (monthNameMatch) {
+    const monthMap = {
+      january: 0,
+      february: 1,
+      march: 2,
+      april: 3,
+      may: 4,
+      june: 5,
+      july: 6,
+      august: 7,
+      september: 8,
+      october: 9,
+      november: 10,
+      december: 11
+    };
+    const month = monthMap[String(monthNameMatch[1]).toLowerCase()];
+    const day = Number(monthNameMatch[2]);
+    const providedYear = Number(monthNameMatch[3]);
+    const currentYear = new Date().getFullYear();
+    const year = Number.isFinite(providedYear) && providedYear > 0
+      ? (providedYear < 100 ? 2000 + providedYear : providedYear)
+      : currentYear;
+    const parsed = new Date(year, month, day);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  const weekdayMatch = lower.match(/\b(next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+  if (weekdayMatch) {
+    const weekdayMap = {
+      sunday: 0,
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6
+    };
+    const now = new Date();
+    const parsed = new Date(now);
+    const targetDay = weekdayMap[weekdayMatch[2]];
+    let delta = targetDay - parsed.getDay();
+    if (delta < 0 || weekdayMatch[1]) {
+      delta += 7;
+    }
+    parsed.setDate(parsed.getDate() + delta);
+    parsed.setHours(0, 0, 0, 0);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  return null;
+}
+
+function formatHumanDate(date) {
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return "that day";
+  }
+
+  return parsed.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric"
+  });
+}
+
+function formatCalendarEventSummary(events) {
+  const items = (Array.isArray(events) ? events : []).slice(0, 6).map((event) => {
+    const title = String(event?.title || "calendar item").trim();
+    const time = String(event?.startLabel || "soon").trim();
+    const location = String(event?.location || "").trim();
+    return location ? `${title} at ${time} in ${location}` : `${title} at ${time}`;
+  });
+
+  if (!items.length) {
+    return "nothing scheduled";
+  }
+
+  return items.join(", ");
+}
+
+function formatCalendarDateKey(value) {
+  const parsed = new Date(`${String(value || "").trim()}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return "that day";
+  }
+
+  return parsed.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric"
+  });
 }
 
 function extractPlaylistPlayTarget(prompt) {
@@ -1250,57 +1885,7 @@ function summarizeToolResults(toolResults) {
   return `Tool execution summary:\n${lines.join("\n")}`;
 }
 
-function normalizePlaylistName(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/["']/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\b(the|my|some|playlist|playlists|for me|please|song|songs|track|tracks|music)\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function scorePlaylistMatch(requestedName, candidateName) {
-  const requested = normalizePlaylistName(requestedName);
-  const candidate = normalizePlaylistName(candidateName);
-  if (!requested || !candidate) {
-    return 0;
-  }
-
-  if (requested === candidate) {
-    return 100;
-  }
-
-  if (candidate.includes(requested)) {
-    return 90;
-  }
-
-  if (requested.includes(candidate)) {
-    return 80;
-  }
-
-  const requestTokens = new Set(requested.split(" ").filter(Boolean));
-  const candidateTokens = new Set(candidate.split(" ").filter(Boolean));
-  if (!requestTokens.size || !candidateTokens.size) {
-    return 0;
-  }
-
-  let overlap = 0;
-  requestTokens.forEach((token) => {
-    if (candidateTokens.has(token)) {
-      overlap += 1;
-    }
-  });
-
-  const overlapRatio = overlap / Math.max(requestTokens.size, candidateTokens.size);
-  if (overlapRatio <= 0) {
-    return 0;
-  }
-
-  return Math.round(overlapRatio * 70);
-}
-
-function resolveRequestedMusicPlayback(toolResults, { playlistIntent, artistIntent }) {
+async function resolveRequestedMusicPlayback(toolResults, { playlistIntent, artistIntent }) {
   const requestedName = String(playlistIntent?.playlistName || artistIntent?.artistName || "").trim();
   if (!requestedName) {
     return {
@@ -1311,27 +1896,32 @@ function resolveRequestedMusicPlayback(toolResults, { playlistIntent, artistInte
   }
 
   let lookupEntry = Array.isArray(toolResults)
-    ? toolResults.find((entry) => entry?.tool === "list_music_playlists" && entry?.result?.ok)
+    ? toolResults.find(
+      (entry) =>
+        entry?.tool === "list_music_playlists" &&
+        entry?.result?.ok &&
+        Boolean(entry?.args?.localOnly)
+    )
     : null;
   let extraLookupResult = null;
 
   if (!lookupEntry) {
-    const lookupResult = executeToolCall("list_music_playlists", {});
+    const lookupResult = await executeToolCall("list_music_playlists", { localOnly: true });
     extraLookupResult = {
       tool: "list_music_playlists",
-      args: {},
+      args: { localOnly: true },
       result: lookupResult
     };
     lookupEntry = lookupResult?.ok ? extraLookupResult : null;
   }
 
   const playlists = Array.isArray(lookupEntry?.result?.playlists) ? lookupEntry.result.playlists : [];
-  const localPlaylists = playlists.filter((playlist) => String(playlist?.source || "") === "local-saved");
+  const availablePlaylists = playlists.filter((playlist) => String(playlist?.name || "").trim());
 
-  if (!localPlaylists.length) {
+  if (!availablePlaylists.length) {
     if (artistIntent) {
       const fallbackArtistCall = buildPlayArtistCall(requestedName);
-      const fallbackArtistResult = executeToolCall(fallbackArtistCall.tool, fallbackArtistCall.args);
+      const fallbackArtistResult = await executeToolCall(fallbackArtistCall.tool, fallbackArtistCall.args);
       return {
         playResult: { ...fallbackArtistCall, result: fallbackArtistResult },
         extraLookupResult,
@@ -1344,34 +1934,25 @@ function resolveRequestedMusicPlayback(toolResults, { playlistIntent, artistInte
     return {
       playResult: null,
       extraLookupResult,
-      agentMessage: "Sir, I could not find any saved local playlists to play yet."
+      agentMessage: "Sir, I could not find any playlists to play yet."
     };
   }
 
-  let best = null;
-  localPlaylists.forEach((playlist) => {
-    const nameScore = scorePlaylistMatch(requestedName, playlist?.name || "");
-    const contentScore = scorePlaylistContentMatch(requestedName, playlist);
-    const score = Math.max(nameScore, contentScore);
-    if (!best || score > best.score) {
-      best = { playlist, score };
-    }
-  });
-
-  if (!best || best.score < 35) {
+  const selection = await selectPlaylistWithLlm(requestedName, availablePlaylists);
+  if (!selection?.playlist) {
     if (artistIntent) {
       const fallbackArtistCall = buildPlayArtistCall(requestedName);
-      const fallbackArtistResult = executeToolCall(fallbackArtistCall.tool, fallbackArtistCall.args);
+      const fallbackArtistResult = await executeToolCall(fallbackArtistCall.tool, fallbackArtistCall.args);
       return {
         playResult: { ...fallbackArtistCall, result: fallbackArtistResult },
         extraLookupResult,
         agentMessage: fallbackArtistResult?.ok
-          ? `I could not find a close playlist match, so I am playing tracks by ${requestedName}, sir.`
-          : `Sir, I could not match ${requestedName} to a playlist or start artist playback.`
+          ? `I could not map that to a playlist, so I am playing tracks by ${requestedName}, sir.`
+          : `Sir, I could not map ${requestedName} to a playlist or start artist playback.`
       };
     }
 
-    const options = localPlaylists.slice(0, 6).map((item) => item.name).join(", ");
+    const options = availablePlaylists.slice(0, 6).map((item) => item.name).join(", ");
     return {
       playResult: null,
       extraLookupResult,
@@ -1379,9 +1960,9 @@ function resolveRequestedMusicPlayback(toolResults, { playlistIntent, artistInte
     };
   }
 
-  const selectedName = String(best.playlist?.name || requestedName).trim();
-  const playCall = buildPlayPlaylistCall(selectedName, requestedName, best.score, best.playlist);
-  const playResult = executeToolCall(playCall.tool, playCall.args);
+  const selectedName = String(selection.playlist?.name || requestedName).trim();
+  const playCall = buildPlayPlaylistCall(selectedName, requestedName, selection.confidence, selection.playlist);
+  const playResult = await executeToolCall(playCall.tool, playCall.args);
 
   if (!playResult?.ok) {
     return {
@@ -1410,7 +1991,7 @@ function buildPlayPlaylistCall(selectedName, requestedName, matchScore, playlist
         action: "play-playlist",
         playlistName: selectedName,
         requestedName,
-        matchScore,
+        matchScore: Number.isFinite(matchScore) ? matchScore : null,
         tracks: Array.isArray(playlist?.tracks)
           ? playlist.tracks.map((track) => ({
               name: String(track?.name || track?.title || "").trim(),
@@ -1443,21 +2024,91 @@ function buildPlayArtistCall(artistName) {
   };
 }
 
-function scorePlaylistContentMatch(requestedName, playlist) {
-  const tracks = Array.isArray(playlist?.tracks) ? playlist.tracks : [];
-  if (!tracks.length) {
-    return 0;
+async function selectPlaylistWithLlm(requestedName, playlists) {
+  const candidates = Array.isArray(playlists) ? playlists : [];
+  if (!requestedName || !candidates.length) {
+    return { playlist: null, confidence: null, reason: "NO_CANDIDATES" };
   }
 
-  let bestScore = 0;
-  tracks.forEach((track) => {
-    const artistScore = scorePlaylistMatch(requestedName, track?.artist || "");
-    const titleScore = scorePlaylistMatch(requestedName, track?.title || "");
-    const nameScore = scorePlaylistMatch(requestedName, track?.name || "");
-    bestScore = Math.max(bestScore, artistScore, titleScore, nameScore);
-  });
+  const optionsText = candidates
+    .map((playlist, index) => {
+      const tracks = Array.isArray(playlist?.tracks) ? playlist.tracks : [];
+      const artistPreview = Array.from(
+        new Set(
+          tracks
+            .map((track) => String(track?.artist || "").trim())
+            .filter(Boolean)
+        )
+      )
+        .slice(0, 4)
+        .join(", ");
+      return `${index + 1}. ${String(playlist?.name || "").trim()}${artistPreview ? ` | artists: ${artistPreview}` : ""}`;
+    })
+    .join("\n");
 
-  return bestScore;
+  const messages = [
+    {
+      role: "system",
+      content: [
+        "You map a user's music request to exactly one playlist option.",
+        "Respond using JSON only.",
+        "Output format:",
+        '{"playlistIndex":<number_or_0>,"confidence":<0_to_100_integer>,"reason":"<short reason>"}',
+        "Use playlistIndex=0 if no option is a good match."
+      ].join("\n")
+    },
+    {
+      role: "user",
+      content: [
+        `User request: ${requestedName}`,
+        "Playlist options:",
+        optionsText
+      ].join("\n")
+    }
+  ];
+
+  const llmResult = await requestLmStudioChatCompletion({ messages, temperature: 0 });
+  if (!llmResult?.ok) {
+    return { playlist: null, confidence: null, reason: "LLM_UNAVAILABLE" };
+  }
+
+  const parsed = parsePlaylistSelectionJson(llmResult.content);
+  const pickedIndex = Number(parsed?.playlistIndex);
+  if (!Number.isInteger(pickedIndex) || pickedIndex < 1 || pickedIndex > candidates.length) {
+    return { playlist: null, confidence: Number(parsed?.confidence) || null, reason: parsed?.reason || "NO_MATCH" };
+  }
+
+  return {
+    playlist: candidates[pickedIndex - 1],
+    confidence: Number.isFinite(Number(parsed?.confidence)) ? Number(parsed.confidence) : null,
+    reason: parsed?.reason || ""
+  };
+}
+
+function parsePlaylistSelectionJson(content) {
+  const raw = String(content || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Continue and try to extract the first JSON object from a wrapped response.
+  }
+
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace <= firstBrace) {
+    return null;
+  }
+
+  const candidate = raw.slice(firstBrace, lastBrace + 1);
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return null;
+  }
 }
 
 function escapeJsonString(value) {

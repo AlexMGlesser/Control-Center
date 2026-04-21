@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { existsSync, statSync } from "fs";
+import { spawn } from "child_process";
 import path from "path";
 import { systemConfig } from "../config.js";
 import { getAllApps, getAppById } from "../services/appRegistry.js";
@@ -28,6 +29,49 @@ import {
   getAgentToolCatalog,
   runAgentTurn
 } from "../services/agentRuntime.js";
+import { getLmStudioConfig, probeLmStudioStatus, markLmStudioOffline } from "../services/lmStudioService.js";
+import { getVoiceStatus } from "../services/voiceService.js";
+
+let shutdownCallback = null;
+
+export function onShutdownRequested(cb) {
+  shutdownCallback = cb;
+}
+
+const LMS_BIN_DIR = "C:\\Users\\Alex\\.cache\\lm-studio\\bin";
+const LMS_EXE = `${LMS_BIN_DIR}\\lms.exe`;
+
+function spawnLms(args, timeoutMs = 60000) {
+  return new Promise((resolve) => {
+    let proc;
+    try {
+      const childEnv = {
+        ...process.env,
+        PATH: `${LMS_BIN_DIR};${process.env.PATH || ""}`
+      };
+      proc = spawn(LMS_EXE, args, { shell: false, env: childEnv });
+    } catch (spawnErr) {
+      resolve({ code: -1, output: "", error: String(spawnErr?.message || spawnErr) });
+      return;
+    }
+    const output = [];
+    const errOutput = [];
+    proc.stdout?.on("data", (d) => output.push(String(d)));
+    proc.stderr?.on("data", (d) => errOutput.push(String(d)));
+    const timer = setTimeout(() => {
+      proc.kill();
+      resolve({ code: -1, output: output.join(""), error: "lms command timed out." });
+    }, timeoutMs);
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code: Number(code), output: output.join(""), error: errOutput.join("") });
+    });
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ code: -1, output: "", error: String(err?.message || err) });
+    });
+  });
+}
 import {
   getWorkProjects,
   getPersonalProjects,
@@ -42,6 +86,13 @@ import {
   openProjectNode,
   launchApp
 } from "../services/projectService.js";
+import {
+  createCalendarEvent,
+  deleteCalendarEvent,
+  getCalendarMonthView,
+  getRemainingCalendarEvents,
+  listCalendarEvents,
+} from "../services/calendarService.js";
 import {
   addTrackToPlaylist,
   createMusicPlaylist,
@@ -60,12 +111,79 @@ router.get("/health", (req, res) => {
   res.json({ ok: true, timestamp: new Date().toISOString() });
 });
 
+router.post("/lmstudio/start", async (req, res) => {
+  const config = getLmStudioConfig();
+  const model = String(req.body?.model || "").trim() || config.model;
+
+  publishEvent({
+    source: "lmstudio",
+    appId: "control-center",
+    type: "lmstudio",
+    message: `Loading LMStudio model: ${model}`,
+    meta: { model }
+  });
+
+  const result = await spawnLms(["load", model], 120000);
+
+  if (result.code !== 0) {
+    const errorMsg = String(result.error || result.output || "Unknown error").trim();
+    publishEvent({
+      source: "lmstudio",
+      appId: "control-center",
+      type: "lmstudio",
+      message: `Failed to load LMStudio model: ${errorMsg}`,
+      meta: { model, error: errorMsg }
+    });
+    return res.status(500).json({ ok: false, message: errorMsg || "Failed to load model." });
+  }
+
+  // Probe the LMStudio API to confirm it's live and update server-side state
+  await probeLmStudioStatus();
+
+  publishEvent({
+    source: "lmstudio",
+    appId: "control-center",
+    type: "lmstudio",
+    message: `LMStudio model loaded: ${model}`,
+    meta: { model }
+  });
+
+  res.json({ ok: true, message: `Model ${model} loaded.` });
+});
+
+router.post("/lmstudio/stop", async (req, res) => {
+  publishEvent({
+    source: "lmstudio",
+    appId: "control-center",
+    type: "lmstudio",
+    message: "Unloading LMStudio model.",
+    meta: {}
+  });
+
+  // Fire unload — treat any exit code as acceptable (--all is a no-op if nothing is loaded)
+  await spawnLms(["unload", "--all"], 30000);
+
+  // Immediately mark offline in server state; background probe will confirm within 10s
+  markLmStudioOffline();
+
+  publishEvent({
+    source: "lmstudio",
+    appId: "control-center",
+    type: "lmstudio",
+    message: "LMStudio model unloaded.",
+    meta: {}
+  });
+
+  res.json({ ok: true, message: "Model unloaded." });
+});
+
 router.get("/system", (req, res) => {
   const runtimeStatus = getAgentRuntimeStatus();
 
   res.json({
     ...systemConfig,
     lmStudio: runtimeStatus.lmStudio,
+    voice: getVoiceStatus(),
     mode: getModeState().currentMode,
     modeState: getModeState(),
     orchestrator: getOrchestratorStatus()
@@ -331,6 +449,18 @@ function scheduleFollowUpAgentMessages(messages, baseMeta) {
   });
 }
 
+router.post("/shutdown", (req, res) => {
+  res.json({ ok: true, message: "Shutting down Control Center." });
+
+  setTimeout(() => {
+    if (shutdownCallback) {
+      shutdownCallback();
+    } else {
+      process.exit(0);
+    }
+  }, 500);
+});
+
 function persistAgentMessages(agentTurn, metaOverrides = {}) {
   const sourceMessages = Array.isArray(agentTurn.agentMessages) ? agentTurn.agentMessages : [];
   const composedMessage = sourceMessages
@@ -527,6 +657,79 @@ router.get("/apps/music-app/local-file", (req, res) => {
 
 router.get("/apps/music-app/playlists", (req, res) => {
   res.json(listMusicPlaylists());
+});
+
+router.get("/apps/calendar-app/month", (req, res) => {
+  try {
+    res.json(getCalendarMonthView({ year: req.query.year, month: req.query.month }));
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "CALENDAR_MONTH_FAILED",
+      message: error.message || "Could not load calendar month."
+    });
+  }
+});
+
+router.get("/apps/calendar-app/events", (req, res) => {
+  try {
+    res.json(
+      listCalendarEvents({
+        start: req.query.start,
+        end: req.query.end,
+        limit: req.query.limit
+      })
+    );
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "CALENDAR_EVENTS_FAILED",
+      message: error.message || "Could not load calendar events."
+    });
+  }
+});
+
+router.get("/apps/calendar-app/events/remaining", (req, res) => {
+  try {
+    res.json(getRemainingCalendarEvents({ now: req.query.now }));
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "CALENDAR_REMAINING_FAILED",
+      message: error.message || "Could not load the rest of today's calendar."
+    });
+  }
+});
+
+router.post("/apps/calendar-app/events", (req, res) => {
+  try {
+    const result = createCalendarEvent({
+      title: req.body?.title,
+      startsAt: req.body?.startsAt,
+      endsAt: req.body?.endsAt,
+      location: req.body?.location,
+      notes: req.body?.notes
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "CALENDAR_CREATE_FAILED",
+      message: error.message || "Could not create calendar event."
+    });
+  }
+});
+
+router.delete("/apps/calendar-app/events/:eventId", (req, res) => {
+  try {
+    res.json(deleteCalendarEvent({ eventId: req.params.eventId }));
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "CALENDAR_DELETE_FAILED",
+      message: error.message || "Could not delete calendar event."
+    });
+  }
 });
 
 router.post("/apps/music-app/local-playlists/sync", (req, res) => {

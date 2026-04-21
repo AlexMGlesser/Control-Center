@@ -20,6 +20,13 @@ import {
   openProjectNode
 } from "./projectService.js";
 import {
+  createCalendarEvent,
+  deleteCalendarEvent,
+  getCalendarMonthView,
+  getRemainingCalendarEvents,
+  listCalendarEvents,
+} from "./calendarService.js";
+import {
   addTrackToPlaylist,
   createMusicPlaylist,
   listMusicArtists,
@@ -27,6 +34,7 @@ import {
   listMusicPlaylists,
   listMusicTracks
 } from "./musicLibraryService.js";
+import { getNewsBriefing } from "./newsService.js";
 
 const TOOL_DEFINITIONS = [
   { name: "get_system_state", description: "Get Control Center system runtime state." },
@@ -41,6 +49,11 @@ const TOOL_DEFINITIONS = [
   { name: "test_voice", description: "Run voice test with current desktop settings." },
   { name: "list_events", description: "List recent event bus entries." },
   { name: "publish_event", description: "Publish an event to event bus." },
+  { name: "get_calendar_month", description: "Get the calendar month view with events for the month grid." },
+  { name: "list_calendar_events", description: "List calendar events in a date range." },
+  { name: "get_remaining_calendar_events", description: "Read the rest of today's calendar events without opening the app." },
+  { name: "create_calendar_event", description: "Add an event to the calendar." },
+  { name: "delete_calendar_event", description: "Remove an event from the calendar by id or title." },
   { name: "create_project", description: "Create and register a new project folder, with optional app open." },
   { name: "open_project", description: "Open a managed project by name or id and optionally open the app UI." },
   { name: "list_music_tracks", description: "List music tracks with optional genre, artist, or query filters." },
@@ -48,7 +61,8 @@ const TOOL_DEFINITIONS = [
   { name: "list_music_genres", description: "List available genres in the music catalog." },
   { name: "list_music_playlists", description: "List playlists and included tracks." },
   { name: "create_music_playlist", description: "Create a new playlist by name." },
-  { name: "add_track_to_playlist", description: "Add a track to a playlist using trackId or trackName." }
+  { name: "add_track_to_playlist", description: "Add a track to a playlist using trackId or trackName." },
+  { name: "get_news_summary", description: "Fetch latest news headlines and return a spoken summary." }
 ];
 
 export function getToolDefinitions() {
@@ -59,7 +73,7 @@ export function getToolNamesSet() {
   return new Set(TOOL_DEFINITIONS.map((tool) => tool.name));
 }
 
-export function executeToolCall(toolName, args = {}) {
+export async function executeToolCall(toolName, args = {}) {
   switch (toolName) {
     case "get_system_state":
       return ok({
@@ -89,7 +103,7 @@ export function executeToolCall(toolName, args = {}) {
       }
 
       const isSystemTab = ["overview", "settings", "chatbot", "event-bus", "agent-core", "integration-hub"].includes(target);
-      const windowApps = ["news-app", "work-app", "project-app", "music-app"];
+      const windowApps = ["calendar-app", "news-app", "work-app", "project-app", "music-app"];
       const isWindowApp = windowApps.includes(target);
       const app = isSystemTab ? null : getAppById(target);
 
@@ -153,9 +167,62 @@ export function executeToolCall(toolName, args = {}) {
       });
     }
 
+    case "shutdown_app": {
+      publishEvent({
+        appId: "control-center",
+        source: "agent",
+        type: "shutdown",
+        message: "Agent-initiated shutdown."
+      });
+
+      setTimeout(async () => {
+        try {
+          const http = await import("http");
+          const req = http.request({ hostname: "127.0.0.1", port: 3100, path: "/api/shutdown", method: "POST", headers: { "Content-Type": "application/json" } });
+          req.end();
+        } catch { process.exit(0); }
+      }, 1000);
+
+      return ok({ message: "Shutting down Control Center." });
+    }
+
     case "list_events": {
       const limit = Number(args.limit || 25);
       return ok({ events: getRecentEvents(limit) });
+    }
+
+    case "get_calendar_month":
+      return ok(getCalendarMonthView({ year: args.year, month: args.month }));
+
+    case "list_calendar_events":
+      return ok(listCalendarEvents({ start: args.start, end: args.end, limit: args.limit }));
+
+    case "get_remaining_calendar_events":
+      return ok(getRemainingCalendarEvents({ now: args.now }));
+
+    case "create_calendar_event": {
+      try {
+        const normalized = normalizeCalendarCreateArgs(args);
+        return ok(
+          createCalendarEvent({
+            title: normalized.title,
+            startsAt: normalized.startsAt,
+            endsAt: normalized.endsAt,
+            location: normalized.location,
+            notes: normalized.notes
+          })
+        );
+      } catch (error) {
+        return fail(error?.code || "CREATE_CALENDAR_EVENT_FAILED", error?.message || "Failed to create calendar event.");
+      }
+    }
+
+    case "delete_calendar_event": {
+      try {
+        return ok(deleteCalendarEvent({ eventId: args.eventId, title: args.title }));
+      } catch (error) {
+        return fail(error?.code || "DELETE_CALENDAR_EVENT_FAILED", error?.message || "Failed to delete calendar event.");
+      }
     }
 
     case "publish_event": {
@@ -318,7 +385,7 @@ export function executeToolCall(toolName, args = {}) {
       return ok({ genres: listMusicGenres() });
 
     case "list_music_playlists":
-      return ok(listMusicPlaylists());
+      return ok(listMusicPlaylists({ localOnly: Boolean(args.localOnly) }));
 
     case "create_music_playlist": {
       try {
@@ -339,6 +406,46 @@ export function executeToolCall(toolName, args = {}) {
         );
       } catch (error) {
         return fail(error?.code || "ADD_TRACK_FAILED", error?.message || "Failed to add track to playlist.");
+      }
+    }
+
+    case "get_news_summary": {
+      try {
+        const briefing = await getNewsBriefing();
+        if (!briefing.ok) {
+          return fail("NEWS_FETCH_FAILED", "Could not fetch news at this time.");
+        }
+
+        const lines = [];
+
+        if (briefing.weather?.ok) {
+          const w = briefing.weather.current;
+          lines.push(`Weather in ${briefing.weather.location}: ${w.temperatureC}°C, ${w.label}.`);
+        }
+
+        if (briefing.headlines?.length) {
+          lines.push("Top headlines:");
+          for (const item of briefing.headlines.slice(0, 3)) {
+            const desc = item.summary ? ` — ${item.summary}` : "";
+            lines.push(`• ${item.title}${desc}`);
+          }
+        }
+
+        if (briefing.technology?.length) {
+          lines.push("In tech:");
+          for (const item of briefing.technology.slice(0, 2)) {
+            const desc = item.summary ? ` — ${item.summary}` : "";
+            lines.push(`• ${item.title}${desc}`);
+          }
+        }
+
+        if (briefing.stemFeature) {
+          lines.push(`Science highlight: ${briefing.stemFeature.title}.`);
+        }
+
+        return ok({ summary: lines.join("\n"), digest: briefing.chatbotDigest });
+      } catch (error) {
+        return fail("NEWS_FETCH_FAILED", error?.message || "Failed to fetch news.");
       }
     }
 
@@ -434,4 +541,68 @@ function findManagedProject({ appType, projectId, projectName }) {
   }
 
   return null;
+}
+
+function normalizeCalendarCreateArgs(args = {}) {
+  const title = firstNonEmpty(
+    args.title,
+    args.event_name,
+    args.eventName,
+    args.name,
+    args.subject,
+    args.summary
+  );
+
+  let startsAt = firstNonEmpty(
+    args.startsAt,
+    args.startAt,
+    args.start_time,
+    args.startTime,
+    args.start,
+    args.when,
+    args.datetime,
+    args.dateTime
+  );
+
+  let endsAt = firstNonEmpty(
+    args.endsAt,
+    args.endAt,
+    args.end_time,
+    args.endTime,
+    args.end
+  );
+
+  const dateOnly = firstNonEmpty(args.date, args.day);
+  const timeOnly = firstNonEmpty(args.time, args.at, args.clockTime);
+  if (!startsAt && dateOnly) {
+    const composed = String(`${dateOnly} ${timeOnly || "9:00 AM"}`).trim();
+    startsAt = composed;
+  }
+
+  if (!endsAt && startsAt) {
+    const durationMinutesRaw = Number(args.durationMinutes || args.duration_minutes || args.duration || 60);
+    const durationMinutes = Number.isFinite(durationMinutesRaw) && durationMinutesRaw > 0 ? durationMinutesRaw : 60;
+    const parsedStart = new Date(startsAt);
+    if (!Number.isNaN(parsedStart.getTime())) {
+      endsAt = new Date(parsedStart.getTime() + durationMinutes * 60 * 1000).toISOString();
+    }
+  }
+
+  return {
+    title,
+    startsAt,
+    endsAt,
+    location: firstNonEmpty(args.location, args.where, args.place) || "",
+    notes: firstNonEmpty(args.notes, args.note, args.description, args.details) || ""
+  };
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) {
+      return text;
+    }
+  }
+  return "";
 }

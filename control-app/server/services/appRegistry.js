@@ -18,8 +18,8 @@ const appRegistry = [
   {
     id: "calendar-app",
     name: "Calendar App",
-    description: "Calendar read/write interface planned for Google Calendar integration.",
-    status: "wip",
+    description: "Monthly schedule workspace with local event reads, adds, removals, and future calendar sync.",
+    status: "online",
     routeKey: "calendar-app",
     capabilities: ["calendar-read", "calendar-write", "voice-summary"]
   },
