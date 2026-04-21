@@ -22,3 +22,11 @@ out/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Local voice/model artifacts
+control-app/voice/
+
+# Local runtime state files
+control-app/agent/CHAT_HISTORY_CONTEXT.txt
+control-app/server/data/chat-history.json
+control-app/server/data/music-local-playlists.json
