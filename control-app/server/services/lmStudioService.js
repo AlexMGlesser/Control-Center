@@ -1,6 +1,7 @@
 const LMSTUDIO_BASE_URL = process.env.LMSTUDIO_BASE_URL || "http://127.0.0.1:1234/v1";
 const LMSTUDIO_MODEL = process.env.LMSTUDIO_MODEL || "google/gemma-4-26b-a4b";
 const LMSTUDIO_TIMEOUT_MS = Number(process.env.LMSTUDIO_TIMEOUT_MS || 45000);
+const PROBE_INTERVAL_MS = 10000;
 
 const lmStudioState = {
   status: "not_connected",
@@ -21,6 +22,48 @@ export function getLmStudioState() {
   return { ...lmStudioState };
 }
 
+export function markLmStudioConnected(model) {
+  lmStudioState.status = "connected";
+  lmStudioState.model = model || LMSTUDIO_MODEL;
+  lmStudioState.lastError = null;
+  lmStudioState.lastConnectedAt = new Date().toISOString();
+}
+
+export function markLmStudioOffline() {
+  lmStudioState.status = "not_connected";
+  lmStudioState.model = LMSTUDIO_MODEL;
+  lmStudioState.lastError = null;
+}
+
+export async function probeLmStudioStatus() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`${LMSTUDIO_BASE_URL}/models`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      markLmStudioOffline();
+      return false;
+    }
+    const data = await res.json();
+    const models = Array.isArray(data?.data) ? data.data : [];
+    if (models.length === 0) {
+      markLmStudioOffline();
+      return false;
+    }
+    const loadedModel = String(models[0]?.id || models[0]?.name || LMSTUDIO_MODEL);
+    markLmStudioConnected(loadedModel);
+    return true;
+  } catch {
+    markLmStudioOffline();
+    return false;
+  }
+}
+
+// Background probe — keeps status in sync regardless of how the model was loaded/unloaded
+setInterval(() => { probeLmStudioStatus().catch(() => {}); }, PROBE_INTERVAL_MS);
+probeLmStudioStatus().catch(() => {});
+
 export async function requestLmStudioChatCompletion({ messages, temperature = 0.2 }) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), LMSTUDIO_TIMEOUT_MS);
@@ -34,6 +77,7 @@ export async function requestLmStudioChatCompletion({ messages, temperature = 0.
       body: JSON.stringify({
         model: LMSTUDIO_MODEL,
         temperature,
+        max_tokens: 300,
         messages
       }),
       signal: controller.signal
@@ -79,13 +123,6 @@ export async function requestLmStudioChatCompletion({ messages, temperature = 0.
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-function markLmStudioConnected(model) {
-  lmStudioState.status = "connected";
-  lmStudioState.model = model || LMSTUDIO_MODEL;
-  lmStudioState.lastError = null;
-  lmStudioState.lastConnectedAt = new Date().toISOString();
 }
 
 function markLmStudioError(message) {

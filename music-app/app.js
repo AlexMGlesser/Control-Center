@@ -1,7 +1,7 @@
 const state = {
   tracks: [],
   currentIndex: -1,
-  isShuffle: false,
+  isShuffle: true,
   isLoop: false,
   savedPlaylists: []
 };
@@ -9,7 +9,8 @@ const state = {
 const STORAGE_KEY = "control-center-music-playlists";
 const LAST_COMMAND_ID_KEY = "control-center-music-last-command-id";
 const LAST_COMMAND_MARKER_KEY = "control-center-music-last-command-marker";
-const COMMAND_REPLAY_WINDOW_MS = 2 * 60 * 1000;
+// Replay only brief startup race windows so old commands never auto-play on app open.
+const COMMAND_REPLAY_WINDOW_MS = 12 * 1000;
 const MUSIC_EVENT_STREAM_RETRY_MS = 1500;
 const stateChannel = typeof BroadcastChannel !== "undefined"
   ? new BroadcastChannel("control-center-music-state")
@@ -276,6 +277,15 @@ function setTrack(index, { autoplay = false } = {}) {
   }
 }
 
+function getRandomTrackIndex(trackCount) {
+  const safeCount = Number(trackCount);
+  if (!Number.isFinite(safeCount) || safeCount <= 1) {
+    return 0;
+  }
+
+  return Math.floor(Math.random() * safeCount);
+}
+
 function loadSavedPlaylists() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -392,7 +402,7 @@ function loadSavedPlaylist(index, { autoplay = false } = {}) {
 
   if (playableStoredTracks.length) {
     state.tracks = playableStoredTracks;
-    setTrack(0, { autoplay });
+    setTrack(getRandomTrackIndex(state.tracks.length), { autoplay });
     renderPlaylist();
     return;
   }
@@ -410,7 +420,7 @@ function loadSavedPlaylist(index, { autoplay = false } = {}) {
   }
 
   state.tracks = matchedTracks;
-  setTrack(0, { autoplay });
+  setTrack(getRandomTrackIndex(state.tracks.length), { autoplay });
   renderPlaylist();
 }
 
@@ -487,7 +497,7 @@ async function playLibraryPlaylistByName(playlistName) {
   }
 
   state.tracks = mappedTracks;
-  setTrack(0, { autoplay: true });
+  setTrack(getRandomTrackIndex(state.tracks.length), { autoplay: true });
   renderPlaylist();
   return true;
 }
@@ -520,7 +530,7 @@ function playPlaylistTracksFromCommand(tracks) {
   }
 
   state.tracks = mappedTracks;
-  setTrack(0, { autoplay: true });
+  setTrack(getRandomTrackIndex(state.tracks.length), { autoplay: true });
   renderPlaylist();
   return true;
 }
@@ -931,6 +941,14 @@ async function replayMissedMusicCommandOnStartup() {
     return;
   }
 
+  const latestAction = String(latestEvent?.meta?.action || "").trim().toLowerCase();
+  const replayableAction = latestAction === "play-playlist" || latestAction === "play-artist";
+  const replayableSource = String(latestEvent?.source || "").trim().toLowerCase() === "agent";
+  const replayableOpenApp = Boolean(latestEvent?.meta?.openApp);
+  if (!replayableAction || !replayableSource || !replayableOpenApp) {
+    return;
+  }
+
   const latestId = Number(latestEvent.id || 0);
   if (isCommandAlreadyHandled({
     commandId: latestId,
@@ -940,7 +958,11 @@ async function replayMissedMusicCommandOnStartup() {
   }
 
   const eventTimestamp = Date.parse(String(latestEvent.timestamp || ""));
-  if (Number.isFinite(eventTimestamp) && Date.now() - eventTimestamp > COMMAND_REPLAY_WINDOW_MS) {
+  if (!Number.isFinite(eventTimestamp)) {
+    return;
+  }
+
+  if (Date.now() - eventTimestamp > COMMAND_REPLAY_WINDOW_MS) {
     return;
   }
 
@@ -1287,6 +1309,7 @@ function initEvents() {
 
 function init() {
   elements.audio.volume = Number(elements.volume.value);
+  elements.shuffleBtn.setAttribute("aria-pressed", String(state.isShuffle));
   loadSavedPlaylists();
   syncSavedPlaylistsToServer().catch(() => {
     // Ignore startup sync failures.

@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "fast-xml-parser": "^5.7.0"
+    "fast-xml-parser": "^5.7.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "electron": "^31.7.7"

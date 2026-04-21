@@ -113,10 +113,10 @@ export function listMusicGenres() {
   );
 }
 
-export function listMusicPlaylists() {
+export function listMusicPlaylists({ localOnly = false } = {}) {
   return {
     ok: true,
-    playlists: buildCombinedPlaylists()
+    playlists: localOnly ? buildLocalPlaylists() : buildCombinedPlaylists()
   };
 }
 
@@ -223,6 +223,10 @@ function buildCombinedPlaylists() {
   });
 
   return Array.from(merged.values());
+}
+
+function buildLocalPlaylists() {
+  return localPlaylistState.playlists.map((playlist) => cloneLocalPlaylist(playlist));
 }
 
 function hydratePlaylist(playlist) {
