@@ -72,10 +72,8 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
 
     // Filter succeeded, use its tool calls and messages
     let resolvedToolCalls = ensureNewsOpenCall(filterResult.toolCalls, userText, origin);
-    resolvedToolCalls = ensureMusicOpenCall(resolvedToolCalls, userText, origin);
     resolvedToolCalls = ensureNamedProjectOpenCall(resolvedToolCalls, userText, origin);
     resolvedToolCalls = ensureWorkProjectOpenCall(resolvedToolCalls, userText, origin);
-    resolvedToolCalls = ensureMusicPlaybackCommandCall(resolvedToolCalls, userText, origin);
     toolCalls = resolvedToolCalls;
     safeMessages = Array.isArray(filterResult.safeMessages) ? [...filterResult.safeMessages] : [];
 
@@ -86,13 +84,22 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
   }
 
   const seenOpenAppTargets = new Set();
-  const dedupedToolCalls = toolCalls.filter((call) => {
+  const seenCloseAppTargets = new Set();
+  const safeToolCalls = normalizeToolCallsForSafety(userText, toolCalls);
+  const dedupedToolCalls = safeToolCalls.filter((call) => {
     if (call?.tool === "open_app") {
       const target = String(call?.args?.target || call?.args?.appId || call?.args?.app_name || "").trim();
       if (!target || seenOpenAppTargets.has(target)) {
         return false;
       }
       seenOpenAppTargets.add(target);
+    }
+    if (call?.tool === "close_app") {
+      const target = String(call?.args?.target || call?.args?.appId || call?.args?.app_name || "").trim();
+      if (!target || seenCloseAppTargets.has(target)) {
+        return false;
+      }
+      seenCloseAppTargets.add(target);
     }
     return true;
   });
@@ -105,11 +112,32 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
   );
 
   let postToolAgentMessage = "";
-  const explicitPlaylistIntent = origin?.type === "user" ? extractPlaylistPlayTarget(userText) : null;
-  const implicitPlaylistIntent = origin?.type === "user" ? extractImplicitPlaylistPlayTarget(userText) : null;
-  const playlistIntent = explicitPlaylistIntent || implicitPlaylistIntent;
-  const artistIntent = origin?.type === "user" ? extractArtistPlayTarget(userText) : null;
+  const llmMusicIntent = origin?.type === "user"
+    ? await inferMusicPlaybackIntentWithLlm(userText, toolResults)
+    : null;
+  const playlistIntent = llmMusicIntent?.kind === "playlist"
+    ? { playlistName: llmMusicIntent.requestedName }
+    : null;
+  const artistIntent = llmMusicIntent?.kind === "artist"
+    ? { artistName: llmMusicIntent.requestedName }
+    : null;
   if (playlistIntent || artistIntent) {
+    const alreadyOpeningMusic = toolResults.some(
+      (entry) =>
+        entry?.tool === "open_app" &&
+        entry?.result?.ok &&
+        String(entry?.args?.target || entry?.args?.appId || "") === "music-app"
+    );
+
+    if (!alreadyOpeningMusic) {
+      const openMusicResult = await executeToolCall("open_app", { target: "music-app" });
+      toolResults.push({
+        tool: "open_app",
+        args: { target: "music-app" },
+        result: openMusicResult
+      });
+    }
+
     const orchestration = await resolveRequestedMusicPlayback(toolResults, {
       playlistIntent,
       artistIntent
@@ -497,9 +525,14 @@ function buildDeterministicToolCalls(userText, origin) {
   const prompt = String(userText || "").toLowerCase();
   const calls = [];
 
-  // Check for shutdown intent
-  if (/\b(shut\s*down|power\s*off|turn\s*(your)?\s*self\s*off)\b/.test(prompt) ||
-      /\b(exit|quit|close)\b.*\b(app|control\s*center|system|everything|yourself)\b/.test(prompt)) {
+  const closeAppTarget = extractCloseAppTarget(prompt);
+  if (closeAppTarget) {
+    calls.push({ tool: "close_app", args: { target: closeAppTarget } });
+    return calls;
+  }
+
+  // Check for explicit system shutdown intent only.
+  if (extractSystemShutdownIntent(prompt)) {
     calls.push({ tool: "shutdown_app", args: {} });
     return calls;
   }
@@ -573,36 +606,6 @@ function buildDeterministicToolCalls(userText, origin) {
     return calls;
   }
 
-  const explicitPlaylistTarget = extractPlaylistPlayTarget(prompt);
-  const implicitPlaylistTarget = explicitPlaylistTarget || extractImplicitPlaylistPlayTarget(prompt);
-  const playlistPlayTarget = explicitPlaylistTarget || implicitPlaylistTarget;
-  if (playlistPlayTarget) {
-    calls.push({ tool: "open_app", args: { target: "music-app" } });
-    calls.push({ tool: "list_music_playlists", args: { localOnly: true } });
-    return calls;
-  }
-
-  const artistPlayTarget = extractArtistPlayTarget(prompt);
-  if (artistPlayTarget) {
-    calls.push({ tool: "open_app", args: { target: "music-app" } });
-    calls.push({
-      tool: "publish_event",
-      args: {
-        appId: "music-app",
-        source: "agent",
-        type: "music-command",
-        message: `Agent requested local artist playback: ${artistPlayTarget.artistName}.`,
-        meta: {
-          action: "play-artist",
-          artistName: artistPlayTarget.artistName,
-          localOnly: true,
-          openApp: true
-        }
-      }
-    });
-    return calls;
-  }
-
   const openProjectTarget = extractProjectOpenTarget(prompt);
   if (openProjectTarget) {
     calls.push({
@@ -620,7 +623,10 @@ function buildDeterministicToolCalls(userText, origin) {
   if (/\b(news|headline|headlines?|what'?s the news|show me news|open news|read me.*(news|headlines?)|brief me|briefing)\b/.test(prompt)) {
     const isNegative = /\b(don't|do not|no|not)\b.*\b(news|headlines?|open)\b/.test(prompt);
     if (!isNegative) {
-      calls.push({ tool: "open_app", args: { target: "news-app" } });
+      const shouldOpenNewsApp = /\b(open|launch|start)\b.*\b(news|headlines?|news app)\b/.test(prompt) || /\bshow\b.*\b(news app)\b/.test(prompt);
+      if (shouldOpenNewsApp) {
+        calls.push({ tool: "open_app", args: { target: "news-app" } });
+      }
       calls.push({ tool: "get_news_summary", args: {} });
     }
   }
@@ -628,72 +634,6 @@ function buildDeterministicToolCalls(userText, origin) {
   // Check for work app intent
   if (/\b(work|work app|open work|show work|my work)\b/.test(prompt)) {
     calls.push({ tool: "open_app", args: { target: "work-app" } });
-  }
-
-  // Check for music playback control commands (pause, resume, next, prev, stop)
-  const musicControlAction = extractMusicControlAction(prompt);
-  if (musicControlAction) {
-    calls.push({
-      tool: "publish_event",
-      args: {
-        appId: "music-app",
-        source: "agent",
-        type: "music-command",
-        message: `Agent requested ${musicControlAction}.`,
-        meta: { action: musicControlAction }
-      }
-    });
-    return calls;
-  }
-
-  // Check for music app open intent
-  if (/\b(open|launch|start|show)\b.*\b(music|music app|player)\b/.test(prompt)) {
-    calls.push({ tool: "open_app", args: { target: "music-app" } });
-  }
-
-  if (/\b(list|show|what)\b.*\bgenres?\b|\bgenres?\b.*\b(music|songs|tracks)\b/.test(prompt)) {
-    calls.push({ tool: "list_music_genres", args: {} });
-    return calls;
-  }
-
-  if (/\b(list|show|what)\b.*\bartists?\b|\bartists?\b.*\b(music|songs|tracks)\b/.test(prompt)) {
-    calls.push({ tool: "list_music_artists", args: {} });
-    return calls;
-  }
-
-  if (/\b(list|show|what|my)\b.*\bplaylists?\b/.test(prompt)) {
-    calls.push({ tool: "list_music_playlists", args: { localOnly: true } });
-    return calls;
-  }
-
-  const createPlaylistMatch = prompt.match(/\b(?:create|make)\s+(?:a\s+)?playlist\s+(.+)$/);
-  if (createPlaylistMatch && createPlaylistMatch[1]) {
-    calls.push({ tool: "create_music_playlist", args: { name: createPlaylistMatch[1].trim() } });
-    return calls;
-  }
-
-  const addTrackMatch = prompt.match(/\badd\s+(.+?)\s+to\s+playlist\s+(.+)$/);
-  if (addTrackMatch && addTrackMatch[1] && addTrackMatch[2]) {
-    calls.push({
-      tool: "add_track_to_playlist",
-      args: {
-        trackName: addTrackMatch[1].trim(),
-        playlistName: addTrackMatch[2].trim()
-      }
-    });
-    return calls;
-  }
-
-  const byArtistMatch = prompt.match(/\b(?:songs|tracks)\s+(?:by|from)\s+(.+)$/);
-  if (byArtistMatch && byArtistMatch[1]) {
-    calls.push({ tool: "list_music_tracks", args: { artist: byArtistMatch[1].trim() } });
-    return calls;
-  }
-
-  const byGenreMatch = prompt.match(/\b(?:songs|tracks)\s+(?:in|for)\s+(.+?)\s+genre\b/);
-  if (byGenreMatch && byGenreMatch[1]) {
-    calls.push({ tool: "list_music_tracks", args: { genre: byGenreMatch[1].trim() } });
-    return calls;
   }
 
   // Check for project app intent (including plurals)
@@ -719,8 +659,22 @@ function buildMessagesForToolCalls(calls) {
       return "Opening Work App.";
     } else if (target === "music-app") {
       return "Opening Music App.";
+    } else if (target === "drawing-app") {
+      return "Opening Drawing App.";
     } else if (target === "project-app") {
       return "Opening Personal Projects.";
+    } else if (call?.tool === "close_app") {
+      const closeTarget = String(call?.args?.target || "").trim();
+      if (closeTarget === "all-apps") {
+        return "Closing all app windows.";
+      }
+      if (closeTarget === "news-app") return "Closing News App.";
+      if (closeTarget === "calendar-app") return "Closing Calendar App.";
+      if (closeTarget === "work-app") return "Closing Work App.";
+      if (closeTarget === "project-app") return "Closing Personal Projects.";
+      if (closeTarget === "music-app") return "Closing Music App.";
+      if (closeTarget === "drawing-app") return "Closing Drawing App.";
+      return "Closing that app.";
     } else if (call?.tool === "list_music_genres") {
       return "Checking available music genres.";
     } else if (call?.tool === "list_music_artists") {
@@ -853,6 +807,13 @@ function synthesizeToolMessages(toolResults) {
     }
 
     return [`Sir, removed ${event.title} from your calendar.`];
+  }
+
+  if (primary.tool === "close_app") {
+    if (result.closeAll) {
+      return ["Sir, closed all app windows."];
+    }
+    return [`Sir, closed ${result.label || "that app"}.`];
   }
 
   return [];
@@ -1008,52 +969,6 @@ function generateLocalLlmOutput(userText) {
     ].join("\n");
   }
 
-  const explicitPlaylistPlayTarget = extractPlaylistPlayTarget(prompt);
-  const implicitPlaylistPlayTarget = explicitPlaylistPlayTarget || extractImplicitPlaylistPlayTarget(prompt);
-  const playlistPlayTarget = explicitPlaylistPlayTarget || implicitPlaylistPlayTarget;
-  if (playlistPlayTarget) {
-    return [
-      '{{"tool":"open_app","args":{"target":"music-app"}} | {"tool":"list_music_playlists","args":{}}}',
-      '{"response":"Finding the best playlist match now."}'
-    ].join("\n");
-  }
-
-  const artistPlayTarget = extractArtistPlayTarget(prompt);
-  if (artistPlayTarget) {
-    return [
-      '{{"tool":"open_app","args":{"target":"music-app"}} | {"tool":"publish_event","args":{"appId":"music-app","source":"agent","type":"music-command","message":"Agent requested local artist playback","meta":{"action":"play-artist","artistName":"' + escapeJsonString(artistPlayTarget.artistName) + '","localOnly":true,"openApp":true}}}}',
-      '{"response":"Playing local tracks by ' + escapeJsonString(artistPlayTarget.artistName) + '."}'
-    ].join("\n");
-  }
-
-  if (/\b(open|launch|start|show)\b.*\b(music|music app|player)\b/.test(prompt)) {
-    return [
-      '{"tool":"open_app","args":{"target":"music-app"}}',
-      '{"response":"Opening Music App."}'
-    ].join("\n");
-  }
-
-  if (/(list|show|what).*(genres?)|genres?.*(music|songs|tracks)/.test(prompt)) {
-    return [
-      '{"tool":"list_music_genres","args":{}}',
-      '{"response":"Fetching music genres."}'
-    ].join("\n");
-  }
-
-  if (/(list|show|what).*(artists?)|artists?.*(music|songs|tracks)/.test(prompt)) {
-    return [
-      '{"tool":"list_music_artists","args":{}}',
-      '{"response":"Fetching music artists."}'
-    ].join("\n");
-  }
-
-  if (/(list|show|what|my).*(playlists?)/.test(prompt)) {
-    return [
-      '{"tool":"list_music_playlists","args":{}}',
-      '{"response":"Fetching your playlists."}'
-    ].join("\n");
-  }
-
   const openProjectTarget = extractProjectOpenTarget(prompt);
   if (openProjectTarget) {
     return [
@@ -1160,50 +1075,18 @@ function ensureWorkProjectOpenCall(toolCalls, userText, origin) {
   return currentCalls;
 }
 
-function ensureMusicOpenCall(toolCalls, userText, origin) {
-  const currentCalls = Array.isArray(toolCalls) ? [...toolCalls] : [];
-  if (!shouldAutoOpenMusicForUser(userText, origin)) {
-    return currentCalls;
-  }
-
-  const alreadyOpen = currentCalls.some(
-    (call) =>
-      call?.tool === "open_app" &&
-      String(call?.args?.target || call?.args?.appId || call?.args?.app_name || "") === "music-app"
-  );
-
-  if (alreadyOpen) {
-    return currentCalls;
-  }
-
-  return [...currentCalls, { tool: "open_app", args: { target: "music-app" } }];
-}
-
 function shouldAutoOpenNewsForUser(userText, origin) {
   if (origin?.type !== "user") {
     return false;
   }
 
   const prompt = String(userText || "").toLowerCase();
-  const hasNewsIntent = /\b(news|headline|headlines|what'?s the news|show me news|open news)\b/.test(prompt);
+  const hasExplicitOpenIntent =
+    /\b(open|launch|start)\b.*\b(news|headlines?|news app)\b/.test(prompt) ||
+    /\bshow\b.*\b(news app)\b/.test(prompt);
   const isNegative = /\b(don't|do not|no|not)\b.*\b(news|headlines|open)\b/.test(prompt);
 
-  return hasNewsIntent && !isNegative;
-}
-
-function shouldAutoOpenMusicForUser(userText, origin) {
-  if (origin?.type !== "user") {
-    return false;
-  }
-
-  const prompt = String(userText || "").toLowerCase();
-  const hasMusicIntent =
-    /\b(open|launch|start|show)\b.*\b(music|music app|player)\b/.test(prompt) ||
-    /\bplay\b.*\b(music|song|songs|playlist|playlists)\b/.test(prompt) ||
-    Boolean(extractArtistPlayTarget(prompt));
-  const isNegative = /\b(don'?t|do not|no|not)\b.*\b(open|launch|start|show|play)\b.*\b(music|player|playlist)\b/.test(prompt);
-
-  return hasMusicIntent && !isNegative;
+  return hasExplicitOpenIntent && !isNegative;
 }
 
 function ensureNamedProjectOpenCall(toolCalls, userText, origin) {
@@ -1240,78 +1123,6 @@ function ensureNamedProjectOpenCall(toolCalls, userText, origin) {
       }
     }
   ];
-}
-
-function ensureMusicPlaybackCommandCall(toolCalls, userText, origin) {
-  const currentCalls = Array.isArray(toolCalls) ? [...toolCalls] : [];
-  if (origin?.type !== "user") {
-    return currentCalls;
-  }
-
-  const explicitPlaylistTarget = extractPlaylistPlayTarget(userText);
-  const implicitPlaylistTarget = explicitPlaylistTarget || extractImplicitPlaylistPlayTarget(userText);
-  const playlistTarget = explicitPlaylistTarget || implicitPlaylistTarget;
-  const artistTarget = extractArtistPlayTarget(userText);
-  if (!playlistTarget && !artistTarget) {
-    return currentCalls;
-  }
-
-  const sanitizedCalls = currentCalls.filter(
-    (call) =>
-      call?.tool !== "publish_event" &&
-      call?.tool !== "list_music_tracks"
-  );
-
-  const hasOpenMusic = sanitizedCalls.some(
-    (call) =>
-      call?.tool === "open_app" &&
-      String(call?.args?.target || call?.args?.appId || call?.args?.app_name || "") === "music-app"
-  );
-
-  const hasLocalPlaylistLookup = sanitizedCalls.some(
-    (call) => call?.tool === "list_music_playlists" && Boolean(call?.args?.localOnly)
-  );
-  const hasMusicCommand = sanitizedCalls.some(
-    (call) =>
-      call?.tool === "publish_event" &&
-      String(call?.args?.appId || "") === "music-app" &&
-      String(call?.args?.type || "") === "music-command"
-  );
-
-  const nextCalls = [...sanitizedCalls];
-  if (!hasOpenMusic) {
-    nextCalls.push({ tool: "open_app", args: { target: "music-app" } });
-  }
-
-  if (playlistTarget) {
-    if (!hasLocalPlaylistLookup) {
-      nextCalls.push({ tool: "list_music_playlists", args: { localOnly: true } });
-    }
-    return nextCalls;
-  }
-
-  if (artistTarget) {
-    if (!hasMusicCommand) {
-      nextCalls.push({
-        tool: "publish_event",
-        args: {
-          appId: "music-app",
-          source: "agent",
-          type: "music-command",
-          message: `Agent requested local artist playback: ${artistTarget.artistName}.`,
-          meta: {
-            action: "play-artist",
-            artistName: artistTarget.artistName,
-            localOnly: true,
-            openApp: true
-          }
-        }
-      });
-    }
-    return nextCalls;
-  }
-
-  return nextCalls;
 }
 
 function extractMusicControlAction(prompt) {
@@ -1725,116 +1536,6 @@ function formatCalendarDateKey(value) {
   });
 }
 
-function extractPlaylistPlayTarget(prompt) {
-  const text = String(prompt || "").toLowerCase();
-  if (!/\b(play|start)\b/.test(text) || !/\bplaylist\b/.test(text)) {
-    return null;
-  }
-
-  const patterns = [
-    /\b(?:play|start)\s+(?:the\s+)?playlist\s*[,:-]?\s*(.+)$/,
-    /\b(?:play|start)\s+(?:my\s+)?(.+?)\s+playlist\b(?:\s+for\s+me)?$/,
-    /\bplaylist\s*[,:-]?\s*(.+)$/
-  ];
-
-  let playlistName = "";
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match && match[1]) {
-      playlistName = match[1];
-      break;
-    }
-  }
-
-  if (!playlistName) {
-    return null;
-  }
-
-  playlistName = playlistName
-    .replace(/[.?!]+$/, "")
-    .replace(/\b(for me|please)\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!playlistName || playlistName.length < 2) {
-    return null;
-  }
-
-  return { playlistName };
-}
-
-function extractImplicitPlaylistPlayTarget(prompt) {
-  const text = String(prompt || "").toLowerCase();
-
-  if (!/\b(play|start)\b/.test(text)) {
-    return null;
-  }
-
-  if (/\bplaylist\b/.test(text)) {
-    return null;
-  }
-
-  if (/\b(next|previous|prev|pause|resume|stop|shuffle|loop|volume)\b/.test(text)) {
-    return null;
-  }
-
-  const match = text.match(/\b(?:play|start)\s+(.+?)\s*$/);
-  if (!match || !match[1]) {
-    return null;
-  }
-
-  const playlistName = match[1]
-    .replace(/\b(for me|please)\b/gi, "")
-    .replace(/^\s*(?:my|the)\s+/i, "")
-    .replace(/\b(song|songs|track|tracks|music)\b/gi, "")
-    .replace(/[.?!]+$/, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!playlistName || playlistName.length < 2) {
-    return null;
-  }
-
-  if (/^(music|song|songs|something|anything)$/i.test(playlistName)) {
-    return null;
-  }
-
-  return { playlistName, implicit: true };
-}
-
-function extractArtistPlayTarget(prompt) {
-  const text = String(prompt || "").toLowerCase();
-
-  if (/\bplaylist\b/.test(text)) {
-    return null;
-  }
-
-  let match = text.match(/\b(?:play|start)\s+(?:some\s+)?(.+?)\s+(?:for me|please)\s*$/);
-  if (!match || !match[1]) {
-    match = text.match(/\b(?:play|start)\s+(?:some\s+)?(.+)$/);
-  }
-
-  if (!match || !match[1]) {
-    return null;
-  }
-
-  const artistName = match[1]
-    .replace(/\b(music|song|songs|track|tracks)\b/g, "")
-    .replace(/[.?!]+$/, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!artistName || artistName.length < 2) {
-    return null;
-  }
-
-  if (/^(music|song|songs|something|anything)$/i.test(artistName)) {
-    return null;
-  }
-
-  return { artistName };
-}
-
 function extractProjectOpenTarget(prompt) {
   const text = String(prompt || "").toLowerCase();
   const openIntent = /\b(open|show|load|go to)\b/.test(text);
@@ -1868,6 +1569,103 @@ function extractProjectOpenTarget(prompt) {
   }
 
   return { appType, projectName };
+}
+
+function extractCloseAppTarget(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  if (!text) {
+    return null;
+  }
+
+  const hasCloseVerb = /\b(close|quit|exit|dismiss|shut(?:\s*down)?)\b/.test(text);
+  if (!hasCloseVerb) {
+    return null;
+  }
+
+  if (/\b(all|every|everything)\b.*\b(app|apps|windows)\b/.test(text) || /\b(?:close|quit|exit|shut(?:\s*down)?)\s+apps\b/.test(text)) {
+    return "all-apps";
+  }
+
+  if (/\b(news|news app|headlines?)\b/.test(text)) {
+    return "news-app";
+  }
+
+  if (/\b(calendar|calendar app)\b/.test(text)) {
+    return "calendar-app";
+  }
+
+  if (/\b(work|work app)\b/.test(text)) {
+    return "work-app";
+  }
+
+  if (/\b(project|projects|project app|personal projects)\b/.test(text)) {
+    return "project-app";
+  }
+
+  if (/\b(music|music app|player)\b/.test(text)) {
+    return "music-app";
+  }
+
+  if (/\b(drawing|drawing app|sketch)\b/.test(text)) {
+    return "drawing-app";
+  }
+
+  return null;
+}
+
+function extractSystemShutdownIntent(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  if (!text) {
+    return false;
+  }
+
+  const mentionsSpecificApp = /\b(news|calendar|work|project|music)\b.*\b(app|window)?\b/.test(text);
+  if (mentionsSpecificApp) {
+    return false;
+  }
+
+  const shutdownVerb = /\b(shut\s*down|power\s*off|turn\s*(?:your\s*)?self\s*off|quit|exit|close)\b/.test(text);
+  if (!shutdownVerb) {
+    return false;
+  }
+
+  // Plain shutdown command should shut down everything, per user expectation.
+  if (/^\s*(shut\s*down|shutdown)\s*[.!?]*\s*$/.test(text)) {
+    return true;
+  }
+
+  return /\b(control\s*center|system|everything|yourself|this\s*app|all)\b/.test(text);
+}
+
+function normalizeToolCallsForSafety(userText, calls) {
+  const safeCalls = Array.isArray(calls) ? [...calls] : [];
+  const prompt = String(userText || "").toLowerCase();
+  const appCloseTarget = extractCloseAppTarget(prompt);
+  const explicitSystemShutdown = extractSystemShutdownIntent(prompt);
+
+  return safeCalls
+    .map((call) => {
+      if (!call || typeof call !== "object") {
+        return null;
+      }
+
+      if (call.tool !== "shutdown_app") {
+        return call;
+      }
+
+      // Never allow broad shutdown when user is clearly referring to an app window.
+      if (appCloseTarget) {
+        return { tool: "close_app", args: { target: appCloseTarget } };
+      }
+
+      // Require system-level shutdown intent for full shutdown.
+      if (!explicitSystemShutdown) {
+        return null;
+      }
+
+      return call;
+    })
+    .filter(Boolean);
 }
 
 function summarizeToolResults(toolResults) {
@@ -1977,6 +1775,90 @@ async function resolveRequestedMusicPlayback(toolResults, { playlistIntent, arti
     extraLookupResult,
     agentMessage: `Starting playlist ${selectedName} now, sir.`
   };
+}
+
+async function inferMusicPlaybackIntentWithLlm(userText, toolResults) {
+  const requestText = String(userText || "").trim();
+  if (!requestText) {
+    return null;
+  }
+
+  const entries = Array.isArray(toolResults) ? toolResults : [];
+  const alreadyHasMusicCommand = entries.some(
+    (entry) =>
+      entry?.tool === "publish_event" &&
+      String(entry?.args?.appId || "") === "music-app" &&
+      String(entry?.args?.type || "") === "music-command"
+  );
+  if (alreadyHasMusicCommand) {
+    return null;
+  }
+
+  const messages = [
+    {
+      role: "system",
+      content: [
+        "Classify the user's music intent.",
+        "Respond with JSON only.",
+        'Format: {"intent":"play_playlist|play_artist|list_playlists|other","requestedName":"<name or empty>"}',
+        "Use play_playlist when the user asks to open/play/start a specific playlist.",
+        "Use list_playlists only when the user asks to list/show/what playlists they have.",
+        "Use other for non-playlist playback commands like pause/next/resume or unrelated requests."
+      ].join("\n")
+    },
+    {
+      role: "user",
+      content: requestText
+    }
+  ];
+
+  const llmResult = await requestLmStudioChatCompletion({ messages, temperature: 0 });
+  if (!llmResult?.ok) {
+    return null;
+  }
+
+  const parsed = parseSimpleJsonObject(llmResult.content);
+  const intent = String(parsed?.intent || "").trim().toLowerCase();
+  const requestedName = String(parsed?.requestedName || "")
+    .replace(/[.?!]+$/, "")
+    .trim();
+
+  if (intent === "play_playlist" && requestedName) {
+    return { kind: "playlist", requestedName };
+  }
+
+  if (intent === "play_artist" && requestedName) {
+    return { kind: "artist", requestedName };
+  }
+
+  return null;
+}
+
+function parseSimpleJsonObject(content) {
+  const raw = String(content || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    // Try extracting first JSON object.
+  }
+
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace <= firstBrace) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw.slice(firstBrace, lastBrace + 1));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function buildPlayPlaylistCall(selectedName, requestedName, matchScore, playlist = null) {

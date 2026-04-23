@@ -35,12 +35,14 @@ import {
   listMusicTracks
 } from "./musicLibraryService.js";
 import { getNewsBriefing } from "./newsService.js";
+import { closeAppWindow } from "./windowControlBridge.js";
 
 const TOOL_DEFINITIONS = [
   { name: "get_system_state", description: "Get Control Center system runtime state." },
   { name: "list_apps", description: "List all registered apps." },
   { name: "get_app", description: "Get one app by appId." },
   { name: "open_app", description: "Open an app or system tab in the Control Center UI." },
+  { name: "close_app", description: "Close an open app window by app id, or close all app windows." },
   { name: "connect_app", description: "Run connector handshake for one app." },
   { name: "get_mode", description: "Get current mode state." },
   { name: "switch_mode", description: "Switch desktop/mobile mode." },
@@ -103,7 +105,7 @@ export async function executeToolCall(toolName, args = {}) {
       }
 
       const isSystemTab = ["overview", "settings", "chatbot", "event-bus", "agent-core", "integration-hub"].includes(target);
-      const windowApps = ["calendar-app", "news-app", "work-app", "project-app", "music-app"];
+      const windowApps = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app"];
       const isWindowApp = windowApps.includes(target);
       const app = isSystemTab ? null : getAppById(target);
 
@@ -131,6 +133,49 @@ export async function executeToolCall(toolName, args = {}) {
         tab,
         label,
         isWindowApp,
+        event: eventResult.event
+      });
+    }
+
+    case "close_app": {
+      const target = String(args.target || args.appId || args.app_name || "").trim();
+      if (!target) {
+        return fail("INVALID_CLOSE_TARGET", "close_app requires a target or appId.");
+      }
+
+      const normalizedTarget = target.toLowerCase();
+      const closeAll = ["all", "apps", "all-apps", "window-apps"].includes(normalizedTarget);
+      const windowApps = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app"];
+
+      if (!closeAll && !windowApps.includes(normalizedTarget)) {
+        return fail(
+          "INVALID_CLOSE_TARGET",
+          "close_app supports calendar-app, news-app, work-app, project-app, music-app, drawing-app, or all-apps."
+        );
+      }
+
+      const app = closeAll ? null : getAppById(normalizedTarget);
+      const label = closeAll ? "all app windows" : app?.name || normalizedTarget;
+      const closeTarget = closeAll ? "all-apps" : normalizedTarget;
+      const closeResult = closeAppWindow(closeTarget);
+      const eventResult = publishEvent({
+        appId: closeAll ? "control-center" : normalizedTarget,
+        source: "agent",
+        type: "close-app",
+        message: `Agent closed ${label}.`,
+        meta: {
+          target: closeTarget,
+          label,
+          closeAll,
+          directCloseOk: Boolean(closeResult?.ok)
+        }
+      });
+
+      return ok({
+        target: closeTarget,
+        label,
+        closeAll,
+        directClose: closeResult,
         event: eventResult.event
       });
     }
@@ -192,19 +237,19 @@ export async function executeToolCall(toolName, args = {}) {
     }
 
     case "get_calendar_month":
-      return ok(getCalendarMonthView({ year: args.year, month: args.month }));
+      return ok(await getCalendarMonthView({ year: args.year, month: args.month }));
 
     case "list_calendar_events":
-      return ok(listCalendarEvents({ start: args.start, end: args.end, limit: args.limit }));
+      return ok(await listCalendarEvents({ start: args.start, end: args.end, limit: args.limit }));
 
     case "get_remaining_calendar_events":
-      return ok(getRemainingCalendarEvents({ now: args.now }));
+      return ok(await getRemainingCalendarEvents({ now: args.now }));
 
     case "create_calendar_event": {
       try {
         const normalized = normalizeCalendarCreateArgs(args);
         return ok(
-          createCalendarEvent({
+          await createCalendarEvent({
             title: normalized.title,
             startsAt: normalized.startsAt,
             endsAt: normalized.endsAt,
@@ -219,7 +264,7 @@ export async function executeToolCall(toolName, args = {}) {
 
     case "delete_calendar_event": {
       try {
-        return ok(deleteCalendarEvent({ eventId: args.eventId, title: args.title }));
+        return ok(await deleteCalendarEvent({ eventId: args.eventId, title: args.title }));
       } catch (error) {
         return fail(error?.code || "DELETE_CALENDAR_EVENT_FAILED", error?.message || "Failed to delete calendar event.");
       }

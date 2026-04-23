@@ -23,6 +23,28 @@ Desktop runtime for the Control Center system (Electron + local Express backend)
 
 This launches an Electron desktop window and starts the internal backend automatically.
 
+## Google Calendar setup (optional)
+
+By default, calendar data is local (`server/data/calendar-events.json`).
+
+To connect to Google Calendar API:
+
+1. Copy `.env.example` to `.env` in `control-app/`.
+2. Set `CALENDAR_PROVIDER=google`.
+3. Configure one auth method:
+   - API key only: `GOOGLE_CALENDAR_API_KEY` (read-only)
+   - Service account (recommended): `GOOGLE_CALENDAR_CLIENT_EMAIL` + `GOOGLE_CALENDAR_PRIVATE_KEY`
+   - OAuth refresh token: `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, `GOOGLE_CALENDAR_REFRESH_TOKEN`
+4. Set `GOOGLE_CALENDAR_ID` (or keep `primary`).
+5. Restart the app.
+
+Notes:
+
+- API key mode supports calendar reads only; create/delete requires service account or OAuth credentials.
+- Service-account calendar access requires sharing the target Google Calendar with the service account email.
+- If your private key is pasted into `.env`, keep embedded newlines escaped as `\\n`.
+- You can set `CALENDAR_PROVIDER=auto` to use Google only when credentials are present; otherwise local storage is used.
+
 ## Optional web-only runtime (development fallback)
 
 If you want to run only the backend and open it manually:
@@ -50,5 +72,6 @@ npm run start:web
 ## Notes
 
 - Calendar reads are designed to avoid opening the calendar app unless explicitly requested.
-- Calendar event data is stored locally in `server/data/calendar-events.json`.
+- Calendar provider supports both local storage and Google Calendar API (configurable by env).
+- Local calendar event data is stored in `server/data/calendar-events.json` when provider is `local`.
 - Voice services and assets exist under `server/services/*voice*` and `voice/` for local runtime integration.

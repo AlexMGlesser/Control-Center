@@ -8,18 +8,12 @@ import { publishEvent } from "./eventBus.js";
 const WAKE_WORD = "jarvis";
 const WAKE_WORD_VARIANTS = ["jarvis", "jarves", "jarv is", "jar vis", "jarvas"];
 
-const SHUTDOWN_PATTERNS = [
-  /\b(shut\s*down|power\s*off|turn\s*(your)?\s*self\s*off)\b/i,
-  /\b(go\s*to\s*sleep|sleep\s*mode)\b/i,
-  /\b(exit|quit|close)\s*(the)?\s*(app|application|control\s*center|system|everything|yourself)?\b/i
-];
-
 let wss = null;
 const clientState = new WeakMap();
 
 function getClientState(ws) {
   if (!clientState.has(ws)) {
-    clientState.set(ws, { muted: false });
+    clientState.set(ws, { muted: false, cancelToken: 0 });
   }
   return clientState.get(ws);
 }
@@ -68,7 +62,8 @@ export function attachVoiceWebSocket(httpServer) {
           if (msg.type === "ping") {
             sendJSON(ws, { type: "pong" });
           } else if (msg.type === "cancel") {
-            // Client interrupted playback — no special server action needed
+            const state = getClientState(ws);
+            state.cancelToken += 1;
           }
         } catch {
           // Ignore malformed JSON
@@ -164,25 +159,6 @@ async function handleAudioMessage(ws, wavBuffer) {
     return;
   }
 
-  // 4. Check for shutdown command
-  const isShutdown = SHUTDOWN_PATTERNS.some((p) => p.test(command));
-  if (isShutdown) {
-    const farewell = "Goodbye sir. Shutting down now.";
-    sendJSON(ws, { type: "agent-text", text: farewell });
-    await speakAndSend(ws, farewell);
-    sendStatus(ws, "off");
-
-    // Give the audio a moment to finish, then trigger shutdown
-    setTimeout(async () => {
-      try {
-        const http = await import("http");
-        const req = http.request({ hostname: "127.0.0.1", port: 3100, path: "/api/shutdown", method: "POST", headers: { "Content-Type": "application/json" } });
-        req.end();
-      } catch { process.exit(0); }
-    }, 1500);
-    return;
-  }
-
   // 4. Run through agent
   let agentText;
   try {
@@ -266,6 +242,9 @@ function extractAgentReplyText(agentTurn) {
 async function speakAndSend(ws, text) {
   if (!text || !isPiperReady()) return;
 
+  const state = getClientState(ws);
+  const cancelToken = state.cancelToken;
+
   sendStatus(ws, "speaking");
 
   try {
@@ -278,7 +257,7 @@ async function speakAndSend(ws, text) {
     if (!cleanText) return;
 
     const wavBuffer = await synthesizeSpeech(cleanText);
-    if (ws.readyState === ws.OPEN) {
+    if (ws.readyState === ws.OPEN && state.cancelToken === cancelToken) {
       ws.send(wavBuffer);
     }
   } catch (err) {

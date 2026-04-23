@@ -248,10 +248,12 @@ function checkVAD() {
 
   const energy = computeRMSEnergy();
   const now = Date.now();
+  const speakingBargeIn = voiceStatus === "speaking" || voiceStatus === "processing";
+  const threshold = speakingBargeIn ? VAD_ENERGY_THRESHOLD * 0.65 : VAD_ENERGY_THRESHOLD;
 
   if (!isRecording) {
     // Check if speech started
-    if (energy > VAD_ENERGY_THRESHOLD) {
+    if (energy > threshold) {
       // Barge-in: stop any active TTS playback
       stopPlayback();
 
@@ -265,7 +267,7 @@ function checkVAD() {
     // Currently recording — check for silence or max duration
     const duration = now - recordStartTime;
 
-    if (energy > VAD_ENERGY_THRESHOLD) {
+    if (energy > threshold) {
       silenceStartTime = 0;
     } else {
       if (!silenceStartTime) {
@@ -396,6 +398,11 @@ function stopPlayback() {
 }
 
 async function playAudioResponse(arrayBuffer) {
+  if (isMuted) {
+    setStatus("listening");
+    return;
+  }
+
   setStatus("speaking");
   try {
     const playbackCtx = new AudioContext();

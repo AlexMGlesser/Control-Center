@@ -239,6 +239,124 @@ async function openMusicAppWindow() {
   window.open("/music-app/", "_blank", "noopener");
 }
 
+async function openDrawingAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openDrawingAppWindow) {
+    await window.controlCenterDesktop.openDrawingAppWindow();
+    return;
+  }
+
+  window.open("/drawing-app/", "_blank", "noopener");
+}
+
+async function closeCalendarAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeCalendarAppWindow) {
+    await window.controlCenterDesktop.closeCalendarAppWindow();
+  }
+}
+
+async function closeNewsAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeNewsAppWindow) {
+    await window.controlCenterDesktop.closeNewsAppWindow();
+  }
+}
+
+async function closeWorkAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeWorkAppWindow) {
+    await window.controlCenterDesktop.closeWorkAppWindow();
+  }
+}
+
+async function closeProjectAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeProjectAppWindow) {
+    await window.controlCenterDesktop.closeProjectAppWindow();
+  }
+}
+
+async function closeMusicAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeMusicAppWindow) {
+    await window.controlCenterDesktop.closeMusicAppWindow();
+  }
+}
+
+async function closeDrawingAppWindow() {
+  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeDrawingAppWindow) {
+    await window.controlCenterDesktop.closeDrawingAppWindow();
+  }
+}
+
+const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app"];
+
+async function closeKnownAppWindow(appId) {
+  if (appId === "all-apps") {
+    if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeAllAppWindows) {
+      await window.controlCenterDesktop.closeAllAppWindows();
+    }
+    // Also deactivate if any of these apps is the current tab
+    if (WINDOW_APP_IDS.some((id) => state.activeTab === `app:${id}`)) {
+      activateTab("overview");
+    }
+    return true;
+  }
+
+  // Close the Electron window if it exists
+  if (appId === "calendar-app") {
+    await closeCalendarAppWindow();
+  } else if (appId === "news-app") {
+    await closeNewsAppWindow();
+  } else if (appId === "work-app") {
+    await closeWorkAppWindow();
+  } else if (appId === "project-app") {
+    await closeProjectAppWindow();
+  } else if (appId === "music-app") {
+    await closeMusicAppWindow();
+  } else if (appId === "drawing-app") {
+    await closeDrawingAppWindow();
+  } else {
+    return false;
+  }
+
+  // If this app is also open as the active inline tab, deactivate it
+  if (state.activeTab === `app:${appId}`) {
+    activateTab("overview");
+  }
+
+  return true;
+}
+
+async function openKnownAppWindow(appId) {
+  if (appId === "calendar-app") {
+    await openCalendarAppWindow();
+    return true;
+  }
+
+  if (appId === "news-app") {
+    await openNewsAppWindow();
+    return true;
+  }
+
+  if (appId === "work-app") {
+    await openWorkAppWindow();
+    return true;
+  }
+
+  if (appId === "project-app") {
+    await openProjectAppWindow();
+    return true;
+  }
+
+  if (appId === "music-app") {
+    await openMusicAppWindow();
+    return true;
+  }
+
+  if (appId === "drawing-app") {
+    await openDrawingAppWindow();
+    return true;
+  }
+
+  return false;
+}
+
 async function lmStudioStart() {
   const res = await fetch("/api/lmstudio/start", {
     method: "POST",
@@ -787,7 +905,7 @@ function renderSingleApp(appId) {
   }
 
   const capHtml = app.capabilities.map((cap) => `<li>${cap}</li>`).join("");
-  const launchButton = ["calendar-app", "news-app", "work-app", "project-app", "music-app"].includes(app.id)
+  const launchButton = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app"].includes(app.id)
     ? `<div><button class="action-btn" data-action="open-app" data-app-id="${app.id}">Open ${app.name}</button></div>`
     : "";
 
@@ -989,42 +1107,14 @@ function wireNavigation() {
     if (openAppButton) {
       const appId = openAppButton.dataset.appId;
 
-      if (appId === "calendar-app") {
-        openCalendarAppWindow().catch(() => {
-          // Ignore launch failures for now.
-        });
-        return;
-      }
+      openKnownAppWindow(appId).then((opened) => {
+        if (!opened) {
+          activateTab(`app:${appId}`);
+        }
+      }).catch(() => {
+        // Ignore launch failures for now.
+      });
 
-      if (appId === "news-app") {
-        openNewsAppWindow().catch(() => {
-          // Ignore launch failures for now.
-        });
-        return;
-      }
-
-      if (appId === "work-app") {
-        openWorkAppWindow().catch(() => {
-          // Ignore launch failures for now.
-        });
-        return;
-      }
-
-      if (appId === "project-app") {
-        openProjectAppWindow().catch(() => {
-          // Ignore launch failures for now.
-        });
-        return;
-      }
-
-      if (appId === "music-app") {
-        openMusicAppWindow().catch(() => {
-          // Ignore launch failures for now.
-        });
-        return;
-      }
-
-      activateTab(`app:${appId}`);
       return;
     }
 
@@ -1104,29 +1194,13 @@ function wireNavigation() {
       return;
     }
 
-    if (target.dataset.tab === "app:news-app") {
-      openNewsAppWindow().catch(() => {
-        // Ignore launch failures for now.
-      });
-      return;
-    }
-
-    if (target.dataset.tab === "app:work-app") {
-      openWorkAppWindow().catch(() => {
-        // Ignore launch failures for now.
-      });
-      return;
-    }
-
-    if (target.dataset.tab === "app:project-app") {
-      openProjectAppWindow().catch(() => {
-        // Ignore launch failures for now.
-      });
-      return;
-    }
-
-    if (target.dataset.tab === "app:music-app") {
-      openMusicAppWindow().catch(() => {
+    if (target.dataset.tab.startsWith("app:")) {
+      const appId = target.dataset.tab.replace("app:", "");
+      openKnownAppWindow(appId).then((opened) => {
+        if (!opened) {
+          activateTab(target.dataset.tab);
+        }
+      }).catch(() => {
         // Ignore launch failures for now.
       });
       return;
@@ -1329,9 +1403,20 @@ function startEventStream() {
             openMusicAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
+          } else if (targetTab === "app:drawing-app") {
+            openDrawingAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
           } else {
             activateTab(targetTab);
           }
+        }
+
+        if (payload.event.type === "close-app") {
+          const closeTarget = String(payload.event.meta?.target || "").trim();
+          closeKnownAppWindow(closeTarget).catch(() => {
+            // Ignore close failures for now.
+          });
         }
 
         if (payload.event.source === "chat" || String(payload.event.type || "").startsWith("chat")) {

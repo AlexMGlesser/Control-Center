@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Drawing App</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header card">
+        <div>
+          <p class="eyebrow">Control Center</p>
+          <h1>Drawing App</h1>
+          <p class="subtitle">Create, open, and manage 2D and 3D drawing files.</p>
+        </div>
+        <div class="header-actions">
+          <button id="new-file-btn" class="btn primary">Create New File</button>
+          <button id="open-file-btn" class="btn" disabled>Open Selected</button>
+          <button id="delete-file-btn" class="btn danger" disabled>Delete Selected</button>
+          <button id="back-to-files-btn" class="btn ghost hidden">Back To Files</button>
+        </div>
+      </header>
+
+      <section id="file-manager" class="card panel">
+        <div class="panel-head">
+          <h2>Files</h2>
+          <span id="file-count-pill" class="pill">0 files</span>
+        </div>
+        <ul id="files-list" class="files-list"></ul>
+      </section>
+
+      <section id="create-flow" class="card panel hidden">
+        <h2>Create New File</h2>
+        <p class="muted">Choose a name and whether this file starts in 2D or 3D.</p>
+
+        <div class="form-grid">
+          <label class="field">
+            <span>File name</span>
+            <input id="new-file-name" type="text" maxlength="80" placeholder="Concept sketch" />
+          </label>
+
+          <div class="field">
+            <span>Mode</span>
+            <div class="mode-options">
+              <label><input type="radio" name="drawing-mode" value="2d" checked /> 2D</label>
+              <label><input type="radio" name="drawing-mode" value="3d" /> 3D</label>
+            </div>
+          </div>
+
+          <label class="field field-location">
+            <span>Save location</span>
+            <div class="location-row">
+              <input id="save-location-input" type="text" placeholder="Choose a folder" readonly />
+              <button id="choose-location-btn" class="btn" type="button">Browse</button>
+            </div>
+          </label>
+        </div>
+
+        <div class="row">
+          <button id="confirm-create-btn" class="btn primary">Create File</button>
+          <button id="cancel-create-btn" class="btn">Cancel</button>
+        </div>
+      </section>
+
+      <section id="editor-2d" class="card panel hidden">
+        <div class="panel-head">
+          <h2 id="editor-2d-title">2D Editor</h2>
+          <div class="row compact">
+            <button id="save-2d-btn" class="btn primary">Save</button>
+            <button id="clear-2d-btn" class="btn">Clear Canvas</button>
+          </div>
+        </div>
+
+        <div class="tools">
+          <div class="tool-group">
+            <label>Tool</label>
+            <div class="tool-buttons">
+              <button class="btn tool is-active" data-tool="pen">Pen</button>
+              <button class="btn tool" data-tool="line">Line</button>
+              <button class="btn tool" data-tool="arrow">Arrow</button>
+              <button class="btn tool" data-tool="rect">Rectangle</button>
+              <button class="btn tool" data-tool="ellipse">Ellipse</button>
+              <button class="btn tool" data-tool="text">Text</button>
+            </div>
+          </div>
+
+          <div class="tool-group">
+            <label for="stroke-color">Color</label>
+            <input id="stroke-color" type="color" value="#00d4ff" />
+          </div>
+
+          <div class="tool-group">
+            <label for="stroke-opacity">Opacity <span id="opacity-value">100%</span></label>
+            <input id="stroke-opacity" type="range" min="0.05" max="1" step="0.05" value="1" />
+          </div>
+
+          <div class="tool-group">
+            <label for="stroke-size">Thickness <span id="size-value">4px</span></label>
+            <input id="stroke-size" type="range" min="1" max="32" step="1" value="4" />
+          </div>
+        </div>
+
+        <div class="canvas-wrap">
+          <canvas id="draw-canvas" width="1400" height="820"></canvas>
+        </div>
+      </section>
+
+      <section id="editor-3d" class="card panel hidden">
+        <div class="panel-head">
+          <h2 id="editor-3d-title">3D Editor</h2>
+          <div class="row compact">
+            <button id="save-3d-btn" class="btn primary">Save</button>
+            <button id="export-stl-btn" class="btn">Export STL</button>
+          </div>
+        </div>
+
+        <div class="tools tools-3d">
+          <div class="tool-group">
+            <label>Add Primitive</label>
+            <div class="tool-buttons">
+              <button class="btn tool" data-add-primitive="box">Box</button>
+              <button class="btn tool" data-add-primitive="sphere">Sphere</button>
+              <button class="btn tool" data-add-primitive="cylinder">Cylinder</button>
+              <button class="btn tool" data-add-primitive="cone">Cone</button>
+              <button class="btn tool" data-add-primitive="torus">Torus</button>
+            </div>
+          </div>
+
+          <div class="tool-group">
+            <label>Transform</label>
+            <div class="tool-buttons">
+              <button class="btn tool is-active" data-transform-mode="translate">Move</button>
+              <button class="btn tool" data-transform-mode="rotate">Rotate</button>
+              <button class="btn tool" data-transform-mode="scale">Scale</button>
+            </div>
+          </div>
+
+          <div class="tool-group">
+            <label for="object-color">Object Color</label>
+            <input id="object-color" type="color" value="#18d6b5" />
+          </div>
+
+          <div class="tool-group">
+            <label>Selected</label>
+            <div class="row compact">
+              <button id="delete-object-btn" class="btn danger" disabled>Delete</button>
+              <button id="deselect-object-btn" class="btn ghost" disabled>Deselect</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="editor-3d-layout">
+          <div id="viewport-3d" class="viewport-3d"></div>
+          <div class="object-list-panel card">
+            <div class="panel-head">
+              <h3>Objects</h3>
+              <span id="object-count-pill" class="pill">0</span>
+            </div>
+            <ul id="objects-list" class="objects-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <p id="status-line" class="status">Ready.</p>
+    </main>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+      }
+    }
+    </script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -103,6 +103,13 @@ import {
   listMusicTracks,
   syncLocalMusicPlaylists
 } from "../services/musicLibraryService.js";
+import {
+  createDrawingFile,
+  deleteDrawingFile,
+  getDrawingFile,
+  listDrawingFiles,
+  updateDrawingFile
+} from "../services/drawingFileService.js";
 
 const router = Router();
 let honorificToggle = false;
@@ -659,9 +666,78 @@ router.get("/apps/music-app/playlists", (req, res) => {
   res.json(listMusicPlaylists());
 });
 
-router.get("/apps/calendar-app/month", (req, res) => {
+router.get("/apps/drawing-app/files", (req, res) => {
   try {
-    res.json(getCalendarMonthView({ year: req.query.year, month: req.query.month }));
+    res.json(listDrawingFiles());
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "DRAWING_FILES_LIST_FAILED",
+      message: error.message || "Could not list drawing files."
+    });
+  }
+});
+
+router.get("/apps/drawing-app/files/:fileId", (req, res) => {
+  try {
+    res.json(getDrawingFile(req.params.fileId));
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "DRAWING_FILE_READ_FAILED",
+      message: error.message || "Could not read drawing file."
+    });
+  }
+});
+
+router.post("/apps/drawing-app/files", (req, res) => {
+  try {
+    const result = createDrawingFile({
+      name: req.body?.name,
+      mode: req.body?.mode,
+      locationPath: req.body?.locationPath
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "DRAWING_FILE_CREATE_FAILED",
+      message: error.message || "Could not create drawing file."
+    });
+  }
+});
+
+router.put("/apps/drawing-app/files/:fileId", (req, res) => {
+  try {
+    res.json(
+      updateDrawingFile(req.params.fileId, {
+        content: req.body?.content
+      })
+    );
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "DRAWING_FILE_UPDATE_FAILED",
+      message: error.message || "Could not update drawing file."
+    });
+  }
+});
+
+router.delete("/apps/drawing-app/files/:fileId", (req, res) => {
+  try {
+    res.json(deleteDrawingFile(req.params.fileId));
+  } catch (error) {
+    res.status(error.status || 500).json({
+      ok: false,
+      code: error.code || "DRAWING_FILE_DELETE_FAILED",
+      message: error.message || "Could not delete drawing file."
+    });
+  }
+});
+
+router.get("/apps/calendar-app/month", async (req, res) => {
+  try {
+    res.json(await getCalendarMonthView({ year: req.query.year, month: req.query.month }));
   } catch (error) {
     res.status(error.status || 500).json({
       ok: false,
@@ -671,10 +747,10 @@ router.get("/apps/calendar-app/month", (req, res) => {
   }
 });
 
-router.get("/apps/calendar-app/events", (req, res) => {
+router.get("/apps/calendar-app/events", async (req, res) => {
   try {
     res.json(
-      listCalendarEvents({
+      await listCalendarEvents({
         start: req.query.start,
         end: req.query.end,
         limit: req.query.limit
@@ -689,9 +765,9 @@ router.get("/apps/calendar-app/events", (req, res) => {
   }
 });
 
-router.get("/apps/calendar-app/events/remaining", (req, res) => {
+router.get("/apps/calendar-app/events/remaining", async (req, res) => {
   try {
-    res.json(getRemainingCalendarEvents({ now: req.query.now }));
+    res.json(await getRemainingCalendarEvents({ now: req.query.now }));
   } catch (error) {
     res.status(error.status || 500).json({
       ok: false,
@@ -701,9 +777,9 @@ router.get("/apps/calendar-app/events/remaining", (req, res) => {
   }
 });
 
-router.post("/apps/calendar-app/events", (req, res) => {
+router.post("/apps/calendar-app/events", async (req, res) => {
   try {
-    const result = createCalendarEvent({
+    const result = await createCalendarEvent({
       title: req.body?.title,
       startsAt: req.body?.startsAt,
       endsAt: req.body?.endsAt,
@@ -720,9 +796,9 @@ router.post("/apps/calendar-app/events", (req, res) => {
   }
 });
 
-router.delete("/apps/calendar-app/events/:eventId", (req, res) => {
+router.delete("/apps/calendar-app/events/:eventId", async (req, res) => {
   try {
-    res.json(deleteCalendarEvent({ eventId: req.params.eventId }));
+    res.json(await deleteCalendarEvent({ eventId: req.params.eventId }));
   } catch (error) {
     res.status(error.status || 500).json({
       ok: false,

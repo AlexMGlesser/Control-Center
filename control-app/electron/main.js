@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { startServer } from "../server/index.js";
 import { serverConfig } from "../server/config.js";
 import { onShutdownRequested } from "../server/routes/api.js";
+import { registerWindowControlHandler } from "../server/services/windowControlBridge.js";
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
@@ -17,11 +18,13 @@ let newsWindow = null;
 let workAppWindow = null;
 let projectAppWindow = null;
 let musicAppWindow = null;
+let drawingAppWindow = null;
 let calendarAppWindowPending = false;
 let newsAppWindowPending = false;
 let workAppWindowPending = false;
 let projectAppWindowPending = false;
 let musicAppWindowPending = false;
+let drawingAppWindowPending = false;
 
 function createMainWindow() {
   const win = new BrowserWindow({
@@ -236,6 +239,145 @@ function openMusicAppWindow() {
   });
 }
 
+function openDrawingAppWindow() {
+  if (drawingAppWindow && !drawingAppWindow.isDestroyed()) {
+    drawingAppWindow.focus();
+    return;
+  }
+
+  if (drawingAppWindowPending) {
+    return;
+  }
+
+  drawingAppWindowPending = true;
+  drawingAppWindow = new BrowserWindow({
+    width: 1560,
+    height: 980,
+    minWidth: 1200,
+    minHeight: 760,
+    backgroundColor: "#070f13",
+    title: "Drawing App",
+    parent: mainWindow || undefined,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  drawingAppWindow.loadURL(`http://localhost:${serverConfig.port}/drawing-app/`);
+
+  drawingAppWindow.once("ready-to-show", () => {
+    drawingAppWindowPending = false;
+  });
+
+  drawingAppWindow.on("closed", () => {
+    drawingAppWindow = null;
+    drawingAppWindowPending = false;
+  });
+}
+
+function closeCalendarAppWindow() {
+  if (!calendarAppWindow || calendarAppWindow.isDestroyed()) {
+    return false;
+  }
+  calendarAppWindow.close();
+  return true;
+}
+
+function closeNewsAppWindow() {
+  console.log("[Main] closeNewsAppWindow called, newsWindow:", newsWindow ? (newsWindow.isDestroyed() ? "destroyed" : "open") : "null");
+  if (!newsWindow || newsWindow.isDestroyed()) {
+    return false;
+  }
+  newsWindow.close();
+  return true;
+}
+
+function closeWorkAppWindow() {
+  if (!workAppWindow || workAppWindow.isDestroyed()) {
+    return false;
+  }
+  workAppWindow.close();
+  return true;
+}
+
+function closeProjectAppWindow() {
+  if (!projectAppWindow || projectAppWindow.isDestroyed()) {
+    return false;
+  }
+  projectAppWindow.close();
+  return true;
+}
+
+function closeMusicAppWindow() {
+  if (!musicAppWindow || musicAppWindow.isDestroyed()) {
+    return false;
+  }
+  musicAppWindow.close();
+  return true;
+}
+
+function closeDrawingAppWindow() {
+  if (!drawingAppWindow || drawingAppWindow.isDestroyed()) {
+    return false;
+  }
+  drawingAppWindow.close();
+  return true;
+}
+
+function closeAllAppWindows() {
+  const closed = [
+    closeCalendarAppWindow(),
+    closeNewsAppWindow(),
+    closeWorkAppWindow(),
+    closeProjectAppWindow(),
+    closeMusicAppWindow(),
+    closeDrawingAppWindow()
+  ].filter(Boolean).length;
+
+  return closed;
+}
+
+function closeAppWindowByTarget(target) {
+  console.log("[Main] closeAppWindowByTarget called, target:", target);
+  if (target === "all-apps" || target === "all" || target === "apps") {
+    return {
+      ok: true,
+      closeAll: true,
+      closedCount: closeAllAppWindows()
+    };
+  }
+
+  let closed = false;
+  if (target === "calendar-app") {
+    closed = closeCalendarAppWindow();
+  } else if (target === "news-app") {
+    closed = closeNewsAppWindow();
+  } else if (target === "work-app") {
+    closed = closeWorkAppWindow();
+  } else if (target === "project-app") {
+    closed = closeProjectAppWindow();
+  } else if (target === "music-app") {
+    closed = closeMusicAppWindow();
+  } else if (target === "drawing-app") {
+    closed = closeDrawingAppWindow();
+  } else {
+    return {
+      ok: false,
+      code: "UNKNOWN_WINDOW_TARGET",
+      message: `Unknown window target '${target}'.`
+    };
+  }
+
+  return {
+    ok: true,
+    closeAll: false,
+    target,
+    closed
+  };
+}
+
 async function ensureBackendServer() {
   try {
     backendServer = await startServer();
@@ -267,31 +409,51 @@ async function isExistingServerHealthy() {
 app.whenReady()
   .then(async () => {
     await ensureBackendServer();
+    registerWindowControlHandler({ closeAppWindow: closeAppWindowByTarget });
     createMainWindow();
     ipcMain.handle("calendar-app:open", () => {
       openCalendarAppWindow();
       return { ok: true };
     });
 
+    ipcMain.handle("calendar-app:close", () => ({ ok: true, closed: closeCalendarAppWindow() }));
+
     ipcMain.handle("news-app:open", () => {
       openNewsAppWindow();
       return { ok: true };
     });
+
+    ipcMain.handle("news-app:close", () => ({ ok: true, closed: closeNewsAppWindow() }));
 
     ipcMain.handle("work-app:open", () => {
       openWorkAppWindow();
       return { ok: true };
     });
 
+    ipcMain.handle("work-app:close", () => ({ ok: true, closed: closeWorkAppWindow() }));
+
     ipcMain.handle("project-app:open", () => {
       openProjectAppWindow();
       return { ok: true };
     });
 
+    ipcMain.handle("project-app:close", () => ({ ok: true, closed: closeProjectAppWindow() }));
+
     ipcMain.handle("music-app:open", () => {
       openMusicAppWindow();
       return { ok: true };
     });
+
+    ipcMain.handle("music-app:close", () => ({ ok: true, closed: closeMusicAppWindow() }));
+
+    ipcMain.handle("drawing-app:open", () => {
+      openDrawingAppWindow();
+      return { ok: true };
+    });
+
+    ipcMain.handle("drawing-app:close", () => ({ ok: true, closed: closeDrawingAppWindow() }));
+
+    ipcMain.handle("apps:close-all", () => ({ ok: true, closed: closeAllAppWindows() }));
 
     ipcMain.handle("dialog:choose-directory", async (event, options = {}) => {
       const parentWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow;
@@ -338,10 +500,20 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  registerWindowControlHandler(null);
+  ipcMain.removeHandler("calendar-app:open");
+  ipcMain.removeHandler("calendar-app:close");
   ipcMain.removeHandler("news-app:open");
+  ipcMain.removeHandler("news-app:close");
   ipcMain.removeHandler("work-app:open");
+  ipcMain.removeHandler("work-app:close");
   ipcMain.removeHandler("project-app:open");
+  ipcMain.removeHandler("project-app:close");
   ipcMain.removeHandler("music-app:open");
+  ipcMain.removeHandler("music-app:close");
+  ipcMain.removeHandler("drawing-app:open");
+  ipcMain.removeHandler("drawing-app:close");
+  ipcMain.removeHandler("apps:close-all");
   ipcMain.removeHandler("dialog:choose-directory");
 
   if (backendServer) {

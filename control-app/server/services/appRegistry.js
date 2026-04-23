@@ -27,7 +27,7 @@ const appRegistry = [
     id: "drawing-app",
     name: "Drawing App",
     description: "2D/3D design workspace with reusable asset pipeline.",
-    status: "wip",
+    status: "online",
     routeKey: "drawing-app",
     capabilities: ["2d-canvas", "3d-assets", "shared-assets"]
   },

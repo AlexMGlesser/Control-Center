@@ -11,8 +11,10 @@
     "start:web": "node server/index.js"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^4.21.2",
     "fast-xml-parser": "^5.7.0",
+    "googleapis": "^171.4.0",
     "ws": "^8.20.0"
   },
   "devDependencies": {

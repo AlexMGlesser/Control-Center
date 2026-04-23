@@ -23,6 +23,12 @@ out/
 Thumbs.db
 .vscode/
 
+# Local environment files
+.env
+**/.env
+**/.env.local
+!**/.env.example
+
 # Local voice/model artifacts
 control-app/voice/
 
