@@ -641,6 +641,16 @@ function buildDeterministicToolCalls(userText, origin) {
     calls.push({ tool: "open_app", args: { target: "project-app" } });
   }
 
+  // Check for movie app intent
+  if (/\b(movie|movies|movie app|open movie|show movie|watch movie|film app|open films?)\b/.test(prompt)) {
+    calls.push({ tool: "open_app", args: { target: "movie-app" } });
+  }
+
+  // Check for server manager app intent
+  if (/\b(server manager|server-manager|servers|server app|open server manager|manage servers?)\b/.test(prompt)) {
+    calls.push({ tool: "open_app", args: { target: "server-manager-app" } });
+  }
+
   return calls;
 }
 
@@ -661,6 +671,10 @@ function buildMessagesForToolCalls(calls) {
       return "Opening Music App.";
     } else if (target === "drawing-app") {
       return "Opening Drawing App.";
+    } else if (target === "movie-app") {
+      return "Opening Movie App.";
+    } else if (target === "server-manager-app") {
+      return "Opening Server Manager App.";
     } else if (target === "project-app") {
       return "Opening Personal Projects.";
     } else if (call?.tool === "close_app") {
@@ -674,6 +688,8 @@ function buildMessagesForToolCalls(calls) {
       if (closeTarget === "project-app") return "Closing Personal Projects.";
       if (closeTarget === "music-app") return "Closing Music App.";
       if (closeTarget === "drawing-app") return "Closing Drawing App.";
+      if (closeTarget === "movie-app") return "Closing Movie App.";
+      if (closeTarget === "server-manager-app") return "Closing Server Manager App.";
       return "Closing that app.";
     } else if (call?.tool === "list_music_genres") {
       return "Checking available music genres.";
@@ -1610,6 +1626,14 @@ function extractCloseAppTarget(prompt) {
     return "drawing-app";
   }
 
+  if (/\b(movie|movies|movie app|film|films)\b/.test(text)) {
+    return "movie-app";
+  }
+
+  if (/\b(server manager|server-manager|servers|server app)\b/.test(text)) {
+    return "server-manager-app";
+  }
+
   return null;
 }
 
@@ -1619,7 +1643,7 @@ function extractSystemShutdownIntent(prompt) {
     return false;
   }
 
-  const mentionsSpecificApp = /\b(news|calendar|work|project|music)\b.*\b(app|window)?\b/.test(text);
+  const mentionsSpecificApp = /\b(news|calendar|work|project|music|drawing|movie|movies|server manager|servers?)\b.*\b(app|window)?\b/.test(text);
   if (mentionsSpecificApp) {
     return false;
   }

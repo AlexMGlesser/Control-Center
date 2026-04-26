@@ -105,7 +105,7 @@ export async function executeToolCall(toolName, args = {}) {
       }
 
       const isSystemTab = ["overview", "settings", "chatbot", "event-bus", "agent-core", "integration-hub"].includes(target);
-      const windowApps = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app"];
+      const windowApps = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"];
       const isWindowApp = windowApps.includes(target);
       const app = isSystemTab ? null : getAppById(target);
 
@@ -145,12 +145,12 @@ export async function executeToolCall(toolName, args = {}) {
 
       const normalizedTarget = target.toLowerCase();
       const closeAll = ["all", "apps", "all-apps", "window-apps"].includes(normalizedTarget);
-      const windowApps = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app"];
+      const windowApps = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"];
 
       if (!closeAll && !windowApps.includes(normalizedTarget)) {
         return fail(
           "INVALID_CLOSE_TARGET",
-          "close_app supports calendar-app, news-app, work-app, project-app, music-app, drawing-app, or all-apps."
+          "close_app supports calendar-app, news-app, work-app, project-app, music-app, drawing-app, movie-app, server-manager-app, or all-apps."
         );
       }
 

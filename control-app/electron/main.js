@@ -13,18 +13,19 @@ const __dirname = path.dirname(__filename);
 
 let backendServer = null;
 let mainWindow = null;
-let calendarAppWindow = null;
-let newsWindow = null;
-let workAppWindow = null;
-let projectAppWindow = null;
-let musicAppWindow = null;
-let drawingAppWindow = null;
-let calendarAppWindowPending = false;
-let newsAppWindowPending = false;
-let workAppWindowPending = false;
-let projectAppWindowPending = false;
-let musicAppWindowPending = false;
-let drawingAppWindowPending = false;
+const APP_WINDOW_CONFIGS = {
+  "calendar-app": { title: "Calendar App", backgroundColor: "#0d1417" },
+  "news-app": { title: "News App", backgroundColor: "#070f13" },
+  "work-app": { title: "Work App", backgroundColor: "#070f13" },
+  "project-app": { title: "Personal Projects", backgroundColor: "#070f13" },
+  "music-app": { title: "Music App", backgroundColor: "#070f13" },
+  "drawing-app": { title: "Drawing App", backgroundColor: "#070f13" },
+  "movie-app": { title: "Movie App", backgroundColor: "#160b0e" },
+  "server-manager-app": { title: "Server Manager App", backgroundColor: "#0e1216" }
+};
+
+const appWindows = Object.fromEntries(Object.keys(APP_WINDOW_CONFIGS).map((appId) => [appId, null]));
+const appWindowPending = Object.fromEntries(Object.keys(APP_WINDOW_CONFIGS).map((appId) => [appId, false]));
 
 function createMainWindow() {
   const win = new BrowserWindow({
@@ -49,24 +50,30 @@ function createMainWindow() {
   });
 }
 
-function openNewsAppWindow() {
-  if (newsWindow && !newsWindow.isDestroyed()) {
-    newsWindow.focus();
+function openAppWindow(appId) {
+  const existingWindow = appWindows[appId];
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    existingWindow.focus();
     return;
   }
 
-  if (newsAppWindowPending) {
+  if (appWindowPending[appId]) {
     return;
   }
 
-  newsAppWindowPending = true;
-  newsWindow = new BrowserWindow({
+  const config = APP_WINDOW_CONFIGS[appId];
+  if (!config) {
+    return;
+  }
+
+  appWindowPending[appId] = true;
+  const appWindow = new BrowserWindow({
     width: 1560,
     height: 980,
     minWidth: 1200,
     minHeight: 760,
-    backgroundColor: "#070f13",
-    title: "News App",
+    backgroundColor: config.backgroundColor,
+    title: config.title,
     parent: mainWindow || undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -75,272 +82,38 @@ function openNewsAppWindow() {
     }
   });
 
-  newsWindow.loadURL(`http://localhost:${serverConfig.port}/news-app/`);
+  appWindows[appId] = appWindow;
+  appWindow.loadURL(`http://localhost:${serverConfig.port}/${appId}/`);
 
-  newsWindow.once("ready-to-show", () => {
-    newsAppWindowPending = false;
+  appWindow.once("ready-to-show", () => {
+    appWindowPending[appId] = false;
   });
 
-  newsWindow.on("closed", () => {
-    newsWindow = null;
-    newsAppWindowPending = false;
-  });
-}
-
-function openCalendarAppWindow() {
-  if (calendarAppWindow && !calendarAppWindow.isDestroyed()) {
-    calendarAppWindow.focus();
-    return;
-  }
-
-  if (calendarAppWindowPending) {
-    return;
-  }
-
-  calendarAppWindowPending = true;
-  calendarAppWindow = new BrowserWindow({
-    width: 1560,
-    height: 980,
-    minWidth: 1200,
-    minHeight: 760,
-    backgroundColor: "#0d1417",
-    title: "Calendar App",
-    parent: mainWindow || undefined,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-
-  calendarAppWindow.loadURL(`http://localhost:${serverConfig.port}/calendar-app/`);
-
-  calendarAppWindow.once("ready-to-show", () => {
-    calendarAppWindowPending = false;
-  });
-
-  calendarAppWindow.on("closed", () => {
-    calendarAppWindow = null;
-    calendarAppWindowPending = false;
+  appWindow.on("closed", () => {
+    appWindows[appId] = null;
+    appWindowPending[appId] = false;
   });
 }
 
-function openWorkAppWindow() {
-  if (workAppWindow && !workAppWindow.isDestroyed()) {
-    workAppWindow.focus();
-    return;
-  }
-
-  if (workAppWindowPending) {
-    return;
-  }
-
-  workAppWindowPending = true;
-  workAppWindow = new BrowserWindow({
-    width: 1560,
-    height: 980,
-    minWidth: 1200,
-    minHeight: 760,
-    backgroundColor: "#070f13",
-    title: "Work App",
-    parent: mainWindow || undefined,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-
-  workAppWindow.loadURL(`http://localhost:${serverConfig.port}/work-app/`);
-
-  workAppWindow.once("ready-to-show", () => {
-    workAppWindowPending = false;
-  });
-
-  workAppWindow.on("closed", () => {
-    workAppWindow = null;
-    workAppWindowPending = false;
-  });
-}
-
-function openProjectAppWindow() {
-  if (projectAppWindow && !projectAppWindow.isDestroyed()) {
-    projectAppWindow.focus();
-    return;
-  }
-
-  if (projectAppWindowPending) {
-    return;
-  }
-
-  projectAppWindowPending = true;
-  projectAppWindow = new BrowserWindow({
-    width: 1560,
-    height: 980,
-    minWidth: 1200,
-    minHeight: 760,
-    backgroundColor: "#070f13",
-    title: "Personal Projects",
-    parent: mainWindow || undefined,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-
-  projectAppWindow.loadURL(`http://localhost:${serverConfig.port}/project-app/`);
-
-  projectAppWindow.once("ready-to-show", () => {
-    projectAppWindowPending = false;
-  });
-
-  projectAppWindow.on("closed", () => {
-    projectAppWindow = null;
-    projectAppWindowPending = false;
-  });
-}
-
-function openMusicAppWindow() {
-  if (musicAppWindow && !musicAppWindow.isDestroyed()) {
-    musicAppWindow.focus();
-    return;
-  }
-
-  if (musicAppWindowPending) {
-    return;
-  }
-
-  musicAppWindowPending = true;
-  musicAppWindow = new BrowserWindow({
-    width: 1560,
-    height: 980,
-    minWidth: 1200,
-    minHeight: 760,
-    backgroundColor: "#070f13",
-    title: "Music App",
-    parent: mainWindow || undefined,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-
-  musicAppWindow.loadURL(`http://localhost:${serverConfig.port}/music-app/`);
-
-  musicAppWindow.once("ready-to-show", () => {
-    musicAppWindowPending = false;
-  });
-
-  musicAppWindow.on("closed", () => {
-    musicAppWindow = null;
-    musicAppWindowPending = false;
-  });
-}
-
-function openDrawingAppWindow() {
-  if (drawingAppWindow && !drawingAppWindow.isDestroyed()) {
-    drawingAppWindow.focus();
-    return;
-  }
-
-  if (drawingAppWindowPending) {
-    return;
-  }
-
-  drawingAppWindowPending = true;
-  drawingAppWindow = new BrowserWindow({
-    width: 1560,
-    height: 980,
-    minWidth: 1200,
-    minHeight: 760,
-    backgroundColor: "#070f13",
-    title: "Drawing App",
-    parent: mainWindow || undefined,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-
-  drawingAppWindow.loadURL(`http://localhost:${serverConfig.port}/drawing-app/`);
-
-  drawingAppWindow.once("ready-to-show", () => {
-    drawingAppWindowPending = false;
-  });
-
-  drawingAppWindow.on("closed", () => {
-    drawingAppWindow = null;
-    drawingAppWindowPending = false;
-  });
-}
-
-function closeCalendarAppWindow() {
-  if (!calendarAppWindow || calendarAppWindow.isDestroyed()) {
+function closeAppWindow(appId) {
+  const appWindow = appWindows[appId];
+  if (!appWindow || appWindow.isDestroyed()) {
     return false;
   }
-  calendarAppWindow.close();
-  return true;
-}
 
-function closeNewsAppWindow() {
-  console.log("[Main] closeNewsAppWindow called, newsWindow:", newsWindow ? (newsWindow.isDestroyed() ? "destroyed" : "open") : "null");
-  if (!newsWindow || newsWindow.isDestroyed()) {
-    return false;
-  }
-  newsWindow.close();
-  return true;
-}
-
-function closeWorkAppWindow() {
-  if (!workAppWindow || workAppWindow.isDestroyed()) {
-    return false;
-  }
-  workAppWindow.close();
-  return true;
-}
-
-function closeProjectAppWindow() {
-  if (!projectAppWindow || projectAppWindow.isDestroyed()) {
-    return false;
-  }
-  projectAppWindow.close();
-  return true;
-}
-
-function closeMusicAppWindow() {
-  if (!musicAppWindow || musicAppWindow.isDestroyed()) {
-    return false;
-  }
-  musicAppWindow.close();
-  return true;
-}
-
-function closeDrawingAppWindow() {
-  if (!drawingAppWindow || drawingAppWindow.isDestroyed()) {
-    return false;
-  }
-  drawingAppWindow.close();
+  appWindow.close();
   return true;
 }
 
 function closeAllAppWindows() {
-  const closed = [
-    closeCalendarAppWindow(),
-    closeNewsAppWindow(),
-    closeWorkAppWindow(),
-    closeProjectAppWindow(),
-    closeMusicAppWindow(),
-    closeDrawingAppWindow()
-  ].filter(Boolean).length;
+  const closed = Object.keys(APP_WINDOW_CONFIGS)
+    .map((appId) => closeAppWindow(appId))
+    .filter(Boolean).length;
 
   return closed;
 }
 
 function closeAppWindowByTarget(target) {
-  console.log("[Main] closeAppWindowByTarget called, target:", target);
   if (target === "all-apps" || target === "all" || target === "apps") {
     return {
       ok: true,
@@ -349,26 +122,15 @@ function closeAppWindowByTarget(target) {
     };
   }
 
-  let closed = false;
-  if (target === "calendar-app") {
-    closed = closeCalendarAppWindow();
-  } else if (target === "news-app") {
-    closed = closeNewsAppWindow();
-  } else if (target === "work-app") {
-    closed = closeWorkAppWindow();
-  } else if (target === "project-app") {
-    closed = closeProjectAppWindow();
-  } else if (target === "music-app") {
-    closed = closeMusicAppWindow();
-  } else if (target === "drawing-app") {
-    closed = closeDrawingAppWindow();
-  } else {
+  if (!APP_WINDOW_CONFIGS[target]) {
     return {
       ok: false,
       code: "UNKNOWN_WINDOW_TARGET",
       message: `Unknown window target '${target}'.`
     };
   }
+
+  const closed = closeAppWindow(target);
 
   return {
     ok: true,
@@ -411,47 +173,14 @@ app.whenReady()
     await ensureBackendServer();
     registerWindowControlHandler({ closeAppWindow: closeAppWindowByTarget });
     createMainWindow();
-    ipcMain.handle("calendar-app:open", () => {
-      openCalendarAppWindow();
-      return { ok: true };
+    Object.keys(APP_WINDOW_CONFIGS).forEach((appId) => {
+      ipcMain.handle(`${appId}:open`, () => {
+        openAppWindow(appId);
+        return { ok: true };
+      });
+
+      ipcMain.handle(`${appId}:close`, () => ({ ok: true, closed: closeAppWindow(appId) }));
     });
-
-    ipcMain.handle("calendar-app:close", () => ({ ok: true, closed: closeCalendarAppWindow() }));
-
-    ipcMain.handle("news-app:open", () => {
-      openNewsAppWindow();
-      return { ok: true };
-    });
-
-    ipcMain.handle("news-app:close", () => ({ ok: true, closed: closeNewsAppWindow() }));
-
-    ipcMain.handle("work-app:open", () => {
-      openWorkAppWindow();
-      return { ok: true };
-    });
-
-    ipcMain.handle("work-app:close", () => ({ ok: true, closed: closeWorkAppWindow() }));
-
-    ipcMain.handle("project-app:open", () => {
-      openProjectAppWindow();
-      return { ok: true };
-    });
-
-    ipcMain.handle("project-app:close", () => ({ ok: true, closed: closeProjectAppWindow() }));
-
-    ipcMain.handle("music-app:open", () => {
-      openMusicAppWindow();
-      return { ok: true };
-    });
-
-    ipcMain.handle("music-app:close", () => ({ ok: true, closed: closeMusicAppWindow() }));
-
-    ipcMain.handle("drawing-app:open", () => {
-      openDrawingAppWindow();
-      return { ok: true };
-    });
-
-    ipcMain.handle("drawing-app:close", () => ({ ok: true, closed: closeDrawingAppWindow() }));
 
     ipcMain.handle("apps:close-all", () => ({ ok: true, closed: closeAllAppWindows() }));
 
@@ -482,6 +211,33 @@ app.whenReady()
       }
     });
 
+    ipcMain.handle("dialog:choose-file", async (event, options = {}) => {
+      const parentWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+      const rawDefaultPath = typeof options.defaultPath === "string" ? options.defaultPath.trim() : "";
+
+      try {
+        const result = await dialog.showOpenDialog(parentWindow || undefined, {
+          title: "Choose file",
+          properties: ["openFile"],
+          defaultPath: rawDefaultPath || undefined
+        });
+
+        if (result.canceled || !result.filePaths?.length) {
+          return { ok: true, canceled: true, path: null };
+        }
+
+        return { ok: true, canceled: false, path: result.filePaths[0] };
+      } catch (error) {
+        return {
+          ok: false,
+          canceled: false,
+          code: "FILE_PICKER_ERROR",
+          message: error?.message || "Could not open file picker.",
+          path: null
+        };
+      }
+    });
+
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         createMainWindow();
@@ -501,20 +257,13 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   registerWindowControlHandler(null);
-  ipcMain.removeHandler("calendar-app:open");
-  ipcMain.removeHandler("calendar-app:close");
-  ipcMain.removeHandler("news-app:open");
-  ipcMain.removeHandler("news-app:close");
-  ipcMain.removeHandler("work-app:open");
-  ipcMain.removeHandler("work-app:close");
-  ipcMain.removeHandler("project-app:open");
-  ipcMain.removeHandler("project-app:close");
-  ipcMain.removeHandler("music-app:open");
-  ipcMain.removeHandler("music-app:close");
-  ipcMain.removeHandler("drawing-app:open");
-  ipcMain.removeHandler("drawing-app:close");
+  Object.keys(APP_WINDOW_CONFIGS).forEach((appId) => {
+    ipcMain.removeHandler(`${appId}:open`);
+    ipcMain.removeHandler(`${appId}:close`);
+  });
   ipcMain.removeHandler("apps:close-all");
   ipcMain.removeHandler("dialog:choose-directory");
+  ipcMain.removeHandler("dialog:choose-file");
 
   if (backendServer) {
     backendServer.close();

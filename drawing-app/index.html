@@ -51,7 +51,7 @@
           <label class="field field-location">
             <span>Save location</span>
             <div class="location-row">
-              <input id="save-location-input" type="text" placeholder="Choose a folder" readonly />
+              <input id="save-location-input" type="text" placeholder="Choose a folder" />
               <button id="choose-location-btn" class="btn" type="button">Browse</button>
             </div>
           </label>
@@ -102,6 +102,11 @@
         </div>
 
         <div class="canvas-wrap">
+          <div id="text-entry-panel" class="text-entry-panel hidden">
+            <input id="text-entry-input" type="text" maxlength="140" placeholder="Enter text for canvas" />
+            <button id="text-entry-apply-btn" class="btn primary" type="button">Apply Text</button>
+            <button id="text-entry-cancel-btn" class="btn ghost" type="button">Cancel</button>
+          </div>
           <canvas id="draw-canvas" width="1400" height="820"></canvas>
         </div>
       </section>

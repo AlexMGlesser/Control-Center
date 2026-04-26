@@ -7,8 +7,12 @@ Desktop runtime for the Control Center system (Electron + local Express backend)
 - Dark-mode GUI with smooth tab navigation
 - App tabs and standalone windows for modular apps
 - Calendar app with month view + agenda, local persistence, and CRUD/read APIs
+- Drawing app with 2D canvas, 3D primitives, transform controls, and STL export
+- Movie app with folder import, poster-style library, and inline desktop playback
+- Server Manager app with local server inventory, SSH config, and PowerShell SSH launch
 - Agent runtime with deterministic tool routing for common commands
 - Backend API surface for orchestration, events, chat, and calendar
+- Shared desktop file/directory picker endpoints for windowed apps
 - Style guide for consistent visual language
 
 ## Run
@@ -63,6 +67,9 @@ npm run start:web
 - GET `/api/events/stream`
 - GET `/api/chat/messages`
 - POST `/api/chat/messages`
+- POST `/api/system/choose-directory`
+- POST `/api/system/choose-file`
+- POST `/api/system/ssh-connect`
 - GET `/api/apps/calendar-app/month`
 - GET `/api/apps/calendar-app/events`
 - GET `/api/apps/calendar-app/events/remaining`
@@ -74,4 +81,6 @@ npm run start:web
 - Calendar reads are designed to avoid opening the calendar app unless explicitly requested.
 - Calendar provider supports both local storage and Google Calendar API (configurable by env).
 - Local calendar event data is stored in `server/data/calendar-events.json` when provider is `local`.
+- Standalone app windows use a shared Electron preload bridge and common open/close IPC wiring.
+- Server Manager SSH launch is routed through the local server so browser and Electron paths use the same behavior.
 - Voice services and assets exist under `server/services/*voice*` and `voice/` for local runtime integration.

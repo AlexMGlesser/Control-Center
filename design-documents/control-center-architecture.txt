@@ -103,6 +103,7 @@ Responsibilities:
 - Render the panel-based interface
 - Show navigation, folders, files, and tools in the left panel
 - Show the app library and app content in the right panel
+- Launch standalone apps in dedicated Electron child windows through shared preload and IPC plumbing
 - Present system status such as AI availability, server status, and active mode
 - Provide controls to start LMStudio and the Control Center server
 - Provide mode switching between Desktop Mode and Mobile Mode
@@ -571,6 +572,8 @@ Remote server access should be abstracted through separate adapters for:
 - SSH sessions
 - Power control
 - Remote file and service access
+
+In the current desktop implementation, SSH session launch is brokered through a local server endpoint that opens a PowerShell window directly. File and directory selection for windowed apps is similarly routed through shared desktop dialog endpoints so app UIs do not need per-app picker implementations.
 
 ### 9.7 Movie Streaming Integration
 

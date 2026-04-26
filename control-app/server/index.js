@@ -15,24 +15,28 @@ const workAppDir = path.join(__dirname, "..", "..", "work-app");
 const projectAppDir = path.join(__dirname, "..", "..", "project-app");
 const musicAppDir = path.join(__dirname, "..", "..", "music-app");
 const drawingAppDir = path.join(__dirname, "..", "..", "drawing-app");
+const movieAppDir = path.join(__dirname, "..", "..", "movie-app");
+const serverManagerAppDir = path.join(__dirname, "..", "..", "server-manager-app");
+
+const APP_STATIC_DIRS = [
+  ["calendar-app", calendarAppDir],
+  ["news-app", newsAppDir],
+  ["work-app", workAppDir],
+  ["project-app", projectAppDir],
+  ["music-app", musicAppDir],
+  ["drawing-app", drawingAppDir],
+  ["movie-app", movieAppDir],
+  ["server-manager-app", serverManagerAppDir]
+];
 
 function createServerApp() {
   const app = express();
 
   app.use(express.json());
   app.use("/api", apiRouter);
-  app.use("/modules/calendar-app", express.static(calendarAppDir));
-  app.use("/calendar-app", express.static(calendarAppDir));
-  app.use("/modules/news-app", express.static(newsAppDir));
-  app.use("/news-app", express.static(newsAppDir));
-  app.use("/modules/work-app", express.static(workAppDir));
-  app.use("/work-app", express.static(workAppDir));
-  app.use("/modules/project-app", express.static(projectAppDir));
-  app.use("/project-app", express.static(projectAppDir));
-  app.use("/modules/music-app", express.static(musicAppDir));
-  app.use("/music-app", express.static(musicAppDir));
-  app.use("/modules/drawing-app", express.static(drawingAppDir));
-  app.use("/drawing-app", express.static(drawingAppDir));
+  APP_STATIC_DIRS.forEach(([routeKey, appDir]) => {
+    app.use(`/${routeKey}`, express.static(appDir));
+  });
   app.use(express.static(clientDir));
 
   app.get("*", (req, res) => {

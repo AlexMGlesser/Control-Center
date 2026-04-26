@@ -71,8 +71,12 @@ This app should provide an interface that allows the user to manage other server
 If those servers host services such as storage, the app should be able to access and save data to and from them.
 It should also display key information about the servers, such as hardware, operating system, and IP address.
 
+Current implementation note: the app now exists as a standalone Electron window with local server inventory storage, SSH config editing, shared desktop file picking for key paths, and PowerShell-based SSH session launch through the local backend.
+
 # movie-app
 
 This app will be where the user can host a movie server and stream movies from the Control Center system. The app should provide a movie library interface for browsing titles and selecting content.
 
 In Desktop Mode, the user should be able to browse and watch movies directly in the app. The app should include playback controls and clearly display server and stream status.
+
+Current implementation note: the app now exists as a standalone Electron window with folder import, poster-style library cards, inline playback controls, and in-session local playback for imported movie files.

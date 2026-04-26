@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Server Manager App</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header card">
+        <div>
+          <p class="eyebrow">Control Center</p>
+          <h1>Server Manager App</h1>
+          <p class="subtitle">Select a server panel, then choose a connection option.</p>
+        </div>
+      </header>
+
+      <section class="layout">
+        <section class="card panel">
+          <div class="panel-head">
+            <h2>Running Servers</h2>
+            <span id="server-count" class="pill">0</span>
+          </div>
+          <div id="servers-grid" class="servers-grid"></div>
+        </section>
+
+        <aside class="card panel options-panel">
+          <h2 id="selected-server-title">Select a Server</h2>
+          <p id="selected-server-subtitle" class="muted">Pick a panel from the left to open options.</p>
+
+          <div class="options-list">
+            <button id="add-server-btn" class="btn" type="button">Add Server</button>
+            <button id="connect-ssh-btn" class="btn primary" type="button" disabled>Connect via SSH</button>
+            <button id="connect-teamviewer-btn" class="btn muted-btn" type="button" disabled>Connect via TeamViewer (WIP)</button>
+            <button id="open-config-btn" class="btn" type="button" disabled>Config</button>
+          </div>
+
+          <p id="status-line" class="status">Ready.</p>
+        </aside>
+      </section>
+
+      <section id="config-overlay" class="overlay hidden" aria-hidden="true">
+        <div class="card config-card">
+          <h2>Server Config</h2>
+          <p class="muted">Configure SSH IP, username, and key location.</p>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>Server Name</span>
+              <input id="cfg-server-name" type="text" maxlength="80" />
+            </label>
+
+            <label class="field">
+              <span>SSH IP / Host</span>
+              <input id="cfg-ssh-host" type="text" placeholder="192.168.1.100" />
+            </label>
+
+            <label class="field">
+              <span>SSH Username</span>
+              <input id="cfg-ssh-username" type="text" placeholder="admin" />
+            </label>
+
+            <label class="field">
+              <span>SSH Port</span>
+              <input id="cfg-ssh-port" type="number" min="1" max="65535" placeholder="22" />
+            </label>
+
+            <label class="field field-key">
+              <span>SSH Key Location</span>
+              <div class="key-row">
+                <input id="cfg-ssh-key" type="text" placeholder="C:\\Users\\you\\.ssh\\id_rsa" />
+                <button id="browse-key-btn" class="btn" type="button">Browse</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="row">
+            <button id="save-config-btn" class="btn primary" type="button">Save Config</button>
+            <button id="cancel-config-btn" class="btn" type="button">Cancel</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

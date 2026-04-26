@@ -261,6 +261,51 @@ router.post("/system/choose-directory", async (req, res) => {
   res.json(result);
 });
 
+router.post("/system/choose-file", async (req, res) => {
+  const defaultPath = typeof req.body?.defaultPath === "string" ? req.body.defaultPath.trim() : "";
+
+  const result = await openFileDialog(defaultPath || undefined);
+  if (!result.ok) {
+    res.status(result.status || 500).json(result);
+    return;
+  }
+
+  res.json(result);
+});
+
+router.post("/system/ssh-connect", (req, res) => {
+  const host = String(req.body?.host || "").trim();
+  const username = String(req.body?.username || "").trim();
+  const keyPath = String(req.body?.keyPath || "").trim();
+  const portRaw = Number(req.body?.port || 22);
+  const port = Number.isInteger(portRaw) && portRaw >= 1 && portRaw <= 65535 ? portRaw : 22;
+
+  if (!host || !username) {
+    res.status(400).json({ ok: false, message: "Host and username are required." });
+    return;
+  }
+
+  const sshParts = ["ssh", "-p", String(port)];
+  if (keyPath) {
+    sshParts.push("-i", `"${keyPath.replace(/"/g, '\\"')}"`);
+  }
+  sshParts.push(`${username}@${host}`);
+
+  const sshCommand = sshParts.join(" ");
+
+  try {
+    const child = spawn(
+      "cmd.exe",
+      ["/c", "start", "", "powershell.exe", "-NoLogo", "-NoProfile", "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", sshCommand],
+      { detached: true, stdio: "ignore", windowsHide: false }
+    );
+    child.unref();
+    res.json({ ok: true, message: `Opening SSH session for ${username}@${host}.` });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error?.message || "Failed to spawn PowerShell." });
+  }
+});
+
 router.get("/chat/messages", (req, res) => {
   const limit = req.query.limit;
   res.json({ messages: getChatMessages(limit) });
@@ -1115,6 +1160,32 @@ async function openDirectoryDialog(defaultPath) {
       status: 503,
       code: "DESKTOP_PICKER_UNAVAILABLE",
       message: "Desktop folder picker is unavailable in this mode.",
+      details: error?.message || "Failed to load Electron dialog API."
+    };
+  }
+}
+
+async function openFileDialog(defaultPath) {
+  try {
+    const electron = await import("electron");
+    const focusedWindow = electron.BrowserWindow.getFocusedWindow() || undefined;
+    const result = await electron.dialog.showOpenDialog(focusedWindow, {
+      title: "Choose file",
+      properties: ["openFile"],
+      defaultPath
+    });
+
+    if (result.canceled || !result.filePaths?.length) {
+      return { ok: true, canceled: true, path: null };
+    }
+
+    return { ok: true, canceled: false, path: result.filePaths[0] };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 503,
+      code: "DESKTOP_FILE_PICKER_UNAVAILABLE",
+      message: "Desktop file picker is unavailable in this mode.",
       details: error?.message || "Failed to load Electron dialog API."
     };
   }

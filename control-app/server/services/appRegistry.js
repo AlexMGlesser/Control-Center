@@ -51,7 +51,7 @@ const appRegistry = [
     id: "server-manager-app",
     name: "Server Manager App",
     description: "Remote server inventory, SSH sessions, and control actions.",
-    status: "wip",
+    status: "online",
     routeKey: "server-manager-app",
     capabilities: ["ssh", "power", "remote-storage"]
   },
@@ -59,7 +59,7 @@ const appRegistry = [
     id: "movie-app",
     name: "Movie App",
     description: "Local movie server hosting, streaming sessions, and desktop playback.",
-    status: "wip",
+    status: "online",
     routeKey: "movie-app",
     capabilities: ["movie-library", "streaming", "desktop-playback", "server-control"]
   }

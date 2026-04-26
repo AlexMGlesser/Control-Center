@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Movie App</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Control Center</p>
+          <h1>Movie App</h1>
+          <p class="subtitle">Import your movie folder, pick a title, and control playback.</p>
+        </div>
+        <div class="top-actions">
+          <button id="import-folder-btn" class="btn btn-gold" type="button">Import Movie Folder</button>
+          <button id="open-selected-btn" class="btn" type="button" disabled>Open Selected</button>
+        </div>
+      </header>
+
+      <section class="layout">
+        <aside class="library-panel">
+          <div class="panel-head">
+            <h2>Movie Library</h2>
+            <span id="movie-count" class="pill">0</span>
+          </div>
+          <div id="movie-grid" class="movie-grid"></div>
+        </aside>
+
+        <section class="player-panel">
+          <div class="player-wrap">
+            <video id="movie-player" class="movie-player" controlslist="nodownload noplaybackrate" preload="metadata"></video>
+            <div id="empty-player" class="empty-player">Select a movie to begin</div>
+          </div>
+
+          <div class="controls">
+            <button id="play-pause-btn" class="btn btn-gold" type="button">Play</button>
+            <button id="rewind-btn" class="btn" type="button">Rewind 10s</button>
+            <button id="forward-btn" class="btn" type="button">Forward 10s</button>
+            <button id="vol-down-btn" class="btn" type="button">Vol -</button>
+            <button id="vol-up-btn" class="btn" type="button">Vol +</button>
+            <button id="speed-down-btn" class="btn" type="button">Speed -</button>
+            <button id="speed-up-btn" class="btn" type="button">Speed +</button>
+            <button id="captions-btn" class="btn" type="button" disabled>Captions</button>
+          </div>
+
+          <div class="status-row">
+            <span id="now-playing">No movie selected</span>
+            <span id="playback-meta">00:00 / 00:00 | x1.00</span>
+          </div>
+        </section>
+      </section>
+
+      <section id="select-overlay" class="select-overlay">
+        <div class="select-card">
+          <h2>Select Movie</h2>
+          <p>Import a folder first, then choose a movie from the panel to start watching.</p>
+          <button id="overlay-import-btn" class="btn btn-gold" type="button">Import Folder</button>
+        </div>
+      </section>
+
+      <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

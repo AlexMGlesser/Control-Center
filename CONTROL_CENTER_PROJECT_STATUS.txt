@@ -1,5 +1,5 @@
 Control Center Project Status
-Last Updated: 2026-04-21
+Last Updated: 2026-04-26
 
 Purpose
 - This file is a quick handoff for future chat sessions so they can understand current project state without re-discovering context.
@@ -23,7 +23,7 @@ Implemented Features (control-app)
 - App tabs are populated from backend app registry.
 - Smooth tab traversal and status cards.
 
-2. App registry (WIP modules)
+2. App registry (window-capable modules)
 - project-app
 - work-app
 - calendar-app
@@ -70,7 +70,25 @@ Implemented Features (control-app)
   - add event
   - remove event
 
-9. Voice pipeline (in progress)
+9. Drawing app (implemented)
+- Standalone Drawing app supports both 2D canvas editing and 3D primitive editing.
+- 3D mode includes transform controls, object list management, and STL export.
+- Save location selection uses the shared directory picker and now falls back to inline path entry instead of browser prompt dialogs.
+- 2D text insertion now uses inline input UI instead of prompt dialogs.
+
+10. Movie app (implemented)
+- Standalone Movie app opens in its own Electron window.
+- Folder import, poster-style library cards, inline playback, and playback controls are functional.
+- Import overlay correctly hides once movies are loaded.
+
+11. Server Manager app (implemented)
+- Standalone Server Manager app opens in its own Electron window.
+- Server definitions persist locally in browser storage.
+- Add Server and Config flows are functional.
+- SSH key browsing uses the shared file picker with inline manual path entry fallback.
+- SSH launch now routes through a server-side endpoint that opens a PowerShell window directly with the requested SSH command.
+
+12. Voice pipeline (in progress)
 - Whisper + Piper service modules were added under `control-app/server/services`.
 - Local voice websocket route is active and clients can connect.
 - Voice setup assets/scripts exist under `control-app/voice`.
@@ -92,6 +110,9 @@ Important API Endpoints
 - GET /api/events
 - POST /api/events
 - GET /api/events/stream
+- POST /api/system/choose-directory
+- POST /api/system/choose-file
+- POST /api/system/ssh-connect
 - GET /api/apps/calendar-app/month
 - GET /api/apps/calendar-app/events
 - GET /api/apps/calendar-app/events/remaining
@@ -107,7 +128,7 @@ From D:\Control-Center\control-app:
   - npm run start:web
 
 Design Documentation Status
-- Control Center core docs are updated and include movie-app in:
+- Control Center core docs are updated and include both movie-app and server-manager-app in:
   - control-center-design.txt
   - control-center-prd.txt
   - control-center-functional-spec.txt
@@ -120,18 +141,21 @@ Design Documentation Status
 Known Limits (by design)
 - LLM/tool-call responses can still vary by phrasing when prompts are far from supported deterministic patterns.
 - Voice stack binaries/assets are large and should remain intentionally scoped during commits.
-- Some app modules are still intentionally WIP shell states.
+- project-app and work-app remain comparatively lighter than the media and server apps.
+- Server Manager currently focuses on SSH launch and config management; richer hardware and power telemetry is still pending.
+- Movie App currently plays imported local files in-session rather than maintaining a long-lived indexed library.
 
 Recommended Next Priorities
 1. Add recurring events and event editing support to the calendar service and UI.
-2. Add deterministic parsing for more natural calendar add/remove phrases and explicit confirmations.
-3. Stabilize voice pipeline end-to-end (record, transcribe, route command, speak response).
-4. Add persistent settings and chat storage (file/db) instead of memory-only runtime state.
-5. Add app-specific event filtering in Event Bus tab.
+2. Stabilize voice pipeline end-to-end (record, transcribe, route command, speak response).
+3. Expand Server Manager with power actions, richer server metadata, and remote storage workflows.
+4. Add durable movie library persistence instead of per-session folder import only.
+5. Add persistent settings and chat storage (file/db) instead of memory-only runtime state.
 
 Conventions Used
 - Local-first desktop execution.
 - App isolation via module boundaries and app registry.
+- Shared Electron window and dialog plumbing for standalone apps.
 - Event-driven status updates via event bus.
 - Dark-mode style tokens and consistent UI language.
 

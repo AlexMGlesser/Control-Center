@@ -18,7 +18,8 @@ const state = {
   startY: 0,
   lastX: 0,
   lastY: 0,
-  baseSnapshot: null
+  baseSnapshot: null,
+  pendingTextPosition: null
 };
 
 const elements = {
@@ -38,6 +39,10 @@ const elements = {
   newFileName: document.getElementById("new-file-name"),
   saveLocationInput: document.getElementById("save-location-input"),
   chooseLocationBtn: document.getElementById("choose-location-btn"),
+  textEntryPanel: document.getElementById("text-entry-panel"),
+  textEntryInput: document.getElementById("text-entry-input"),
+  textEntryApplyBtn: document.getElementById("text-entry-apply-btn"),
+  textEntryCancelBtn: document.getElementById("text-entry-cancel-btn"),
   editor2dTitle: document.getElementById("editor-2d-title"),
   editor3dTitle: document.getElementById("editor-3d-title"),
   save2dBtn: document.getElementById("save-2d-btn"),
@@ -139,6 +144,32 @@ function syncCreateLocationUI() {
   elements.saveLocationInput.value = state.createLocationPath || "";
 }
 
+function openTextEntry(x, y) {
+  state.pendingTextPosition = { x, y };
+  elements.textEntryInput.value = "";
+  elements.textEntryPanel.classList.remove("hidden");
+  elements.textEntryInput.focus();
+}
+
+function closeTextEntry() {
+  state.pendingTextPosition = null;
+  elements.textEntryInput.value = "";
+  elements.textEntryPanel.classList.add("hidden");
+}
+
+function applyTextEntry() {
+  const text = String(elements.textEntryInput.value || "").trim();
+  if (!text || !state.pendingTextPosition) {
+    closeTextEntry();
+    return;
+  }
+
+  configureContext();
+  context.font = `${Math.max(12, state.size * 4)}px Bahnschrift, Segoe UI, sans-serif`;
+  context.fillText(text, state.pendingTextPosition.x, state.pendingTextPosition.y);
+  closeTextEntry();
+}
+
 async function chooseSaveLocation() {
   if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.chooseDirectory) {
     try {
@@ -183,20 +214,12 @@ async function chooseSaveLocation() {
     return;
   }
 
-  const fallback = window.prompt("Enter a save folder path:", state.createLocationPath || "");
-  if (fallback && String(fallback).trim()) {
-    state.createLocationPath = String(fallback).trim();
-    syncCreateLocationUI();
-    setStatus("Save location set.");
-    return;
-  }
-
   if (apiPicker.payload?.message) {
-    setStatus(`${apiPicker.payload.message} Use manual path entry if needed.`);
+    setStatus(`${apiPicker.payload.message} Type the folder path directly in the save location field if needed.`);
     return;
   }
 
-  setStatus("No save location was selected.");
+  setStatus("No save location was selected. Type the folder path directly if needed.");
 }
 
 function escapeHtml(value) {
@@ -437,13 +460,7 @@ function startDrawing(event) {
 
   if (state.tool === "text") {
     state.drawing = false;
-    const text = window.prompt("Enter text:");
-    if (!text) {
-      return;
-    }
-
-    context.font = `${Math.max(12, state.size * 4)}px Bahnschrift, Segoe UI, sans-serif`;
-    context.fillText(text, x, y);
+    openTextEntry(x, y);
     return;
   }
 
@@ -920,6 +937,25 @@ function bindEvents() {
     chooseSaveLocation().catch(() => {
       setStatus("Could not choose save location.");
     });
+  });
+
+  elements.saveLocationInput.addEventListener("input", () => {
+    state.createLocationPath = String(elements.saveLocationInput.value || "").trim();
+  });
+
+  elements.textEntryApplyBtn.addEventListener("click", applyTextEntry);
+  elements.textEntryCancelBtn.addEventListener("click", closeTextEntry);
+  elements.textEntryInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      applyTextEntry();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeTextEntry();
+    }
   });
 
   elements.cancelCreateBtn.addEventListener("click", () => {

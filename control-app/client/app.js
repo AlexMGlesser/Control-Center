@@ -195,96 +195,107 @@ async function postAppMessageToAgent(appId, message, meta = {}) {
 }
 
 async function openNewsAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openNewsAppWindow) {
-    await window.controlCenterDesktop.openNewsAppWindow();
-    return;
-  }
-
-  window.open("/news-app/", "_blank", "noopener");
+  await openWindowApp("news-app");
 }
 
 async function openCalendarAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openCalendarAppWindow) {
-    await window.controlCenterDesktop.openCalendarAppWindow();
-    return;
-  }
-
-  window.open("/calendar-app/", "_blank", "noopener");
+  await openWindowApp("calendar-app");
 }
 
 async function openWorkAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openWorkAppWindow) {
-    await window.controlCenterDesktop.openWorkAppWindow();
-    return;
-  }
-
-  window.open("/work-app/", "_blank", "noopener");
+  await openWindowApp("work-app");
 }
 
 async function openProjectAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openProjectAppWindow) {
-    await window.controlCenterDesktop.openProjectAppWindow();
-    return;
-  }
-
-  window.open("/project-app/", "_blank", "noopener");
+  await openWindowApp("project-app");
 }
 
 async function openMusicAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openMusicAppWindow) {
-    await window.controlCenterDesktop.openMusicAppWindow();
+  await openWindowApp("music-app");
+}
+
+const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"];
+
+const WINDOW_APP_BRIDGE_NAMES = {
+  "calendar-app": "CalendarApp",
+  "news-app": "NewsApp",
+  "work-app": "WorkApp",
+  "project-app": "ProjectApp",
+  "music-app": "MusicApp",
+  "drawing-app": "DrawingApp",
+  "movie-app": "MovieApp",
+  "server-manager-app": "ServerManagerApp"
+};
+
+function getDesktopWindowMethod(appId, action) {
+  const bridgeName = WINDOW_APP_BRIDGE_NAMES[appId];
+  if (!bridgeName) {
+    return null;
+  }
+
+  return `${action}${bridgeName}Window`;
+}
+
+async function openWindowApp(appId) {
+  const methodName = getDesktopWindowMethod(appId, "open");
+  if (window.controlCenterDesktop?.runtime === "electron" && methodName && typeof window.controlCenterDesktop[methodName] === "function") {
+    await window.controlCenterDesktop[methodName]();
     return;
   }
 
-  window.open("/music-app/", "_blank", "noopener");
+  window.open(`/${appId}/`, "_blank", "noopener");
+}
+
+async function closeWindowApp(appId) {
+  const methodName = getDesktopWindowMethod(appId, "close");
+  if (window.controlCenterDesktop?.runtime === "electron" && methodName && typeof window.controlCenterDesktop[methodName] === "function") {
+    await window.controlCenterDesktop[methodName]();
+  }
 }
 
 async function openDrawingAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.openDrawingAppWindow) {
-    await window.controlCenterDesktop.openDrawingAppWindow();
-    return;
-  }
+  await openWindowApp("drawing-app");
+}
 
-  window.open("/drawing-app/", "_blank", "noopener");
+async function openMovieAppWindow() {
+  await openWindowApp("movie-app");
+}
+
+async function openServerManagerAppWindow() {
+  await openWindowApp("server-manager-app");
 }
 
 async function closeCalendarAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeCalendarAppWindow) {
-    await window.controlCenterDesktop.closeCalendarAppWindow();
-  }
+  await closeWindowApp("calendar-app");
 }
 
 async function closeNewsAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeNewsAppWindow) {
-    await window.controlCenterDesktop.closeNewsAppWindow();
-  }
+  await closeWindowApp("news-app");
 }
 
 async function closeWorkAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeWorkAppWindow) {
-    await window.controlCenterDesktop.closeWorkAppWindow();
-  }
+  await closeWindowApp("work-app");
 }
 
 async function closeProjectAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeProjectAppWindow) {
-    await window.controlCenterDesktop.closeProjectAppWindow();
-  }
+  await closeWindowApp("project-app");
 }
 
 async function closeMusicAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeMusicAppWindow) {
-    await window.controlCenterDesktop.closeMusicAppWindow();
-  }
+  await closeWindowApp("music-app");
 }
 
 async function closeDrawingAppWindow() {
-  if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeDrawingAppWindow) {
-    await window.controlCenterDesktop.closeDrawingAppWindow();
-  }
+  await closeWindowApp("drawing-app");
 }
 
-const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app"];
+async function closeMovieAppWindow() {
+  await closeWindowApp("movie-app");
+}
+
+async function closeServerManagerAppWindow() {
+  await closeWindowApp("server-manager-app");
+}
 
 async function closeKnownAppWindow(appId) {
   if (appId === "all-apps") {
@@ -311,6 +322,10 @@ async function closeKnownAppWindow(appId) {
     await closeMusicAppWindow();
   } else if (appId === "drawing-app") {
     await closeDrawingAppWindow();
+  } else if (appId === "movie-app") {
+    await closeMovieAppWindow();
+  } else if (appId === "server-manager-app") {
+    await closeServerManagerAppWindow();
   } else {
     return false;
   }
@@ -324,33 +339,8 @@ async function closeKnownAppWindow(appId) {
 }
 
 async function openKnownAppWindow(appId) {
-  if (appId === "calendar-app") {
-    await openCalendarAppWindow();
-    return true;
-  }
-
-  if (appId === "news-app") {
-    await openNewsAppWindow();
-    return true;
-  }
-
-  if (appId === "work-app") {
-    await openWorkAppWindow();
-    return true;
-  }
-
-  if (appId === "project-app") {
-    await openProjectAppWindow();
-    return true;
-  }
-
-  if (appId === "music-app") {
-    await openMusicAppWindow();
-    return true;
-  }
-
-  if (appId === "drawing-app") {
-    await openDrawingAppWindow();
+  if (WINDOW_APP_IDS.includes(appId)) {
+    await openWindowApp(appId);
     return true;
   }
 
@@ -905,7 +895,7 @@ function renderSingleApp(appId) {
   }
 
   const capHtml = app.capabilities.map((cap) => `<li>${cap}</li>`).join("");
-  const launchButton = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app"].includes(app.id)
+  const launchButton = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"].includes(app.id)
     ? `<div><button class="action-btn" data-action="open-app" data-app-id="${app.id}">Open ${app.name}</button></div>`
     : "";
 
@@ -1405,6 +1395,14 @@ function startEventStream() {
             });
           } else if (targetTab === "app:drawing-app") {
             openDrawingAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
+          } else if (targetTab === "app:movie-app") {
+            openMovieAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
+          } else if (targetTab === "app:server-manager-app") {
+            openServerManagerAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
           } else {
