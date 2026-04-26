@@ -9,6 +9,8 @@ const WAKE_WORD = "jarvis";
 const WAKE_WORD_VARIANTS = ["jarvis", "jarves", "jarv is", "jar vis", "jarvas"];
 
 let wss = null;
+let attachedHttpServer = null;
+let upgradeHandler = null;
 const clientState = new WeakMap();
 
 function getClientState(ws) {
@@ -38,9 +40,14 @@ const UNMUTE_PATTERN = /^\s*(unmute|un-?mute)\b/i;
  *   Binary message  = WAV audio of agent's spoken response
  */
 export function attachVoiceWebSocket(httpServer) {
-  wss = new WebSocketServer({ noServer: true });
+  if (wss) {
+    closeVoiceWebSocket();
+  }
 
-  httpServer.on("upgrade", (request, socket, head) => {
+  wss = new WebSocketServer({ noServer: true });
+  attachedHttpServer = httpServer;
+
+  upgradeHandler = (request, socket, head) => {
     const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
     if (pathname === "/voice") {
       wss.handleUpgrade(request, socket, head, (ws) => {
@@ -48,7 +55,9 @@ export function attachVoiceWebSocket(httpServer) {
       });
     }
     // Let other upgrade requests (if any) pass through
-  });
+  };
+
+  httpServer.on("upgrade", upgradeHandler);
 
   wss.on("connection", (ws) => {
     console.log("[Voice] Client connected.");
@@ -85,6 +94,28 @@ export function attachVoiceWebSocket(httpServer) {
   });
 
   console.log("[Voice] WebSocket server attached on /voice");
+}
+
+export function closeVoiceWebSocket() {
+  if (attachedHttpServer && upgradeHandler) {
+    attachedHttpServer.off("upgrade", upgradeHandler);
+  }
+
+  if (wss) {
+    for (const client of wss.clients) {
+      try {
+        client.terminate();
+      } catch {
+        // Ignore individual client termination failures during shutdown.
+      }
+    }
+
+    wss.close();
+  }
+
+  wss = null;
+  attachedHttpServer = null;
+  upgradeHandler = null;
 }
 
 export function getVoiceStatus() {

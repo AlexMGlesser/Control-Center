@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
-import { startServer } from "../server/index.js";
+import { startServer, stopServer } from "../server/index.js";
 import { serverConfig } from "../server/config.js";
 import { onShutdownRequested } from "../server/routes/api.js";
 import { registerWindowControlHandler } from "../server/services/windowControlBridge.js";
@@ -13,6 +13,8 @@ const __dirname = path.dirname(__filename);
 
 let backendServer = null;
 let mainWindow = null;
+let isShuttingDown = false;
+let shutdownPromise = null;
 const APP_WINDOW_CONFIGS = {
   "calendar-app": { title: "Calendar App", backgroundColor: "#0d1417" },
   "news-app": { title: "News App", backgroundColor: "#070f13" },
@@ -113,6 +115,45 @@ function closeAllAppWindows() {
   return closed;
 }
 
+function destroyAllWindows() {
+  BrowserWindow.getAllWindows().forEach((windowInstance) => {
+    if (!windowInstance.isDestroyed()) {
+      windowInstance.destroy();
+    }
+  });
+}
+
+function removeIpcHandlers() {
+  Object.keys(APP_WINDOW_CONFIGS).forEach((appId) => {
+    ipcMain.removeHandler(`${appId}:open`);
+    ipcMain.removeHandler(`${appId}:close`);
+  });
+  ipcMain.removeHandler("apps:close-all");
+  ipcMain.removeHandler("dialog:choose-directory");
+  ipcMain.removeHandler("dialog:choose-file");
+}
+
+async function shutdownRuntime() {
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  shutdownPromise = (async () => {
+    registerWindowControlHandler(null);
+    removeIpcHandlers();
+    closeAllAppWindows();
+    destroyAllWindows();
+
+    if (backendServer) {
+      const serverToStop = backendServer;
+      backendServer = null;
+      await stopServer(serverToStop);
+    }
+  })();
+
+  return shutdownPromise;
+}
+
 function closeAppWindowByTarget(target) {
   if (target === "all-apps" || target === "all" || target === "apps") {
     return {
@@ -155,7 +196,13 @@ async function ensureBackendServer() {
       throw error;
     }
 
-    backendServer = null;
+    const shutDown = await shutdownExistingServer();
+    if (!shutDown) {
+      throw new Error(`Control Center backend port ${serverConfig.port} is already in use by another process.`);
+    }
+
+    backendServer = await startServer();
+    onShutdownRequested(() => app.quit());
   }
 }
 
@@ -166,6 +213,26 @@ async function isExistingServerHealthy() {
   } catch {
     return false;
   }
+}
+
+async function shutdownExistingServer() {
+  try {
+    await fetch(`http://localhost:${serverConfig.port}/api/shutdown`, { method: "POST" });
+  } catch {
+    return false;
+  }
+
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const stillHealthy = await isExistingServerHealthy();
+    if (!stillHealthy) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  return false;
 }
 
 app.whenReady()
@@ -255,17 +322,18 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
-  registerWindowControlHandler(null);
-  Object.keys(APP_WINDOW_CONFIGS).forEach((appId) => {
-    ipcMain.removeHandler(`${appId}:open`);
-    ipcMain.removeHandler(`${appId}:close`);
-  });
-  ipcMain.removeHandler("apps:close-all");
-  ipcMain.removeHandler("dialog:choose-directory");
-  ipcMain.removeHandler("dialog:choose-file");
-
-  if (backendServer) {
-    backendServer.close();
+app.on("before-quit", (event) => {
+  if (isShuttingDown) {
+    return;
   }
+
+  isShuttingDown = true;
+  event.preventDefault();
+  shutdownRuntime()
+    .catch((error) => {
+      console.error("Failed to fully shut down Control Center runtime:", error?.message || error);
+    })
+    .finally(() => {
+      app.exit(0);
+    });
 });

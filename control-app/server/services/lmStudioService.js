@@ -2,6 +2,7 @@ const LMSTUDIO_BASE_URL = process.env.LMSTUDIO_BASE_URL || "http://127.0.0.1:123
 const LMSTUDIO_MODEL = process.env.LMSTUDIO_MODEL || "google/gemma-4-26b-a4b";
 const LMSTUDIO_TIMEOUT_MS = Number(process.env.LMSTUDIO_TIMEOUT_MS || 45000);
 const PROBE_INTERVAL_MS = 10000;
+let probeIntervalId = null;
 
 const lmStudioState = {
   status: "not_connected",
@@ -60,8 +61,28 @@ export async function probeLmStudioStatus() {
   }
 }
 
+function ensureLmStudioProbe() {
+  if (probeIntervalId) {
+    return;
+  }
+
+  probeIntervalId = setInterval(() => {
+    probeLmStudioStatus().catch(() => {});
+  }, PROBE_INTERVAL_MS);
+  probeIntervalId.unref?.();
+}
+
+export function stopLmStudioProbe() {
+  if (!probeIntervalId) {
+    return;
+  }
+
+  clearInterval(probeIntervalId);
+  probeIntervalId = null;
+}
+
 // Background probe — keeps status in sync regardless of how the model was loaded/unloaded
-setInterval(() => { probeLmStudioStatus().catch(() => {}); }, PROBE_INTERVAL_MS);
+ensureLmStudioProbe();
 probeLmStudioStatus().catch(() => {});
 
 export async function requestLmStudioChatCompletion({ messages, temperature = 0.2 }) {

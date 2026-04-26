@@ -58,6 +58,11 @@ Implemented Features (control-app)
 7. Startup script
 - PowerShell startup script exists in control-app:
   - start-control-center.ps1
+- Desktop shutdown now tears down owned background runtime pieces as part of app exit:
+  - local Express backend
+  - voice websocket attachment and active voice clients
+  - LMStudio status probe interval
+  - child Electron app windows
 
 8. Calendar app (implemented)
 - Standalone Calendar app is served from the root workspace `calendar-app` folder.
@@ -113,6 +118,7 @@ Important API Endpoints
 - POST /api/system/choose-directory
 - POST /api/system/choose-file
 - POST /api/system/ssh-connect
+- POST /api/shutdown
 - GET /api/apps/calendar-app/month
 - GET /api/apps/calendar-app/events
 - GET /api/apps/calendar-app/events/remaining

@@ -4,7 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { serverConfig } from "./config.js";
 import apiRouter from "./routes/api.js";
-import { attachVoiceWebSocket } from "./services/voiceService.js";
+import { stopLmStudioProbe } from "./services/lmStudioService.js";
+import { attachVoiceWebSocket, closeVoiceWebSocket } from "./services/voiceService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,6 +60,20 @@ export function startServer() {
       .on("error", (error) => {
         reject(error);
       });
+  });
+}
+
+export function stopServer(server) {
+  closeVoiceWebSocket();
+  stopLmStudioProbe();
+
+  return new Promise((resolve) => {
+    if (!server) {
+      resolve();
+      return;
+    }
+
+    server.close(() => resolve());
   });
 }
 

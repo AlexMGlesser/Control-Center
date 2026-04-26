@@ -13,6 +13,7 @@ Desktop runtime for the Control Center system (Electron + local Express backend)
 - Agent runtime with deterministic tool routing for common commands
 - Backend API surface for orchestration, events, chat, and calendar
 - Shared desktop file/directory picker endpoints for windowed apps
+- Owned desktop shutdown path for backend, voice sockets, and background polling
 - Style guide for consistent visual language
 
 ## Run
@@ -26,6 +27,7 @@ Desktop runtime for the Control Center system (Electron + local Express backend)
    npm start
 
 This launches an Electron desktop window and starts the internal backend automatically.
+Closing the Control Center window also shuts down the local backend runtime, voice websocket attachment, and background status polling owned by the desktop app.
 
 ## Google Calendar setup (optional)
 
@@ -70,6 +72,7 @@ npm run start:web
 - POST `/api/system/choose-directory`
 - POST `/api/system/choose-file`
 - POST `/api/system/ssh-connect`
+- POST `/api/shutdown`
 - GET `/api/apps/calendar-app/month`
 - GET `/api/apps/calendar-app/events`
 - GET `/api/apps/calendar-app/events/remaining`
