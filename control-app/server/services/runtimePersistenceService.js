@@ -1,14 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const workspaceRoot = path.join(__dirname, "..", "..", "..");
-const logsDirectory = path.join(workspaceRoot, "logs");
-const runtimeLogPath = path.join(logsDirectory, "control-center-runtime.json");
-const agentDirectory = path.join(workspaceRoot, "control-app", "agent");
-const agentContextPath = path.join(agentDirectory, "AGENT_RUNTIME_CONTEXT.txt");
+import { getAgentRuntimeDirectory, getRuntimeLogsDirectory } from "../appPaths.js";
 
 const DEFAULT_RUNTIME_STORE = {
   version: 1,
@@ -23,6 +15,7 @@ const DEFAULT_RUNTIME_STORE = {
 
 export function readRuntimeStore() {
   ensureRuntimeDirectories();
+  const runtimeLogPath = getRuntimeLogPath();
 
   if (!existsSync(runtimeLogPath)) {
     const initialState = { ...DEFAULT_RUNTIME_STORE };
@@ -46,6 +39,7 @@ export function readRuntimeStore() {
 
 export function writeRuntimeStore(store) {
   ensureRuntimeDirectories();
+  const runtimeLogPath = getRuntimeLogPath();
   const safeStore = {
     ...DEFAULT_RUNTIME_STORE,
     ...(store && typeof store === "object" ? store : {}),
@@ -72,6 +66,7 @@ export function writeRuntimeSection(sectionName, sectionValue) {
 
 export function refreshAgentRuntimeContext() {
   const store = readRuntimeStore();
+  const agentContextPath = getAgentRuntimeContextPath();
   const chatMessages = Array.isArray(store.chat?.messages) ? store.chat.messages : [];
   const appMessages = Array.isArray(store.appMessages?.messages) ? store.appMessages.messages : [];
 
@@ -107,16 +102,16 @@ export function refreshAgentRuntimeContext() {
 }
 
 export function getRuntimeLogPath() {
-  return runtimeLogPath;
+  return path.join(getRuntimeLogsDirectory(), "control-center-runtime.json");
 }
 
 export function getAgentRuntimeContextPath() {
-  return agentContextPath;
+  return path.join(getAgentRuntimeDirectory(), "AGENT_RUNTIME_CONTEXT.txt");
 }
 
 function ensureRuntimeDirectories() {
-  mkdirSync(logsDirectory, { recursive: true });
-  mkdirSync(agentDirectory, { recursive: true });
+  mkdirSync(getRuntimeLogsDirectory(), { recursive: true });
+  mkdirSync(getAgentRuntimeDirectory(), { recursive: true });
 }
 
 function cloneValue(value) {

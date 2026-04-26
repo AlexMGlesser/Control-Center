@@ -1,14 +1,17 @@
 {
   "name": "control-center-control-app",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "author": "Alex Glesser",
   "description": "Control Center host app with UI-first shell and backend integration stubs",
   "main": "electron/main.js",
   "type": "module",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "start:web": "node server/index.js"
+    "start:web": "node server/index.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win portable nsis"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
@@ -18,6 +21,114 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
-    "electron": "^31.7.7"
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.alexmglesser.controlcenter",
+    "productName": "Control Center",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "icon": "build/icon.ico",
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "client/**/*",
+      "agent/**/*",
+      "voice/**/*",
+      "build/icon.ico",
+      ".env.example",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "agent/AGENT_TOOL_CONTEXT.txt",
+        "to": "agent/AGENT_TOOL_CONTEXT.txt"
+      },
+      {
+        "from": "../calendar-app",
+        "to": "apps/calendar-app",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../news-app",
+        "to": "apps/news-app",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../work-app",
+        "to": "apps/work-app",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../project-app",
+        "to": "apps/project-app",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../music-app",
+        "to": "apps/music-app",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../drawing-app",
+        "to": "apps/drawing-app",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../movie-app",
+        "to": "apps/movie-app",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../server-manager-app",
+        "to": "apps/server-manager-app",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../design-documents",
+        "to": "design-documents",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../CONTROL_CENTER_PROJECT_STATUS.txt",
+        "to": "CONTROL_CENTER_PROJECT_STATUS.txt"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "executableName": "Control Center"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Control Center"
+    }
   }
 }

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { getBundledDocumentPath } from "../appPaths.js";
 import { filterAgentOutput } from "./agentCommandFilter.js";
 import { getAppMessageContext } from "./appMessageService.js";
 import { buildAgentContextBundle } from "./agentContextLoader.js";
@@ -19,9 +20,13 @@ let pendingProjectCreation = null;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const contextFilePath = path.join(__dirname, "..", "..", "agent", "AGENT_TOOL_CONTEXT.txt");
+const contextFilePath = getBundledDocumentPath("agent", "AGENT_TOOL_CONTEXT.txt");
 
 export function getAgentContextText() {
+  if (!existsSync(contextFilePath)) {
+    return "";
+  }
+
   return readFileSync(contextFilePath, "utf-8");
 }
 

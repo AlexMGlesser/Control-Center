@@ -5,7 +5,7 @@ export const serverConfig = {
 
 export const systemConfig = {
   name: "Control Center",
-  version: "0.1.0",
+  version: "1.0.0",
   mode: "desktop",
   lmStudio: {
     status: "not_connected",

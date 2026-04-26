@@ -3,6 +3,7 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import { serverConfig } from "./config.js";
+import { getBundledAppDirectory } from "./appPaths.js";
 import apiRouter from "./routes/api.js";
 import { stopLmStudioProbe } from "./services/lmStudioService.js";
 import { attachVoiceWebSocket, closeVoiceWebSocket } from "./services/voiceService.js";
@@ -10,24 +11,16 @@ import { attachVoiceWebSocket, closeVoiceWebSocket } from "./services/voiceServi
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const clientDir = path.join(__dirname, "..", "client");
-const calendarAppDir = path.join(__dirname, "..", "..", "calendar-app");
-const newsAppDir = path.join(__dirname, "..", "..", "news-app");
-const workAppDir = path.join(__dirname, "..", "..", "work-app");
-const projectAppDir = path.join(__dirname, "..", "..", "project-app");
-const musicAppDir = path.join(__dirname, "..", "..", "music-app");
-const drawingAppDir = path.join(__dirname, "..", "..", "drawing-app");
-const movieAppDir = path.join(__dirname, "..", "..", "movie-app");
-const serverManagerAppDir = path.join(__dirname, "..", "..", "server-manager-app");
 
 const APP_STATIC_DIRS = [
-  ["calendar-app", calendarAppDir],
-  ["news-app", newsAppDir],
-  ["work-app", workAppDir],
-  ["project-app", projectAppDir],
-  ["music-app", musicAppDir],
-  ["drawing-app", drawingAppDir],
-  ["movie-app", movieAppDir],
-  ["server-manager-app", serverManagerAppDir]
+  ["calendar-app", getBundledAppDirectory("calendar-app")],
+  ["news-app", getBundledAppDirectory("news-app")],
+  ["work-app", getBundledAppDirectory("work-app")],
+  ["project-app", getBundledAppDirectory("project-app")],
+  ["music-app", getBundledAppDirectory("music-app")],
+  ["drawing-app", getBundledAppDirectory("drawing-app")],
+  ["movie-app", getBundledAppDirectory("movie-app")],
+  ["server-manager-app", getBundledAppDirectory("server-manager-app")]
 ];
 
 function createServerApp() {

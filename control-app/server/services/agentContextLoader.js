@@ -1,31 +1,26 @@
 import { existsSync, readFileSync } from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const workspaceRoot = path.join(__dirname, "..", "..", "..");
+import { getBundledDocumentPath } from "../appPaths.js";
 
 const CONTEXT_SPECS = [
-  { label: "Project Status", path: path.join(workspaceRoot, "CONTROL_CENTER_PROJECT_STATUS.txt"), maxChars: 500 },
-  { label: "Control Center Design", path: path.join(workspaceRoot, "design-documents", "control-center-design.txt"), maxChars: 460 },
-  { label: "Control Center PRD", path: path.join(workspaceRoot, "design-documents", "control-center-prd.txt"), maxChars: 460 },
+  { label: "Project Status", path: getBundledDocumentPath("CONTROL_CENTER_PROJECT_STATUS.txt"), maxChars: 500 },
+  { label: "Control Center Design", path: getBundledDocumentPath("design-documents", "control-center-design.txt"), maxChars: 460 },
+  { label: "Control Center PRD", path: getBundledDocumentPath("design-documents", "control-center-prd.txt"), maxChars: 460 },
   {
     label: "Control Center Functional Spec",
-    path: path.join(workspaceRoot, "design-documents", "control-center-functional-spec.txt"),
+    path: getBundledDocumentPath("design-documents", "control-center-functional-spec.txt"),
     maxChars: 460
   },
   {
     label: "Control Center Architecture",
-    path: path.join(workspaceRoot, "design-documents", "control-center-architecture.txt"),
+    path: getBundledDocumentPath("design-documents", "control-center-architecture.txt"),
     maxChars: 500
   },
-  { label: "Movie App Design", path: path.join(workspaceRoot, "design-documents", "movie-app-design.txt"), maxChars: 360 },
-  { label: "Movie App PRD", path: path.join(workspaceRoot, "design-documents", "movie-app-prd.txt"), maxChars: 360 },
+  { label: "Movie App Design", path: getBundledDocumentPath("design-documents", "movie-app-design.txt"), maxChars: 360 },
+  { label: "Movie App PRD", path: getBundledDocumentPath("design-documents", "movie-app-prd.txt"), maxChars: 360 },
   {
     label: "Movie App Architecture",
-    path: path.join(workspaceRoot, "design-documents", "movie-app-architecture.txt"),
+    path: getBundledDocumentPath("design-documents", "movie-app-architecture.txt"),
     maxChars: 360
   }
 ];
