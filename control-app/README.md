@@ -14,6 +14,7 @@ Desktop runtime for the Control Center system (Electron + local Express backend)
 - Backend API surface for orchestration, events, chat, and calendar
 - Shared desktop file/directory picker endpoints for windowed apps
 - Owned desktop shutdown path for backend, voice sockets, and background polling
+- Unified runtime persistence in one local log file plus one shared agent context file
 - Style guide for consistent visual language
 
 ## Run
@@ -86,4 +87,5 @@ npm run start:web
 - Local calendar event data is stored in `server/data/calendar-events.json` when provider is `local`.
 - Standalone app windows use a shared Electron preload bridge and common open/close IPC wiring.
 - Server Manager SSH launch is routed through the local server so browser and Electron paths use the same behavior.
+- Mutable runtime state now consolidates into `logs/control-center-runtime.json`, and dynamic agent context consolidates into `control-app/agent/AGENT_RUNTIME_CONTEXT.txt`.
 - Voice services and assets exist under `server/services/*voice*` and `voice/` for local runtime integration.

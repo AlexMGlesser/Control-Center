@@ -63,6 +63,8 @@ Implemented Features (control-app)
   - voice websocket attachment and active voice clients
   - LMStudio status probe interval
   - child Electron app windows
+- Mutable local runtime state now consolidates into one ignored log file at `logs/control-center-runtime.json`.
+- Dynamic agent continuity now consolidates into one ignored context file at `control-app/agent/AGENT_RUNTIME_CONTEXT.txt`.
 
 8. Calendar app (implemented)
 - Standalone Calendar app is served from the root workspace `calendar-app` folder.

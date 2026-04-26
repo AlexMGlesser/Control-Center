@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { readRuntimeSection, writeRuntimeSection } from "./runtimePersistenceService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -269,14 +270,17 @@ function resolveTrack(trackId, trackName) {
 }
 
 function loadLibrary() {
-  ensureDataDirectory();
+  const runtimeState = readRuntimeSection("musicLibrary", null);
+  if (runtimeState && typeof runtimeState === "object") {
+    return sanitizeLibraryState(runtimeState);
+  }
 
   if (!existsSync(libraryPath)) {
     const seeded = {
       ...DEFAULT_LIBRARY,
       updatedAt: new Date().toISOString()
     };
-    writeFileSync(libraryPath, JSON.stringify(seeded, null, 2));
+    writeRuntimeSection("musicLibrary", seeded);
     return seeded;
   }
 
@@ -313,27 +317,30 @@ function loadLibrary() {
       updatedAt: String(parsed?.updatedAt || new Date().toISOString())
     };
 
-    writeFileSync(libraryPath, JSON.stringify(safeState, null, 2));
+    writeRuntimeSection("musicLibrary", safeState);
     return safeState;
   } catch {
     const fallback = {
       ...DEFAULT_LIBRARY,
       updatedAt: new Date().toISOString()
     };
-    writeFileSync(libraryPath, JSON.stringify(fallback, null, 2));
+    writeRuntimeSection("musicLibrary", fallback);
     return fallback;
   }
 }
 
 function loadLocalPlaylists() {
-  ensureDataDirectory();
+  const runtimeState = readRuntimeSection("localPlaylists", null);
+  if (runtimeState && typeof runtimeState === "object") {
+    return sanitizeLocalPlaylistState(runtimeState);
+  }
 
   if (!existsSync(localPlaylistsPath)) {
     const seeded = {
       playlists: [],
       updatedAt: new Date().toISOString()
     };
-    writeFileSync(localPlaylistsPath, JSON.stringify(seeded, null, 2));
+    writeRuntimeSection("localPlaylists", seeded);
     return seeded;
   }
 
@@ -348,32 +355,26 @@ function loadLocalPlaylists() {
       updatedAt: String(parsed?.updatedAt || new Date().toISOString())
     };
 
-    writeFileSync(localPlaylistsPath, JSON.stringify(safeState, null, 2));
+    writeRuntimeSection("localPlaylists", safeState);
     return safeState;
   } catch {
     const fallback = {
       playlists: [],
       updatedAt: new Date().toISOString()
     };
-    writeFileSync(localPlaylistsPath, JSON.stringify(fallback, null, 2));
+    writeRuntimeSection("localPlaylists", fallback);
     return fallback;
   }
 }
 
 function saveLibrary() {
   libraryState.updatedAt = new Date().toISOString();
-  ensureDataDirectory();
-  writeFileSync(libraryPath, JSON.stringify(libraryState, null, 2));
+  writeRuntimeSection("musicLibrary", libraryState);
 }
 
 function saveLocalPlaylists() {
   localPlaylistState.updatedAt = new Date().toISOString();
-  ensureDataDirectory();
-  writeFileSync(localPlaylistsPath, JSON.stringify(localPlaylistState, null, 2));
-}
-
-function ensureDataDirectory() {
-  mkdirSync(dataDirectory, { recursive: true });
+  writeRuntimeSection("localPlaylists", localPlaylistState);
 }
 
 function isValidTrack(track) {
@@ -450,4 +451,48 @@ function createMusicError(code, message, status = 500) {
   error.code = code;
   error.status = status;
   return error;
+}
+
+function sanitizeLibraryState(state) {
+  const tracks = Array.isArray(state?.tracks) ? state.tracks.filter(isValidTrack) : [];
+  const trackDefaultsById = new Map(DEFAULT_LIBRARY.tracks.map((track) => [track.id, track]));
+  const hydratedTracks = tracks.map((track) => {
+    const fallback = trackDefaultsById.get(track.id);
+    if (track.audioUrl || !fallback?.audioUrl) {
+      return track;
+    }
+    return {
+      ...track,
+      audioUrl: fallback.audioUrl
+    };
+  });
+  const hydratedTrackIds = new Set(hydratedTracks.map((track) => track.id));
+  for (const defaultTrack of DEFAULT_LIBRARY.tracks) {
+    if (!hydratedTrackIds.has(defaultTrack.id)) {
+      hydratedTracks.push({ ...defaultTrack });
+    }
+  }
+  const playlists = Array.isArray(state?.playlists)
+    ? state.playlists.filter(isValidPlaylist).map((playlist) => ({
+        name: String(playlist.name).trim(),
+        trackIds: playlist.trackIds.filter((trackId) => hydratedTracks.some((track) => track.id === trackId))
+      }))
+    : [];
+
+  return {
+    tracks: hydratedTracks.length ? hydratedTracks : DEFAULT_LIBRARY.tracks.map((track) => ({ ...track })),
+    playlists: playlists.length ? playlists : DEFAULT_LIBRARY.playlists.map((playlist) => ({ ...playlist })),
+    updatedAt: String(state?.updatedAt || new Date().toISOString())
+  };
+}
+
+function sanitizeLocalPlaylistState(state) {
+  const playlists = Array.isArray(state?.playlists)
+    ? state.playlists.map(normalizeLocalPlaylist).filter(Boolean)
+    : [];
+
+  return {
+    playlists,
+    updatedAt: String(state?.updatedAt || new Date().toISOString())
+  };
 }

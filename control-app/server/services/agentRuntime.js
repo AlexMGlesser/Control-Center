@@ -41,6 +41,11 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
     return projectCreationResult;
   }
 
+  const timeResponse = buildDeterministicTimeResponse(userText, origin);
+  if (timeResponse) {
+    return timeResponse;
+  }
+
   // Fast path: try deterministic tool calls BEFORE hitting the LLM
   let toolCalls = [];
   let safeMessages = [];
@@ -652,6 +657,36 @@ function buildDeterministicToolCalls(userText, origin) {
   }
 
   return calls;
+}
+
+function buildDeterministicTimeResponse(userText, origin) {
+  if (origin?.type !== "user") {
+    return null;
+  }
+
+  const prompt = String(userText || "").trim().toLowerCase();
+  if (!prompt) {
+    return null;
+  }
+
+  const asksForTime = /\b(what time is it|what'?s the time|tell me the time|current time|time right now|time is it|do you know the time)\b/.test(prompt);
+  if (!asksForTime) {
+    return null;
+  }
+
+  const localTime = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  }).format(new Date());
+
+  return {
+    ok: true,
+    agentText: `It is ${localTime}.`,
+    agentMessages: [`It is ${localTime}.`],
+    toolSummary: "",
+    toolResults: []
+  };
 }
 
 function buildMessagesForToolCalls(calls) {

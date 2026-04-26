@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { readRuntimeSection, writeRuntimeSection } from "./runtimePersistenceService.js";
 import { google } from "googleapis";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -599,14 +600,17 @@ function filterEvents({ start, end, limit } = {}) {
 }
 
 function loadCalendarState() {
-  ensureDataDirectory();
+  const runtimeState = readRuntimeSection("calendar", null);
+  if (runtimeState && typeof runtimeState === "object") {
+    return sanitizeCalendarState(runtimeState);
+  }
 
   if (!existsSync(calendarPath)) {
     const empty = {
       events: [],
       updatedAt: new Date().toISOString()
     };
-    writeFileSync(calendarPath, JSON.stringify(empty, null, 2));
+    writeRuntimeSection("calendar", empty);
     return empty;
   }
 
@@ -621,26 +625,21 @@ function loadCalendarState() {
       updatedAt: String(parsed?.updatedAt || new Date().toISOString())
     };
 
-    writeFileSync(calendarPath, JSON.stringify(safeState, null, 2));
+    writeRuntimeSection("calendar", safeState);
     return safeState;
   } catch {
     const fallback = {
       events: [],
       updatedAt: new Date().toISOString()
     };
-    writeFileSync(calendarPath, JSON.stringify(fallback, null, 2));
+    writeRuntimeSection("calendar", fallback);
     return fallback;
   }
 }
 
 function persistCalendarState() {
   calendarState.updatedAt = new Date().toISOString();
-  ensureDataDirectory();
-  writeFileSync(calendarPath, JSON.stringify(calendarState, null, 2));
-}
-
-function ensureDataDirectory() {
-  mkdirSync(dataDirectory, { recursive: true });
+  writeRuntimeSection("calendar", calendarState);
 }
 
 function buildSeedEvents(referenceDate) {
@@ -839,4 +838,12 @@ function ensureGoogleWriteAccess() {
       403
     );
   }
+}
+
+function sanitizeCalendarState(state) {
+  const events = Array.isArray(state?.events) ? state.events.map(normalizeEvent).filter(Boolean) : [];
+  return {
+    events,
+    updatedAt: String(state?.updatedAt || new Date().toISOString())
+  };
 }

@@ -1,12 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import {
+  refreshAgentRuntimeContext,
+  readRuntimeSection,
+  writeRuntimeSection
+} from "./runtimePersistenceService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataDirectory = path.join(__dirname, "..", "data");
 const chatHistoryPath = path.join(dataDirectory, "chat-history.json");
-const chatContextPath = path.join(__dirname, "..", "..", "agent", "CHAT_HISTORY_CONTEXT.txt");
 
 const MAX_MESSAGES = 200;
 const DEFAULT_AGENT_MESSAGE = {
@@ -116,7 +120,12 @@ function trimChatMessages() {
 }
 
 function loadChatState() {
-  ensureDataDirectory();
+  const runtimeState = readRuntimeSection("chat", null);
+  if (runtimeState && typeof runtimeState === "object") {
+    const loadedState = sanitizeChatState(runtimeState);
+    refreshAgentRuntimeContext();
+    return loadedState;
+  }
 
   if (!existsSync(chatHistoryPath)) {
     const initialState = {
@@ -159,13 +168,9 @@ function persistChatState() {
 }
 
 function writeChatFiles(state) {
-  ensureDataDirectory();
-  writeFileSync(chatHistoryPath, JSON.stringify(state, null, 2));
-  writeFileSync(chatContextPath, formatChatContext(state.messages));
-}
-
-function ensureDataDirectory() {
-  mkdirSync(dataDirectory, { recursive: true });
+  const safeState = sanitizeChatState(state);
+  writeRuntimeSection("chat", safeState);
+  refreshAgentRuntimeContext();
 }
 
 function formatChatContext(messages) {
@@ -198,4 +203,15 @@ function isValidMessageShape(message) {
 function getNextIdFromMessages(messages) {
   const maxId = messages.reduce((highest, message) => Math.max(highest, Number(message.id) || 0), 0);
   return maxId + 1;
+}
+
+function sanitizeChatState(state) {
+  const messages = Array.isArray(state?.messages) ? state.messages.filter(isValidMessageShape) : [];
+  const safeMessages = messages.length ? messages : [DEFAULT_AGENT_MESSAGE];
+  const nextId = Number(state?.nextId);
+
+  return {
+    messages: safeMessages,
+    nextId: Number.isFinite(nextId) ? Math.max(nextId, getNextIdFromMessages(safeMessages)) : getNextIdFromMessages(safeMessages)
+  };
 }

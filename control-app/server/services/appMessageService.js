@@ -1,12 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import {
+  refreshAgentRuntimeContext,
+  readRuntimeSection,
+  writeRuntimeSection
+} from "./runtimePersistenceService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataDirectory = path.join(__dirname, "..", "data");
 const appMessageHistoryPath = path.join(dataDirectory, "app-agent-messages.json");
-const appMessageContextPath = path.join(__dirname, "..", "..", "agent", "APP_MESSAGE_CONTEXT.txt");
 
 const MAX_APP_MESSAGES = 200;
 
@@ -70,7 +74,12 @@ function trimAppMessages() {
 }
 
 function loadAppMessageState() {
-  ensureDataDirectory();
+  const runtimeState = readRuntimeSection("appMessages", null);
+  if (runtimeState && typeof runtimeState === "object") {
+    const loadedState = sanitizeAppMessageState(runtimeState);
+    refreshAgentRuntimeContext();
+    return loadedState;
+  }
 
   if (!existsSync(appMessageHistoryPath)) {
     const initialState = {
@@ -108,13 +117,9 @@ function persistAppMessageState() {
 }
 
 function writeAppMessageFiles(state) {
-  ensureDataDirectory();
-  writeFileSync(appMessageHistoryPath, JSON.stringify(state, null, 2));
-  writeFileSync(appMessageContextPath, formatAppMessageContext(state.messages));
-}
-
-function ensureDataDirectory() {
-  mkdirSync(dataDirectory, { recursive: true });
+  const safeState = sanitizeAppMessageState(state);
+  writeRuntimeSection("appMessages", safeState);
+  refreshAgentRuntimeContext();
 }
 
 function formatAppMessageContext(messages) {
@@ -146,4 +151,14 @@ function isValidAppMessage(entry) {
 function getNextIdFromMessages(messages) {
   const maxId = messages.reduce((highest, entry) => Math.max(highest, Number(entry.id) || 0), 0);
   return maxId + 1;
+}
+
+function sanitizeAppMessageState(state) {
+  const messages = Array.isArray(state?.messages) ? state.messages.filter(isValidAppMessage) : [];
+  const nextId = Number(state?.nextId);
+
+  return {
+    messages,
+    nextId: Number.isFinite(nextId) ? Math.max(nextId, getNextIdFromMessages(messages)) : getNextIdFromMessages(messages)
+  };
 }

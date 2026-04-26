@@ -1,45 +1,29 @@
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { readRuntimeSection, writeRuntimeSection } from "./runtimePersistenceService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dataDir = path.join(__dirname, "..", "data");
-const drawingFilesPath = path.join(dataDir, "drawing-files.json");
 
 const MAX_NAME_LENGTH = 80;
 const ALLOWED_MODES = new Set(["2d", "3d"]);
 
 function ensureDataStore() {
-  if (!existsSync(dataDir)) {
-    mkdirSync(dataDir, { recursive: true });
-  }
-
-  if (!existsSync(drawingFilesPath)) {
-    writeFileSync(
-      drawingFilesPath,
-      JSON.stringify({ nextId: 1, files: [] }, null, 2),
-      "utf-8"
-    );
-  }
+  readRuntimeSection("drawing", { nextId: 1, files: [] });
 }
 
 function loadStore() {
   ensureDataStore();
-  try {
-    const raw = readFileSync(drawingFilesPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    const nextId = Number.isFinite(parsed?.nextId) ? Number(parsed.nextId) : 1;
-    const files = Array.isArray(parsed?.files) ? parsed.files : [];
-    return { nextId, files };
-  } catch {
-    return { nextId: 1, files: [] };
-  }
+  const parsed = readRuntimeSection("drawing", { nextId: 1, files: [] });
+  const nextId = Number.isFinite(parsed?.nextId) ? Number(parsed.nextId) : 1;
+  const files = Array.isArray(parsed?.files) ? parsed.files : [];
+  return { nextId, files };
 }
 
 function saveStore(store) {
   ensureDataStore();
-  writeFileSync(drawingFilesPath, JSON.stringify(store, null, 2), "utf-8");
+  writeRuntimeSection("drawing", store);
 }
 
 function normalizeName(name) {

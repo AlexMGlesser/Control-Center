@@ -33,6 +33,12 @@ Thumbs.db
 control-app/voice/
 
 # Local runtime state files
+control-app/agent/APP_MESSAGE_CONTEXT.txt
 control-app/agent/CHAT_HISTORY_CONTEXT.txt
+control-app/agent/AGENT_RUNTIME_CONTEXT.txt
+control-app/server/data/app-agent-messages.json
+control-app/server/data/calendar-events.json
 control-app/server/data/chat-history.json
+control-app/server/data/drawing-files.json
+control-app/server/data/music-library.json
 control-app/server/data/music-local-playlists.json
