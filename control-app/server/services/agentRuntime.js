@@ -15,6 +15,7 @@ import {
   getToolDefinitions,
   getToolNamesSet
 } from "./agentToolInterface.js";
+import { publishDebugEvent, publishAIThought } from "./eventBus.js";
 
 let pendingProjectCreation = null;
 
@@ -41,15 +42,25 @@ export function getAgentRuntimeStatus() {
 }
 
 export async function runAgentTurn({ userText, llmOutput, origin = { type: "user" } }) {
+  publishDebugEvent("Agent turn started", {
+    userText: userText.substring(0, 100),
+    originType: origin.type,
+    timestamp: new Date().toISOString()
+  });
+
   const projectCreationResult = await handleProjectCreationConversation(userText, origin);
   if (projectCreationResult) {
+    publishDebugEvent("Agent: Project creation flow triggered");
     return projectCreationResult;
   }
 
   const timeResponse = buildDeterministicTimeResponse(userText, origin);
   if (timeResponse) {
+    publishDebugEvent("Agent: Deterministic time response triggered");
     return timeResponse;
   }
+
+  publishDebugEvent("Agent: Attempting deterministic tool routing");
 
   // Fast path: try deterministic tool calls BEFORE hitting the LLM
   let toolCalls = [];
@@ -59,16 +70,29 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
 
   const deterministicCalls = buildDeterministicToolCalls(userText, origin);
   if (deterministicCalls.length > 0) {
+    publishAIThought(`Detected ${deterministicCalls.length} deterministic tool calls`, {
+      toolCount: deterministicCalls.length,
+      tools: deterministicCalls.map(c => c.tool)
+    });
     toolCalls = deterministicCalls;
     safeMessages = buildMessagesForToolCalls(deterministicCalls);
     safeText = safeMessages[0] || "Executing command...";
   } else {
+    publishDebugEvent("Agent: No deterministic match, querying LMStudio");
     // No deterministic match — fall back to LLM
     const providedOutput = String(llmOutput || "").trim();
     rawOutput = providedOutput || (await generateLmStudioOutput(userText, origin));
+    publishAIThought(`LMStudio output received (${rawOutput.length} chars)`, {
+      outputLength: rawOutput.length,
+      preview: rawOutput.substring(0, 200)
+    });
     const filterResult = filterAgentOutput(rawOutput, getToolNamesSet());
 
     if (!filterResult.ok) {
+      publishDebugEvent("Agent: Safety filter blocked output", {
+        code: filterResult.code,
+        message: filterResult.message
+      });
       return {
         ok: false,
         code: filterResult.code,
@@ -79,6 +103,10 @@ export async function runAgentTurn({ userText, llmOutput, origin = { type: "user
         toolResults: []
       };
     }
+
+    publishDebugEvent("Agent: Safety filter passed", {
+      toolCount: filterResult.toolCalls.length
+    });
 
     // Filter succeeded, use its tool calls and messages
     let resolvedToolCalls = ensureNewsOpenCall(filterResult.toolCalls, userText, origin);

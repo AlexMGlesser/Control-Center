@@ -55,6 +55,14 @@ export function getAgentRuntimeDirectory() {
   return path.join(workspaceRoot, "control-app", "agent");
 }
 
+export function getVoiceDirectory() {
+  if (isPackagedElectronRuntime()) {
+    return path.join(getResourceRoot(), "voice");
+  }
+
+  return path.join(controlAppRoot, "voice");
+}
+
 function getPlatformAppDataRoot() {
   if (process.platform === "win32") {
     return process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");

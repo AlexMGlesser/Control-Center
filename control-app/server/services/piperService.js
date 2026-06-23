@@ -1,11 +1,9 @@
 import { spawn } from "child_process";
 import { existsSync, readFileSync, unlinkSync, mkdirSync } from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import { getVoiceDirectory } from "../appPaths.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const voiceDir = path.join(__dirname, "..", "..", "voice");
+const voiceDir = getVoiceDirectory();
 const piperDir = path.join(voiceDir, "piper");
 const piperExe = path.join(piperDir, "piper.exe");
 const piperModel = path.join(piperDir, "en_GB-alan-medium.onnx");

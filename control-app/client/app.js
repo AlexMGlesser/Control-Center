@@ -22,10 +22,15 @@ const tabMeta = {
   "integration-hub": {
     title: "Integration Hub",
     subtitle: "Backend integration surfaces prepared for app connectors"
+  },
+  skills: {
+    title: "Skills",
+    subtitle: "Create, manage, and read AI agent skills"
   }
 };
 
 import { initVoice, stopVoice, getVoiceState, isVoiceActive } from "./voice.js";
+import { initializeNeuralNetwork, setNeuralSpeaking } from "./neural-network.js";
 
 const state = {
   apps: [],
@@ -40,6 +45,11 @@ const state = {
   chatStickToBottom: true,
   chatSessionStartedAt: Date.now(),
   chatInputShouldRefocus: false,
+  skills: [],
+  selectedSkillId: null,
+  skillsViewMode: "list", // "list" or "editor"
+  skillsEditorContent: "",
+  skillsEditorName: "",
   musicNowPlaying: {
     trackTitle: "No track selected",
     isPlaying: false,
@@ -69,6 +79,7 @@ const chatbotView = document.getElementById("view-chatbot");
 const eventBusView = document.getElementById("view-event-bus");
 const agentCoreView = document.getElementById("view-agent-core");
 const integrationHubView = document.getElementById("view-integration-hub");
+const skillsView = document.getElementById("view-skills");
 const appView = document.getElementById("view-app");
 const currentModePill = document.getElementById("current-mode-pill");
 const modeDesktopBtn = document.getElementById("mode-desktop-btn");
@@ -82,15 +93,24 @@ async function loadApps() {
   state.apps = data.apps ?? [];
 }
 
+async function loadSkills() {
+  const res = await fetch("/api/skills");
+  const data = await res.json();
+  state.skills = data.skills ?? [];
+  state.selectedSkillId = null;
+}
+
 async function loadSystem() {
   const res = await fetch("/api/system");
   return res.json();
 }
 
 async function loadEvents() {
-  const res = await fetch("/api/events?limit=120");
+  const res = await fetch("/api/events?includeConsole=true");
   const data = await res.json();
-  state.events = data.events ?? [];
+  state.events = (data.events ?? []).concat(data.consoleLogs ?? []);
+  // Sort by timestamp
+  state.events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 }
 
 async function loadSettings() {
@@ -482,14 +502,47 @@ function renderMusicMiniPlayer() {
 }
 
 function eventItem(event) {
+  const isDebug = event.type === 'debug' || event.source === 'debug' || event.source === 'console';
+  const isThought = event.isAIThought || event.type === 'thought';
+  const isConsole = event.source === 'console';
+  
+  let levelClass = '';
+  let levelLabel = '';
+  
+  if (isConsole) {
+    levelClass = `console-${event.level || 'log'}`;
+    levelLabel = `[${(event.level || 'log').toUpperCase()}]`;
+  }
+  
+  const metaDisplay = event.meta && Object.keys(event.meta).length > 0 
+    ? `<div class="event-meta-details">${JSON.stringify(event.meta, null, 2)}</div>` 
+    : '';
+  
+  const thoughtDisplay = event.thoughts 
+    ? `<div class="event-thoughts"><strong>Thought:</strong> ${event.thoughts}</div>` 
+    : '';
+  
+  const stackDisplay = event.meta?.stack && Array.isArray(event.meta.stack) && event.meta.stack.length > 0
+    ? `<div class="event-stack"><small>${event.meta.stack.join('\n')}</small></div>`
+    : '';
+
+  const typeClass = `event-type-${event.type}`;
+  const sourceClass = `event-source-${event.source}`;
+
   return `
-    <li>
+    <li class="event-item ${typeClass} ${sourceClass} ${isDebug ? 'is-debug' : ''} ${isThought ? 'is-thought' : ''} ${isConsole ? 'is-console' : ''}">
       <div class="event-row">
-        <div class="event-meta">
-          <span>${event.appId} | ${event.type}</span>
-          <span>${new Date(event.timestamp).toLocaleTimeString()}</span>
+        <div class="event-header">
+          <span class="event-source">${event.source}</span>
+          <span class="event-app-id">${event.appId}</span>
+          <span class="event-type">${event.type}</span>
+          ${levelLabel ? `<span class="event-level ${levelClass}">${levelLabel}</span>` : ''}
+          <span class="event-time">${new Date(event.timestamp).toLocaleTimeString()}</span>
         </div>
         <div class="event-message">${event.message}</div>
+        ${thoughtDisplay}
+        ${metaDisplay}
+        ${stackDisplay}
       </div>
     </li>
   `;
@@ -706,6 +759,86 @@ function renderEventBus() {
   `;
 }
 
+function renderSkills() {
+  if (state.skillsViewMode === "editor") {
+    renderSkillsEditor();
+  } else {
+    renderSkillsList();
+  }
+}
+
+function renderSkillsList() {
+  const skillsListHtml = state.skills.length
+    ? state.skills
+        .map(
+          (skill) => `
+      <div class="skill-item" data-skill-id="${skill.id}">
+        <div class="skill-header">
+          <h4>${skill.name}</h4>
+          <span class="skill-size">${skill.sizeFormatted}</span>
+        </div>
+        <p class="skill-description">${skill.description || "No description"}</p>
+        <div class="skill-meta">
+          <span>${skill.lineCount} lines</span>
+          <span>Modified: ${new Date(skill.modified).toLocaleString()}</span>
+        </div>
+        <div class="skill-actions">
+          <button class="action-btn sm" data-action="skill-read" data-skill-id="${skill.id}">Read</button>
+          <button class="action-btn sm" data-action="skill-edit" data-skill-id="${skill.id}">Edit</button>
+          <button class="action-btn sm delete" data-action="skill-delete" data-skill-id="${skill.id}">Delete</button>
+        </div>
+      </div>
+    `
+        )
+        .join("")
+    : "<p class='muted'>No skills yet. Create one to get started.</p>";
+
+  skillsView.innerHTML = `
+    <article class="card stack">
+      <div class="skills-header">
+        <div>
+          <h3>Agent Skills</h3>
+          <p class="muted">Create and manage skills to extend your AI agent's capabilities.</p>
+        </div>
+        <button class="action-btn" id="skill-create-btn">+ New Skill</button>
+      </div>
+
+      <div class="skills-list">
+        ${skillsListHtml}
+      </div>
+    </article>
+  `;
+}
+
+function renderSkillsEditor() {
+  const isNew = !state.selectedSkillId;
+  skillsView.innerHTML = `
+    <article class="card stack">
+      <div class="skill-editor-header">
+        <button class="action-btn sm back" id="skill-editor-back">← Back</button>
+        <h3>${isNew ? "New Skill" : `Edit: ${state.selectedSkillId}`}</h3>
+      </div>
+
+      <form id="skill-editor-form" class="skill-editor-form">
+        <label class="editor-field">
+          <span>Skill Name</span>
+          <input type="text" name="skillName" value="${state.skillsEditorName}" placeholder="e.g., FILE_READER_SKILL" ${isNew ? "" : "disabled"} required />
+        </label>
+
+        <label class="editor-field full">
+          <span>Skill Content (Markdown)</span>
+          <textarea name="content" placeholder="# Skill Title&#10;&#10;Skill description..." required>${state.skillsEditorContent}</textarea>
+        </label>
+
+        <div class="skill-editor-actions">
+          <button type="submit" class="action-btn">${isNew ? "Create" : "Update"} Skill</button>
+          <button type="button" class="action-btn secondary" id="skill-editor-cancel">Cancel</button>
+        </div>
+      </form>
+    </article>
+  `;
+}
+
 function renderSettings() {
   if (!state.settings || !state.settingsOptions) {
     settingsView.innerHTML = `
@@ -800,27 +933,27 @@ function renderChatbot() {
   }
 
   chatbotView.innerHTML = `
-    <article class="card stack">
-      <h3>Agent Text Chat</h3>
-      <p class="muted">Use this channel to interact with your agent through text while in Desktop Mode.</p>
-      <p class="muted">Agent responses are processed through a command filter and tool runtime before being returned.</p>
-
-      <div class="chat-panel" id="chat-panel">
-        <ul class="list chat-list">
-          ${state.chatMessages.length ? state.chatMessages.map(chatMessageItem).join("") : "<li>No messages yet.</li>"}
-        </ul>
-      </div>
-
-      <form id="chat-form" class="settings-form">
-        <label class="settings-field">
-          <span>Message</span>
-          <textarea id="chat-input" name="chatInput" rows="3" placeholder="Type a message to your agent..."></textarea>
-        </label>
-        <div class="event-controls">
-          <button type="submit" class="action-btn">Send Message</button>
+    <div class="chatbot-container">
+      <div class="chatbot-content">
+        <h2 class="chatbot-title">Agent Text Chat</h2>
+        <p class="chatbot-subtitle">Neural Interface Active</p>
+        
+        <div class="chat-panel" id="chat-panel">
+          <ul class="list chat-list">
+            ${state.chatMessages.length ? state.chatMessages.map(chatMessageItem).join("") : "<li class='no-messages'>No messages yet.</li>"}
+          </ul>
         </div>
-      </form>
-    </article>
+
+        <form id="chat-form" class="chatbot-form">
+          <div class="chat-input-group">
+            <textarea id="chat-input" name="chatInput" rows="3" placeholder="Type a message to your agent..."></textarea>
+          </div>
+          <div class="chat-button-group">
+            <button type="submit" class="action-btn">Send Message</button>
+          </div>
+        </form>
+      </div>
+    </div>
   `;
 
   bindChatPanelState();
@@ -925,7 +1058,7 @@ function renderSingleApp(appId) {
 }
 
 function setVisibleView(viewId) {
-  [overviewView, settingsView, chatbotView, eventBusView, agentCoreView, integrationHubView, appView].forEach((view) => {
+  [overviewView, settingsView, chatbotView, eventBusView, agentCoreView, integrationHubView, skillsView, appView].forEach((view) => {
     view.classList.remove("is-visible");
   });
 
@@ -974,6 +1107,12 @@ function activateTab(tab) {
 
   if (tab === "integration-hub") {
     setVisibleView("view-integration-hub");
+    return;
+  }
+
+  if (tab === "skills") {
+    renderSkills();
+    setVisibleView("view-skills");
     return;
   }
 
@@ -1032,6 +1171,7 @@ function wireNavigation() {
         initVoice({
           onStatusChange: (status) => {
             state.voiceStatus = status;
+            setNeuralSpeaking(status === "speaking");
             if (state.activeTab === "overview" && state.system) {
               renderOverview(state.system);
             }
@@ -1064,6 +1204,7 @@ function wireNavigation() {
       } else {
         stopVoice();
         state.voiceStatus = "off";
+        setNeuralSpeaking(false);
         state.voiceTranscript = "";
         state.voiceAgentText = "";
         if (state.activeTab === "overview" && state.system) {
@@ -1279,6 +1420,146 @@ function wireNavigation() {
       });
   });
 
+  // Skills event handlers
+  document.addEventListener("click", (event) => {
+    const skillCreateBtn = event.target.closest("#skill-create-btn");
+    if (skillCreateBtn) {
+      state.skillsViewMode = "editor";
+      state.selectedSkillId = null;
+      state.skillsEditorName = "";
+      state.skillsEditorContent = "# Skill Title\n\n## Purpose\n\nDescribe what this skill does.\n\n## Usage\n\nProvide instructions on how to use this skill.";
+      renderSkills();
+      return;
+    }
+
+    const skillReadBtn = event.target.closest("[data-action='skill-read']");
+    if (skillReadBtn) {
+      const skillId = skillReadBtn.dataset.skillId;
+      fetch(`/api/skills/${skillId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.skill) {
+            const content = data.skill.content;
+            skillsView.innerHTML = `
+              <article class="card stack">
+                <div class="skill-reader-header">
+                  <button class="action-btn sm back" id="skill-reader-back">← Back</button>
+                  <h3>${data.skill.name}</h3>
+                </div>
+                <div class="skill-content markdown">
+                  ${content.split('\n').map(line => {
+                    if (line.startsWith('#')) {
+                      const level = line.match(/^#+/)[0].length;
+                      const text = line.replace(/^#+\s+/, '');
+                      return `<h${level+1}>${text}</h${level+1}>`;
+                    } else if (line.trim()) {
+                      return `<p>${line}</p>`;
+                    }
+                    return '';
+                  }).join('')}
+                </div>
+                <div class="skill-reader-actions">
+                  <button class="action-btn" id="skill-reader-edit">Edit</button>
+                  <button class="action-btn secondary" id="skill-reader-back-btn">Back</button>
+                </div>
+              </article>
+            `;
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
+    const skillEditBtn = event.target.closest("[data-action='skill-edit']");
+    if (skillEditBtn) {
+      const skillId = skillEditBtn.dataset.skillId;
+      fetch(`/api/skills/${skillId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.skill) {
+            state.skillsViewMode = "editor";
+            state.selectedSkillId = data.skill.id;
+            state.skillsEditorName = data.skill.name;
+            state.skillsEditorContent = data.skill.content;
+            renderSkills();
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
+    const skillDeleteBtn = event.target.closest("[data-action='skill-delete']");
+    if (skillDeleteBtn) {
+      const skillId = skillDeleteBtn.dataset.skillId;
+      if (confirm(`Delete skill "${skillId}"?`)) {
+        fetch(`/api/skills/${skillId}`, { method: "DELETE" })
+          .then(r => r.json())
+          .then(() => {
+            loadSkills().then(() => renderSkills());
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+
+    const skillEditorBackBtn = event.target.closest("#skill-editor-back");
+    if (skillEditorBackBtn) {
+      state.skillsViewMode = "list";
+      renderSkills();
+      return;
+    }
+
+    const skillReaderBackBtn = event.target.closest("#skill-reader-back");
+    if (skillReaderBackBtn) {
+      state.skillsViewMode = "list";
+      renderSkills();
+      return;
+    }
+  });
+
+  document.addEventListener("submit", (event) => {
+    const form = event.target.closest("#skill-editor-form");
+    if (!form) {
+      return;
+    }
+
+    event.preventDefault();
+    const formData = new FormData(form);
+    const skillName = String(formData.get("skillName") || "").trim();
+    const content = String(formData.get("content") || "").trim();
+
+    if (!skillName || !content) {
+      alert("Skill name and content are required");
+      return;
+    }
+
+    const isNew = !state.selectedSkillId;
+    const method = isNew ? "POST" : "PUT";
+    const url = isNew ? "/api/skills" : `/api/skills/${state.selectedSkillId}`;
+    const payload = isNew ? { skillName, content } : { content };
+
+    fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          alert(`Skill ${isNew ? 'created' : 'updated'} successfully`);
+          loadSkills().then(() => {
+            state.skillsViewMode = "list";
+            renderSkills();
+          });
+        } else {
+          alert(`Error: ${data.error}`);
+        }
+      })
+      .catch(err => {
+        alert(`Failed to save skill: ${err.message}`);
+      });
+  });
+
   document.addEventListener("keydown", (event) => {
     const chatInput = event.target.closest("#chat-input");
     if (!chatInput) {
@@ -1475,6 +1756,7 @@ function autoStartVoice() {
   initVoice({
     onStatusChange: (status) => {
       state.voiceStatus = status;
+      setNeuralSpeaking(status === "speaking");
       if (state.activeTab === "overview" && state.system) {
         renderOverview(state.system);
       }
@@ -1506,7 +1788,10 @@ function autoStartVoice() {
 }
 
 async function init() {
+  initializeNeuralNetwork("app-neural-canvas");
+
   await loadApps();
+  await loadSkills();
   state.system = await loadSystem();
   state.mode = state.system.modeState?.currentMode || state.system.mode || "desktop";
   await loadEvents();

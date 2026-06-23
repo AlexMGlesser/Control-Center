@@ -10,7 +10,10 @@ import { getModeState, switchMode } from "../services/modeStateMachine.js";
 import {
   getRecentEvents,
   publishEvent,
-  subscribeToEvents
+  subscribeToEvents,
+  getConsoleLogs,
+  publishAIThought,
+  publishDebugEvent
 } from "../services/eventBus.js";
 import {
   getSettings,
@@ -110,6 +113,13 @@ import {
   listDrawingFiles,
   updateDrawingFile
 } from "../services/drawingFileService.js";
+import {
+  getAllSkills,
+  getSkillById,
+  createSkill,
+  updateSkill,
+  deleteSkill
+} from "../services/skillsService.js";
 
 const router = Router();
 let honorificToggle = false;
@@ -1052,7 +1062,28 @@ router.post("/apps/:appId/connect", (req, res) => {
 
 router.get("/events", (req, res) => {
   const limit = req.query.limit;
-  res.json({ events: getRecentEvents(limit) });
+  const includeConsole = req.query.includeConsole === 'true';
+  
+  const events = getRecentEvents(limit);
+  const consoleLogs = includeConsole ? getConsoleLogs(30) : [];
+  
+  res.json({ 
+    events, 
+    consoleLogs,
+    eventCount: events.length,
+    consoleLogCount: consoleLogs.length,
+    timestamp: new Date().toISOString()
+  });
+});
+
+router.get("/events/console", (req, res) => {
+  const limit = req.query.limit || 50;
+  const consoleLogs = getConsoleLogs(limit);
+  res.json({ 
+    consoleLogs,
+    count: consoleLogs.length,
+    timestamp: new Date().toISOString()
+  });
 });
 
 router.post("/events", (req, res) => {
@@ -1100,6 +1131,111 @@ router.get("/events/stream", (req, res) => {
     clearInterval(keepAliveId);
     unsubscribe();
   });
+});
+
+// Skills management routes
+router.get("/skills", (req, res) => {
+  const skills = getAllSkills();
+  res.json({ ok: true, skills });
+});
+
+router.get("/skills/:skillId", (req, res) => {
+  const skill = getSkillById(req.params.skillId);
+  if (!skill) {
+    res.status(404).json({
+      ok: false,
+      code: "SKILL_NOT_FOUND",
+      message: `Skill "${req.params.skillId}" not found`
+    });
+    return;
+  }
+  res.json({ ok: true, skill });
+});
+
+router.post("/skills", (req, res) => {
+  const skillName = String(req.body?.skillName || "").trim();
+  const content = String(req.body?.content || "").trim();
+
+  if (!skillName) {
+    res.status(400).json({
+      ok: false,
+      code: "SKILL_NAME_REQUIRED",
+      message: "Skill name is required"
+    });
+    return;
+  }
+
+  if (!content) {
+    res.status(400).json({
+      ok: false,
+      code: "SKILL_CONTENT_REQUIRED",
+      message: "Skill content is required"
+    });
+    return;
+  }
+
+  const result = createSkill(skillName, content);
+  if (!result.success) {
+    res.status(400).json({ ok: false, error: result.error });
+    return;
+  }
+
+  publishEvent({
+    source: "skills",
+    appId: "control-center",
+    type: "skill-created",
+    message: `New skill "${skillName}" created`,
+    meta: { skillName }
+  });
+
+  res.status(201).json(result);
+});
+
+router.put("/skills/:skillId", (req, res) => {
+  const content = String(req.body?.content || "").trim();
+
+  if (!content) {
+    res.status(400).json({
+      ok: false,
+      code: "SKILL_CONTENT_REQUIRED",
+      message: "Skill content is required"
+    });
+    return;
+  }
+
+  const result = updateSkill(req.params.skillId, content);
+  if (!result.success) {
+    res.status(400).json({ ok: false, error: result.error });
+    return;
+  }
+
+  publishEvent({
+    source: "skills",
+    appId: "control-center",
+    type: "skill-updated",
+    message: `Skill "${req.params.skillId}" updated`,
+    meta: { skillId: req.params.skillId }
+  });
+
+  res.json(result);
+});
+
+router.delete("/skills/:skillId", (req, res) => {
+  const result = deleteSkill(req.params.skillId);
+  if (!result.success) {
+    res.status(400).json({ ok: false, error: result.error });
+    return;
+  }
+
+  publishEvent({
+    source: "skills",
+    appId: "control-center",
+    type: "skill-deleted",
+    message: `Skill "${req.params.skillId}" deleted`,
+    meta: { skillId: req.params.skillId }
+  });
+
+  res.json(result);
 });
 
 export default router;

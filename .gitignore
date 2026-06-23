@@ -42,3 +42,6 @@ control-app/server/data/chat-history.json
 control-app/server/data/drawing-files.json
 control-app/server/data/music-library.json
 control-app/server/data/music-local-playlists.json
+
+# Agentic testing folder
+agentic-testing/

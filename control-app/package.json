@@ -113,6 +113,16 @@
       {
         "from": "../CONTROL_CENTER_PROJECT_STATUS.txt",
         "to": "CONTROL_CENTER_PROJECT_STATUS.txt"
+      },
+      {
+        "from": "voice/whisper",
+        "to": "voice/whisper",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "voice/piper",
+        "to": "voice/piper",
+        "filter": ["**/*"]
       }
     ],
     "win": {

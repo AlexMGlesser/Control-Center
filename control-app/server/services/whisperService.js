@@ -1,11 +1,9 @@
 import { spawn } from "child_process";
 import { existsSync, writeFileSync, readFileSync, unlinkSync, mkdirSync } from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import { getVoiceDirectory } from "../appPaths.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const voiceDir = path.join(__dirname, "..", "..", "voice");
+const voiceDir = getVoiceDirectory();
 const whisperDir = path.join(voiceDir, "whisper");
 const whisperExe = path.join(whisperDir, "whisper-cli.exe");
 const whisperModelSmall = path.join(whisperDir, "ggml-small.en.bin");
