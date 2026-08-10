@@ -7,7 +7,7 @@ export const systemConfig = {
   name: "Control Center",
   version: "1.0.0",
   mode: "desktop",
-  lmStudio: {
+  ollama: {
     status: "not_connected",
     model: null
   },

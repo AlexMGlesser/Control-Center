@@ -11,9 +11,7 @@ import {
   getRecentEvents,
   publishEvent,
   subscribeToEvents,
-  getConsoleLogs,
-  publishAIThought,
-  publishDebugEvent
+  getConsoleLogs
 } from "../services/eventBus.js";
 import {
   getSettings,
@@ -21,60 +19,20 @@ import {
   getSettingsOptions,
   updateDesktopSettings
 } from "../services/settingsService.js";
-import {
-  addAgentMessage,
-  addUserMessage,
-  getChatMessages
-} from "../services/chatService.js";
-import {
-  getAgentContextText,
-  getAgentRuntimeStatus,
-  getAgentToolCatalog,
-  runAgentTurn
-} from "../services/agentRuntime.js";
-import { getLmStudioConfig, probeLmStudioStatus, markLmStudioOffline } from "../services/lmStudioService.js";
+import { addUserMessage, getChatMessages } from "../services/chatService.js";
+import { getAgentContextText, getAgentRuntimeStatus, getAgentToolCatalog } from "../services/agentRuntime.js";
+import { startOllama, stopOllama, startOllamaProbe, stopOllamaProbe } from "../services/ollamaService.js";
 import { getVoiceStatus } from "../services/voiceService.js";
-
-let shutdownCallback = null;
-
-export function onShutdownRequested(cb) {
-  shutdownCallback = cb;
-}
-
-const LMS_BIN_DIR = "C:\\Users\\Alex\\.cache\\lm-studio\\bin";
-const LMS_EXE = `${LMS_BIN_DIR}\\lms.exe`;
-
-function spawnLms(args, timeoutMs = 60000) {
-  return new Promise((resolve) => {
-    let proc;
-    try {
-      const childEnv = {
-        ...process.env,
-        PATH: `${LMS_BIN_DIR};${process.env.PATH || ""}`
-      };
-      proc = spawn(LMS_EXE, args, { shell: false, env: childEnv });
-    } catch (spawnErr) {
-      resolve({ code: -1, output: "", error: String(spawnErr?.message || spawnErr) });
-      return;
-    }
-    const output = [];
-    const errOutput = [];
-    proc.stdout?.on("data", (d) => output.push(String(d)));
-    proc.stderr?.on("data", (d) => errOutput.push(String(d)));
-    const timer = setTimeout(() => {
-      proc.kill();
-      resolve({ code: -1, output: output.join(""), error: "lms command timed out." });
-    }, timeoutMs);
-    proc.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code: Number(code), output: output.join(""), error: errOutput.join("") });
-    });
-    proc.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ code: -1, output: "", error: String(err?.message || err) });
-    });
-  });
-}
+import { enqueueUserTurn, getQueueStatus, onReplyDelivered } from "../services/queueWorker.js";
+import {
+  createAlarm,
+  listAlarms,
+  cancelAlarm,
+  stopAlarm,
+  getRingingAlarms,
+  startAlarmScheduler,
+  stopAlarmScheduler
+} from "../services/alarmService.js";
 import {
   getWorkProjects,
   getPersonalProjects,
@@ -94,7 +52,7 @@ import {
   deleteCalendarEvent,
   getCalendarMonthView,
   getRemainingCalendarEvents,
-  listCalendarEvents,
+  listCalendarEvents
 } from "../services/calendarService.js";
 import {
   addTrackToPlaylist,
@@ -113,85 +71,54 @@ import {
   listDrawingFiles,
   updateDrawingFile
 } from "../services/drawingFileService.js";
-import {
-  getAllSkills,
-  getSkillById,
-  createSkill,
-  updateSkill,
-  deleteSkill
-} from "../services/skillsService.js";
+import { getAllSkills, getSkillById, createSkill, updateSkill, deleteSkill } from "../services/skillsService.js";
 
 const router = Router();
-let honorificToggle = false;
+let shutdownCallback = null;
+
+export function onShutdownRequested(cb) {
+  shutdownCallback = cb;
+}
+
+export function initializeAgentSystem() {
+  startOllama();
+  startOllamaProbe();
+  startAlarmScheduler();
+  return { ok: true, message: "Agent system initialized" };
+}
+
+export function shutdownAgentSystem() {
+  stopOllamaProbe();
+  stopAlarmScheduler();
+  return { ok: true, message: "Agent system shut down" };
+}
 
 router.get("/health", (req, res) => {
   res.json({ ok: true, timestamp: new Date().toISOString() });
 });
 
-router.post("/lmstudio/start", async (req, res) => {
-  const config = getLmStudioConfig();
-  const model = String(req.body?.model || "").trim() || config.model;
-
+router.post("/ollama/start", async (req, res) => {
+  const state = await startOllama();
   publishEvent({
-    source: "lmstudio",
+    source: "ollama",
     appId: "control-center",
-    type: "lmstudio",
-    message: `Loading LMStudio model: ${model}`,
-    meta: { model }
+    type: "ollama",
+    message: `Ollama ${state.status === "connected" ? "connected" : "failed to connect"}.`,
+    meta: state
   });
-
-  const result = await spawnLms(["load", model], 120000);
-
-  if (result.code !== 0) {
-    const errorMsg = String(result.error || result.output || "Unknown error").trim();
-    publishEvent({
-      source: "lmstudio",
-      appId: "control-center",
-      type: "lmstudio",
-      message: `Failed to load LMStudio model: ${errorMsg}`,
-      meta: { model, error: errorMsg }
-    });
-    return res.status(500).json({ ok: false, message: errorMsg || "Failed to load model." });
-  }
-
-  // Probe the LMStudio API to confirm it's live and update server-side state
-  await probeLmStudioStatus();
-
-  publishEvent({
-    source: "lmstudio",
-    appId: "control-center",
-    type: "lmstudio",
-    message: `LMStudio model loaded: ${model}`,
-    meta: { model }
-  });
-
-  res.json({ ok: true, message: `Model ${model} loaded.` });
+  res.json({ ok: state.status === "connected", state });
 });
 
-router.post("/lmstudio/stop", async (req, res) => {
+router.post("/ollama/stop", async (req, res) => {
+  const result = await stopOllama();
   publishEvent({
-    source: "lmstudio",
+    source: "ollama",
     appId: "control-center",
-    type: "lmstudio",
-    message: "Unloading LMStudio model.",
+    type: "ollama",
+    message: "Ollama model unloaded.",
     meta: {}
   });
-
-  // Fire unload — treat any exit code as acceptable (--all is a no-op if nothing is loaded)
-  await spawnLms(["unload", "--all"], 30000);
-
-  // Immediately mark offline in server state; background probe will confirm within 10s
-  markLmStudioOffline();
-
-  publishEvent({
-    source: "lmstudio",
-    appId: "control-center",
-    type: "lmstudio",
-    message: "LMStudio model unloaded.",
-    meta: {}
-  });
-
-  res.json({ ok: true, message: "Model unloaded." });
+  res.json(result);
 });
 
 router.get("/system", (req, res) => {
@@ -199,7 +126,7 @@ router.get("/system", (req, res) => {
 
   res.json({
     ...systemConfig,
-    lmStudio: runtimeStatus.lmStudio,
+    ollama: runtimeStatus.ollama,
     voice: getVoiceStatus(),
     mode: getModeState().currentMode,
     modeState: getModeState(),
@@ -236,50 +163,36 @@ router.put("/settings/desktop", (req, res) => {
 
 router.post("/settings/desktop/test-voice", (req, res) => {
   const desktopSettings = getDesktopSettingsLabelValueMap();
-  const sampleText =
-    String(req.body?.sampleText || "").trim() ||
-    "Voice test complete. Desktop voice settings are active.";
+  const sampleText = String(req.body?.sampleText || "").trim() || "Voice test complete. Desktop voice settings are active.";
 
   publishEvent({
     source: "settings",
     appId: "control-center",
     type: "voice-test",
     message: `Voice test triggered using ${desktopSettings.voiceLabel} at ${desktopSettings.voiceSpeed} speed on ${desktopSettings.audioDeviceLabel}.`,
-    meta: {
-      ...desktopSettings,
-      sampleText
-    }
+    meta: { ...desktopSettings, sampleText }
   });
 
-  res.json({
-    ok: true,
-    message: "Voice test queued.",
-    sampleText,
-    settings: desktopSettings
-  });
+  res.json({ ok: true, message: "Voice test queued.", sampleText, settings: desktopSettings });
 });
 
 router.post("/system/choose-directory", async (req, res) => {
   const defaultPath = typeof req.body?.defaultPath === "string" ? req.body.defaultPath.trim() : "";
-
   const result = await openDirectoryDialog(defaultPath || undefined);
   if (!result.ok) {
     res.status(result.status || 500).json(result);
     return;
   }
-
   res.json(result);
 });
 
 router.post("/system/choose-file", async (req, res) => {
   const defaultPath = typeof req.body?.defaultPath === "string" ? req.body.defaultPath.trim() : "";
-
   const result = await openFileDialog(defaultPath || undefined);
   if (!result.ok) {
     res.status(result.status || 500).json(result);
     return;
   }
-
   res.json(result);
 });
 
@@ -300,7 +213,6 @@ router.post("/system/ssh-connect", (req, res) => {
     sshParts.push("-i", `"${keyPath.replace(/"/g, '\\"')}"`);
   }
   sshParts.push(`${username}@${host}`);
-
   const sshCommand = sshParts.join(" ");
 
   try {
@@ -317,8 +229,7 @@ router.post("/system/ssh-connect", (req, res) => {
 });
 
 router.get("/chat/messages", (req, res) => {
-  const limit = req.query.limit;
-  res.json({ messages: getChatMessages(limit) });
+  res.json({ messages: getChatMessages(req.query.limit) });
 });
 
 router.get("/agent/context", (req, res) => {
@@ -329,31 +240,35 @@ router.get("/agent/tools", (req, res) => {
   res.json({ tools: getAgentToolCatalog() });
 });
 
+router.get("/agent/queue/status", (req, res) => {
+  res.json({ ok: true, queue: getQueueStatus() });
+});
+
 router.post("/agent/respond", async (req, res) => {
   const userText = String(req.body?.userText || "").trim();
-  const llmOutput = req.body?.llmOutput;
-
   if (!userText) {
-    res.status(400).json({
-      ok: false,
-      code: "EMPTY_USER_MESSAGE",
-      message: "userText is required."
-    });
+    res.status(400).json({ ok: false, code: "EMPTY_USER_MESSAGE", message: "userText is required." });
     return;
   }
 
-  const result = await runAgentTurn({ userText, llmOutput });
-  res.json(result);
+  const { turnId } = enqueueUserTurn(userText, { origin: { type: "user" } });
+  const agentText = await new Promise((resolve) => {
+    const unsubscribe = onReplyDelivered(({ turnId: completedTurnId, message }) => {
+      if (completedTurnId !== turnId) {
+        return;
+      }
+      unsubscribe();
+      resolve(message);
+    });
+  });
+
+  res.json({ ok: true, agentText });
 });
 
-router.post("/chat/messages", async (req, res) => {
+router.post("/chat/messages", (req, res) => {
   const userText = String(req.body?.text || "").trim();
   if (!userText) {
-    res.status(400).json({
-      ok: false,
-      code: "EMPTY_MESSAGE",
-      message: "Message text is required."
-    });
+    res.status(400).json({ ok: false, code: "EMPTY_MESSAGE", message: "Message text is required." });
     return;
   }
 
@@ -363,62 +278,35 @@ router.post("/chat/messages", async (req, res) => {
     return;
   }
 
-  const agentTurn = await runAgentTurn({ userText, llmOutput: req.body?.llmOutput });
-  const persistedAgentMessages = persistAgentMessages(agentTurn);
-  if (Array.isArray(agentTurn.agentMessages) && agentTurn.agentMessages.length && !persistedAgentMessages.length) {
-    res.status(500).json({
-      ok: false,
-      code: "AGENT_MESSAGE_WRITE_FAILED",
-      message: "Failed to persist agent response."
-    });
-    return;
-  }
-
-  const chatResult = {
-    ok: true,
-    userMessage: userMessageResult.message,
-    agentMessage: persistedAgentMessages[0] || null,
-    agentMessages: persistedAgentMessages,
-    toolSummary: agentTurn.toolSummary,
-    toolResults: agentTurn.toolResults,
-    messages: getChatMessages(80)
-  };
+  const { task, turnId } = enqueueUserTurn(userText, { origin: { type: "user" } });
 
   publishEvent({
     source: "chat",
     appId: "control-center",
-    type: "chat",
-    message: "Text chat exchange completed through filtered agent runtime.",
-    meta: {
-      userMessageId: userMessageResult.message.id,
-      agentMessageId: persistedAgentMessages[0]?.id || null,
-      toolCalls: Array.isArray(agentTurn.toolResults) ? agentTurn.toolResults.length : 0,
-      blocked: !agentTurn.ok,
-      agentMessages: persistedAgentMessages.length
-    }
+    type: "chat-queued",
+    message: "Message queued for the agent.",
+    meta: { userMessageId: userMessageResult.message.id, taskId: task.task_id, turnId }
   });
 
-  res.status(201).json(chatResult);
+  res.status(202).json({
+    ok: true,
+    queued: true,
+    userMessage: userMessageResult.message,
+    task,
+    queue: getQueueStatus()
+  });
 });
 
 router.post("/apps/:appId/agent-message", async (req, res) => {
   const app = getAppById(req.params.appId);
   if (!app) {
-    res.status(404).json({
-      ok: false,
-      code: "APP_NOT_FOUND",
-      message: `Unknown appId '${req.params.appId}'.`
-    });
+    res.status(404).json({ ok: false, code: "APP_NOT_FOUND", message: `Unknown appId '${req.params.appId}'.` });
     return;
   }
 
   const message = String(req.body?.message || "").trim();
   if (!message) {
-    res.status(400).json({
-      ok: false,
-      code: "EMPTY_APP_MESSAGE",
-      message: "message is required."
-    });
+    res.status(400).json({ ok: false, code: "EMPTY_APP_MESSAGE", message: "message is required." });
     return;
   }
 
@@ -439,81 +327,23 @@ router.post("/apps/:appId/agent-message", async (req, res) => {
     appId: app.id,
     type: "agent-message",
     message: `${app.name} sent a background message to the agent inbox.`,
-    meta: {
-      appMessageId: appMessageResult.entry.id
-    }
+    meta: { appMessageId: appMessageResult.entry.id }
   });
 
-  const agentTurn = await runAgentTurn({
-    userText: appMessageResult.entry.formattedText,
-    llmOutput: req.body?.llmOutput,
-    origin: {
-      type: "app",
-      appId: app.id,
-      appName: app.name
-    }
+  const { task } = enqueueUserTurn(appMessageResult.entry.formattedText, {
+    origin: { type: "app", appId: app.id, appName: app.name }
   });
-
-  const persistedAgentMessages = persistAgentMessages(agentTurn, {
-    originAppId: app.id,
-    originAppName: app.name,
-    sourceKind: "app"
-  });
-
-  if (persistedAgentMessages.length) {
-    publishEvent({
-      source: "chat",
-      appId: "control-center",
-      type: "chat-app-notification",
-      message: `Agent surfaced an update from ${app.name} to chat.`,
-      meta: {
-        originAppId: app.id,
-        agentMessageId: persistedAgentMessages[0].id,
-        totalMessages: persistedAgentMessages.length
-      }
-    });
-  }
 
   res.status(202).json({
     ok: true,
     appMessage: appMessageResult.entry,
-    notifiedUser: persistedAgentMessages.length > 0,
-    agentMessages: persistedAgentMessages,
-    toolSummary: agentTurn.toolSummary,
-    toolResults: agentTurn.toolResults
+    task,
+    queue: getQueueStatus()
   });
 });
 
-function scheduleFollowUpAgentMessages(messages, baseMeta) {
-  messages.forEach((text, index) => {
-    setTimeout(() => {
-      const result = addAgentMessage(text, {
-        ...baseMeta,
-        sequence: index + 2,
-        isFollowUp: true
-      });
-
-      if (!result.ok) {
-        return;
-      }
-
-      publishEvent({
-        source: "chat",
-        appId: "control-center",
-        type: "chat-followup",
-        message: "Agent posted a follow-up chat message.",
-        meta: {
-          agentMessageId: result.message.id,
-          sequence: index + 2
-        }
-      });
-    }, (index + 1) * 500);
-  });
-}
-
 router.post("/shutdown", (req, res) => {
   res.json({ ok: true, message: "Shutting down Control Center." });
-
   setTimeout(() => {
     if (shutdownCallback) {
       shutdownCallback();
@@ -522,52 +352,6 @@ router.post("/shutdown", (req, res) => {
     }
   }, 500);
 });
-
-function persistAgentMessages(agentTurn, metaOverrides = {}) {
-  const sourceMessages = Array.isArray(agentTurn.agentMessages) ? agentTurn.agentMessages : [];
-  const composedMessage = sourceMessages
-    .map((message) => String(message || "").trim())
-    .filter(Boolean)
-    .join("\n\n");
-  const agentMessages = composedMessage ? [applyHonorificToMessage(composedMessage)] : [];
-  const persistedAgentMessages = [];
-
-  if (!agentMessages.length) {
-    return persistedAgentMessages;
-  }
-
-  const firstMessage = addAgentMessage(agentMessages[0], {
-    toolResults: agentTurn.toolResults,
-    toolSummary: agentTurn.toolSummary,
-    code: agentTurn.code || "OK",
-    sequence: 1,
-    totalMessages: agentMessages.length,
-    ...metaOverrides
-  });
-
-  if (!firstMessage.ok) {
-    return [];
-  }
-
-  persistedAgentMessages.push(firstMessage.message);
-
-  return persistedAgentMessages;
-}
-
-function applyHonorificToMessage(message) {
-  const cleanMessage = String(message || "").trim();
-  if (!cleanMessage) {
-    return cleanMessage;
-  }
-
-  if (/\b(sir|boss man)\b/i.test(cleanMessage)) {
-    return cleanMessage;
-  }
-
-  honorificToggle = !honorificToggle;
-  const honorific = honorificToggle ? "Sir" : "Boss Man";
-  return `${honorific}, ${cleanMessage}`;
-}
 
 router.post("/mode/switch", (req, res) => {
   const targetMode = String(req.body?.targetMode || "").toLowerCase();
@@ -585,11 +369,7 @@ router.post("/mode/switch", (req, res) => {
       appId: "control-center",
       type: "mode",
       message: `Mode switched to ${result.mode.currentMode}.`,
-      meta: {
-        from: result.transition.from,
-        to: result.transition.to,
-        action: result.transition.action
-      }
+      meta: { from: result.transition.from, to: result.transition.to, action: result.transition.action }
     });
   }
 
@@ -602,12 +382,10 @@ router.get("/apps", (req, res) => {
 
 router.get("/apps/:appId", (req, res) => {
   const app = getAppById(req.params.appId);
-
   if (!app) {
     res.status(404).json({ ok: false, message: "App not found." });
     return;
   }
-
   res.json({ app });
 });
 
@@ -634,13 +412,7 @@ router.get("/apps/music-app/library", (req, res) => {
 });
 
 router.get("/apps/music-app/library/tracks", (req, res) => {
-  const result = listMusicTracks({
-    artist: req.query.artist,
-    genre: req.query.genre,
-    query: req.query.query,
-    limit: req.query.limit
-  });
-  res.json(result);
+  res.json(listMusicTracks({ artist: req.query.artist, genre: req.query.genre, query: req.query.query, limit: req.query.limit }));
 });
 
 router.get("/apps/music-app/library/artists", (req, res) => {
@@ -654,11 +426,7 @@ router.get("/apps/music-app/library/genres", (req, res) => {
 router.get("/apps/music-app/local-file", (req, res) => {
   const rawPath = String(req.query.path || "").trim();
   if (!rawPath) {
-    res.status(400).json({
-      ok: false,
-      code: "MUSIC_FILE_PATH_REQUIRED",
-      message: "Query parameter 'path' is required."
-    });
+    res.status(400).json({ ok: false, code: "MUSIC_FILE_PATH_REQUIRED", message: "Query parameter 'path' is required." });
     return;
   }
 
@@ -666,53 +434,28 @@ router.get("/apps/music-app/local-file", (req, res) => {
   try {
     resolvedPath = path.resolve(rawPath);
   } catch {
-    res.status(400).json({
-      ok: false,
-      code: "MUSIC_FILE_PATH_INVALID",
-      message: "Invalid local file path."
-    });
+    res.status(400).json({ ok: false, code: "MUSIC_FILE_PATH_INVALID", message: "Invalid local file path." });
     return;
   }
 
   if (!existsSync(resolvedPath)) {
-    res.status(404).json({
-      ok: false,
-      code: "MUSIC_FILE_NOT_FOUND",
-      message: "Local music file was not found."
-    });
+    res.status(404).json({ ok: false, code: "MUSIC_FILE_NOT_FOUND", message: "Local music file was not found." });
     return;
   }
 
   try {
-    const stat = statSync(resolvedPath);
-    if (!stat.isFile()) {
-      res.status(400).json({
-        ok: false,
-        code: "MUSIC_FILE_NOT_A_FILE",
-        message: "Path does not point to a file."
-      });
+    if (!statSync(resolvedPath).isFile()) {
+      res.status(400).json({ ok: false, code: "MUSIC_FILE_NOT_A_FILE", message: "Path does not point to a file." });
       return;
     }
   } catch {
-    res.status(500).json({
-      ok: false,
-      code: "MUSIC_FILE_STAT_FAILED",
-      message: "Could not read local file metadata."
-    });
+    res.status(500).json({ ok: false, code: "MUSIC_FILE_STAT_FAILED", message: "Could not read local file metadata." });
     return;
   }
 
   res.sendFile(resolvedPath, (error) => {
-    if (!error) {
-      return;
-    }
-
-    if (!res.headersSent) {
-      res.status(500).json({
-        ok: false,
-        code: "MUSIC_FILE_STREAM_FAILED",
-        message: "Could not stream local music file."
-      });
+    if (error && !res.headersSent) {
+      res.status(500).json({ ok: false, code: "MUSIC_FILE_STREAM_FAILED", message: "Could not stream local music file." });
     }
   });
 });
@@ -721,152 +464,9 @@ router.get("/apps/music-app/playlists", (req, res) => {
   res.json(listMusicPlaylists());
 });
 
-router.get("/apps/drawing-app/files", (req, res) => {
-  try {
-    res.json(listDrawingFiles());
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "DRAWING_FILES_LIST_FAILED",
-      message: error.message || "Could not list drawing files."
-    });
-  }
-});
-
-router.get("/apps/drawing-app/files/:fileId", (req, res) => {
-  try {
-    res.json(getDrawingFile(req.params.fileId));
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "DRAWING_FILE_READ_FAILED",
-      message: error.message || "Could not read drawing file."
-    });
-  }
-});
-
-router.post("/apps/drawing-app/files", (req, res) => {
-  try {
-    const result = createDrawingFile({
-      name: req.body?.name,
-      mode: req.body?.mode,
-      locationPath: req.body?.locationPath
-    });
-    res.status(201).json(result);
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "DRAWING_FILE_CREATE_FAILED",
-      message: error.message || "Could not create drawing file."
-    });
-  }
-});
-
-router.put("/apps/drawing-app/files/:fileId", (req, res) => {
-  try {
-    res.json(
-      updateDrawingFile(req.params.fileId, {
-        content: req.body?.content
-      })
-    );
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "DRAWING_FILE_UPDATE_FAILED",
-      message: error.message || "Could not update drawing file."
-    });
-  }
-});
-
-router.delete("/apps/drawing-app/files/:fileId", (req, res) => {
-  try {
-    res.json(deleteDrawingFile(req.params.fileId));
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "DRAWING_FILE_DELETE_FAILED",
-      message: error.message || "Could not delete drawing file."
-    });
-  }
-});
-
-router.get("/apps/calendar-app/month", async (req, res) => {
-  try {
-    res.json(await getCalendarMonthView({ year: req.query.year, month: req.query.month }));
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "CALENDAR_MONTH_FAILED",
-      message: error.message || "Could not load calendar month."
-    });
-  }
-});
-
-router.get("/apps/calendar-app/events", async (req, res) => {
-  try {
-    res.json(
-      await listCalendarEvents({
-        start: req.query.start,
-        end: req.query.end,
-        limit: req.query.limit
-      })
-    );
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "CALENDAR_EVENTS_FAILED",
-      message: error.message || "Could not load calendar events."
-    });
-  }
-});
-
-router.get("/apps/calendar-app/events/remaining", async (req, res) => {
-  try {
-    res.json(await getRemainingCalendarEvents({ now: req.query.now }));
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "CALENDAR_REMAINING_FAILED",
-      message: error.message || "Could not load the rest of today's calendar."
-    });
-  }
-});
-
-router.post("/apps/calendar-app/events", async (req, res) => {
-  try {
-    const result = await createCalendarEvent({
-      title: req.body?.title,
-      startsAt: req.body?.startsAt,
-      endsAt: req.body?.endsAt,
-      location: req.body?.location,
-      notes: req.body?.notes
-    });
-    res.status(201).json(result);
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "CALENDAR_CREATE_FAILED",
-      message: error.message || "Could not create calendar event."
-    });
-  }
-});
-
-router.delete("/apps/calendar-app/events/:eventId", async (req, res) => {
-  try {
-    res.json(await deleteCalendarEvent({ eventId: req.params.eventId }));
-  } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "CALENDAR_DELETE_FAILED",
-      message: error.message || "Could not delete calendar event."
-    });
-  }
-});
-
 router.post("/apps/music-app/local-playlists/sync", (req, res) => {
   try {
-    const result = syncLocalMusicPlaylists(req.body?.playlists);
-    res.json(result);
+    res.json(syncLocalMusicPlaylists(req.body?.playlists));
   } catch (error) {
     res.status(error.status || 500).json({
       ok: false,
@@ -882,19 +482,100 @@ router.post("/apps/music-app/playlists", (req, res) => {
 
 router.post("/apps/music-app/playlists/:playlistName/tracks", (req, res) => {
   handleProjectAction(res, () =>
-    addTrackToPlaylist({
-      playlistName: req.params.playlistName,
-      trackId: req.body?.trackId,
-      trackName: req.body?.trackName
-    })
+    addTrackToPlaylist({ playlistName: req.params.playlistName, trackId: req.body?.trackId, trackName: req.body?.trackName })
   );
 });
 
+router.get("/apps/drawing-app/files", (req, res) => {
+  try {
+    res.json(listDrawingFiles());
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "DRAWING_FILES_LIST_FAILED", message: error.message || "Could not list drawing files." });
+  }
+});
+
+router.get("/apps/drawing-app/files/:fileId", (req, res) => {
+  try {
+    res.json(getDrawingFile(req.params.fileId));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "DRAWING_FILE_READ_FAILED", message: error.message || "Could not read drawing file." });
+  }
+});
+
+router.post("/apps/drawing-app/files", (req, res) => {
+  try {
+    res.status(201).json(createDrawingFile({ name: req.body?.name, mode: req.body?.mode, locationPath: req.body?.locationPath }));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "DRAWING_FILE_CREATE_FAILED", message: error.message || "Could not create drawing file." });
+  }
+});
+
+router.put("/apps/drawing-app/files/:fileId", (req, res) => {
+  try {
+    res.json(updateDrawingFile(req.params.fileId, { content: req.body?.content }));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "DRAWING_FILE_UPDATE_FAILED", message: error.message || "Could not update drawing file." });
+  }
+});
+
+router.delete("/apps/drawing-app/files/:fileId", (req, res) => {
+  try {
+    res.json(deleteDrawingFile(req.params.fileId));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "DRAWING_FILE_DELETE_FAILED", message: error.message || "Could not delete drawing file." });
+  }
+});
+
+router.get("/apps/calendar-app/month", async (req, res) => {
+  try {
+    res.json(await getCalendarMonthView({ year: req.query.year, month: req.query.month }));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "CALENDAR_MONTH_FAILED", message: error.message || "Could not load calendar month." });
+  }
+});
+
+router.get("/apps/calendar-app/events", async (req, res) => {
+  try {
+    res.json(await listCalendarEvents({ start: req.query.start, end: req.query.end, limit: req.query.limit }));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "CALENDAR_EVENTS_FAILED", message: error.message || "Could not load calendar events." });
+  }
+});
+
+router.get("/apps/calendar-app/events/remaining", async (req, res) => {
+  try {
+    res.json(await getRemainingCalendarEvents({ now: req.query.now }));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "CALENDAR_REMAINING_FAILED", message: error.message || "Could not load the rest of today's calendar." });
+  }
+});
+
+router.post("/apps/calendar-app/events", async (req, res) => {
+  try {
+    res.status(201).json(
+      await createCalendarEvent({
+        title: req.body?.title,
+        startsAt: req.body?.startsAt,
+        endsAt: req.body?.endsAt,
+        location: req.body?.location,
+        notes: req.body?.notes
+      })
+    );
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "CALENDAR_CREATE_FAILED", message: error.message || "Could not create calendar event." });
+  }
+});
+
+router.delete("/apps/calendar-app/events/:eventId", async (req, res) => {
+  try {
+    res.json(await deleteCalendarEvent({ eventId: req.params.eventId }));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "CALENDAR_DELETE_FAILED", message: error.message || "Could not delete calendar event." });
+  }
+});
+
 router.get("/apps/work-app/projects", (req, res) => {
-  res.json({
-    ok: true,
-    projects: getWorkProjects()
-  });
+  res.json({ ok: true, projects: getWorkProjects() });
 });
 
 router.post("/apps/work-app/projects", (req, res) => {
@@ -908,38 +589,20 @@ router.delete("/apps/work-app/projects/:projectId", (req, res) => {
 router.get("/apps/work-app/projects/:projectId/tree", (req, res) => {
   const project = getProjectById("work-app", req.params.projectId);
   if (!project) {
-    res.status(404).json({
-      ok: false,
-      code: "PROJECT_NOT_FOUND",
-      message: `Project '${req.params.projectId}' not found.`
-    });
+    res.status(404).json({ ok: false, code: "PROJECT_NOT_FOUND", message: `Project '${req.params.projectId}' not found.` });
     return;
   }
-
-  const tree = buildFileTree(project.path);
-  res.json({
-    ok: true,
-    project,
-    tree
-  });
+  res.json({ ok: true, project, tree: buildFileTree(project.path) });
 });
 
 router.post("/apps/work-app/projects/:projectId/files/create", (req, res) => {
   handleProjectFileAction(req, res, "work-app", () =>
-    createProjectNode(
-      "work-app",
-      req.params.projectId,
-      req.body?.parentPath,
-      req.body?.name,
-      req.body?.nodeType
-    )
+    createProjectNode("work-app", req.params.projectId, req.body?.parentPath, req.body?.name, req.body?.nodeType)
   );
 });
 
 router.post("/apps/work-app/projects/:projectId/files/delete", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () =>
-    deleteProjectNode("work-app", req.params.projectId, req.body?.targetPath)
-  );
+  handleProjectFileAction(req, res, "work-app", () => deleteProjectNode("work-app", req.params.projectId, req.body?.targetPath));
 });
 
 router.post("/apps/work-app/projects/:projectId/files/copy", (req, res) => {
@@ -955,22 +618,15 @@ router.post("/apps/work-app/projects/:projectId/files/move", (req, res) => {
 });
 
 router.post("/apps/work-app/projects/:projectId/files/open", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () =>
-    openProjectNode("work-app", req.params.projectId, req.body?.targetPath)
-  );
+  handleProjectFileAction(req, res, "work-app", () => openProjectNode("work-app", req.params.projectId, req.body?.targetPath));
 });
 
 router.post("/apps/work-app/launch-tool", (req, res) => {
-  const toolName = String(req.body?.tool || "").trim();
-  const result = launchApp(toolName);
-  res.json(result);
+  res.json(launchApp(String(req.body?.tool || "").trim()));
 });
 
 router.get("/apps/project-app/projects", (req, res) => {
-  res.json({
-    ok: true,
-    projects: getPersonalProjects()
-  });
+  res.json({ ok: true, projects: getPersonalProjects() });
 });
 
 router.post("/apps/project-app/projects", (req, res) => {
@@ -984,38 +640,20 @@ router.delete("/apps/project-app/projects/:projectId", (req, res) => {
 router.get("/apps/project-app/projects/:projectId/tree", (req, res) => {
   const project = getProjectById("project-app", req.params.projectId);
   if (!project) {
-    res.status(404).json({
-      ok: false,
-      code: "PROJECT_NOT_FOUND",
-      message: `Project '${req.params.projectId}' not found.`
-    });
+    res.status(404).json({ ok: false, code: "PROJECT_NOT_FOUND", message: `Project '${req.params.projectId}' not found.` });
     return;
   }
-
-  const tree = buildFileTree(project.path);
-  res.json({
-    ok: true,
-    project,
-    tree
-  });
+  res.json({ ok: true, project, tree: buildFileTree(project.path) });
 });
 
 router.post("/apps/project-app/projects/:projectId/files/create", (req, res) => {
   handleProjectFileAction(req, res, "project-app", () =>
-    createProjectNode(
-      "project-app",
-      req.params.projectId,
-      req.body?.parentPath,
-      req.body?.name,
-      req.body?.nodeType
-    )
+    createProjectNode("project-app", req.params.projectId, req.body?.parentPath, req.body?.name, req.body?.nodeType)
   );
 });
 
 router.post("/apps/project-app/projects/:projectId/files/delete", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () =>
-    deleteProjectNode("project-app", req.params.projectId, req.body?.targetPath)
-  );
+  handleProjectFileAction(req, res, "project-app", () => deleteProjectNode("project-app", req.params.projectId, req.body?.targetPath));
 });
 
 router.post("/apps/project-app/projects/:projectId/files/copy", (req, res) => {
@@ -1031,15 +669,11 @@ router.post("/apps/project-app/projects/:projectId/files/move", (req, res) => {
 });
 
 router.post("/apps/project-app/projects/:projectId/files/open", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () =>
-    openProjectNode("project-app", req.params.projectId, req.body?.targetPath)
-  );
+  handleProjectFileAction(req, res, "project-app", () => openProjectNode("project-app", req.params.projectId, req.body?.targetPath));
 });
 
 router.post("/apps/project-app/launch-tool", (req, res) => {
-  const toolName = String(req.body?.tool || "").trim();
-  const result = launchApp(toolName);
-  res.json(result);
+  res.json(launchApp(String(req.body?.tool || "").trim()));
 });
 
 router.post("/apps/:appId/connect", (req, res) => {
@@ -1061,14 +695,12 @@ router.post("/apps/:appId/connect", (req, res) => {
 });
 
 router.get("/events", (req, res) => {
-  const limit = req.query.limit;
-  const includeConsole = req.query.includeConsole === 'true';
-  
-  const events = getRecentEvents(limit);
+  const includeConsole = req.query.includeConsole === "true";
+  const events = getRecentEvents(req.query.limit);
   const consoleLogs = includeConsole ? getConsoleLogs(30) : [];
-  
-  res.json({ 
-    events, 
+
+  res.json({
+    events,
     consoleLogs,
     eventCount: events.length,
     consoleLogCount: consoleLogs.length,
@@ -1077,32 +709,25 @@ router.get("/events", (req, res) => {
 });
 
 router.get("/events/console", (req, res) => {
-  const limit = req.query.limit || 50;
-  const consoleLogs = getConsoleLogs(limit);
-  res.json({ 
-    consoleLogs,
-    count: consoleLogs.length,
-    timestamp: new Date().toISOString()
-  });
+  const consoleLogs = getConsoleLogs(req.query.limit || 50);
+  res.json({ consoleLogs, count: consoleLogs.length, timestamp: new Date().toISOString() });
 });
 
 router.post("/events", (req, res) => {
   const appId = String(req.body?.appId || "control-center");
-  const source = String(req.body?.source || "app-module");
-  const type = String(req.body?.type || "status");
-  const message = req.body?.message;
-  const meta = req.body?.meta || {};
-
   if (appId !== "control-center" && !getAppById(appId)) {
-    res.status(404).json({
-      ok: false,
-      code: "APP_NOT_FOUND",
-      message: `Cannot publish event. Unknown appId '${appId}'.`
-    });
+    res.status(404).json({ ok: false, code: "APP_NOT_FOUND", message: `Cannot publish event. Unknown appId '${appId}'.` });
     return;
   }
 
-  const result = publishEvent({ appId, source, type, message, meta });
+  const result = publishEvent({
+    appId,
+    source: String(req.body?.source || "app-module"),
+    type: String(req.body?.type || "status"),
+    message: req.body?.message,
+    meta: req.body?.meta || {}
+  });
+
   if (!result.ok) {
     res.status(400).json(result);
     return;
@@ -1133,20 +758,14 @@ router.get("/events/stream", (req, res) => {
   });
 });
 
-// Skills management routes
 router.get("/skills", (req, res) => {
-  const skills = getAllSkills();
-  res.json({ ok: true, skills });
+  res.json({ ok: true, skills: getAllSkills() });
 });
 
 router.get("/skills/:skillId", (req, res) => {
   const skill = getSkillById(req.params.skillId);
   if (!skill) {
-    res.status(404).json({
-      ok: false,
-      code: "SKILL_NOT_FOUND",
-      message: `Skill "${req.params.skillId}" not found`
-    });
+    res.status(404).json({ ok: false, code: "SKILL_NOT_FOUND", message: `Skill "${req.params.skillId}" not found` });
     return;
   }
   res.json({ ok: true, skill });
@@ -1157,20 +776,11 @@ router.post("/skills", (req, res) => {
   const content = String(req.body?.content || "").trim();
 
   if (!skillName) {
-    res.status(400).json({
-      ok: false,
-      code: "SKILL_NAME_REQUIRED",
-      message: "Skill name is required"
-    });
+    res.status(400).json({ ok: false, code: "SKILL_NAME_REQUIRED", message: "Skill name is required" });
     return;
   }
-
   if (!content) {
-    res.status(400).json({
-      ok: false,
-      code: "SKILL_CONTENT_REQUIRED",
-      message: "Skill content is required"
-    });
+    res.status(400).json({ ok: false, code: "SKILL_CONTENT_REQUIRED", message: "Skill content is required" });
     return;
   }
 
@@ -1180,26 +790,14 @@ router.post("/skills", (req, res) => {
     return;
   }
 
-  publishEvent({
-    source: "skills",
-    appId: "control-center",
-    type: "skill-created",
-    message: `New skill "${skillName}" created`,
-    meta: { skillName }
-  });
-
+  publishEvent({ source: "skills", appId: "control-center", type: "skill-created", message: `New skill "${skillName}" created`, meta: { skillName } });
   res.status(201).json(result);
 });
 
 router.put("/skills/:skillId", (req, res) => {
   const content = String(req.body?.content || "").trim();
-
   if (!content) {
-    res.status(400).json({
-      ok: false,
-      code: "SKILL_CONTENT_REQUIRED",
-      message: "Skill content is required"
-    });
+    res.status(400).json({ ok: false, code: "SKILL_CONTENT_REQUIRED", message: "Skill content is required" });
     return;
   }
 
@@ -1209,14 +807,7 @@ router.put("/skills/:skillId", (req, res) => {
     return;
   }
 
-  publishEvent({
-    source: "skills",
-    appId: "control-center",
-    type: "skill-updated",
-    message: `Skill "${req.params.skillId}" updated`,
-    meta: { skillId: req.params.skillId }
-  });
-
+  publishEvent({ source: "skills", appId: "control-center", type: "skill-updated", message: `Skill "${req.params.skillId}" updated`, meta: { skillId: req.params.skillId } });
   res.json(result);
 });
 
@@ -1227,15 +818,43 @@ router.delete("/skills/:skillId", (req, res) => {
     return;
   }
 
-  publishEvent({
-    source: "skills",
-    appId: "control-center",
-    type: "skill-deleted",
-    message: `Skill "${req.params.skillId}" deleted`,
-    meta: { skillId: req.params.skillId }
-  });
-
+  publishEvent({ source: "skills", appId: "control-center", type: "skill-deleted", message: `Skill "${req.params.skillId}" deleted`, meta: { skillId: req.params.skillId } });
   res.json(result);
+});
+
+router.get("/alarms", (req, res) => {
+  res.json({ ok: true, alarms: listAlarms() });
+});
+
+router.get("/alarms/ringing", (req, res) => {
+  res.json({ ok: true, alarms: getRingingAlarms() });
+});
+
+router.post("/alarms", (req, res) => {
+  try {
+    const alarm = createAlarm(req.body || {});
+    res.status(201).json({ ok: true, alarm });
+  } catch (error) {
+    res.status(400).json({ ok: false, code: error.code || "CREATE_ALARM_FAILED", message: error.message });
+  }
+});
+
+router.delete("/alarms/:id", (req, res) => {
+  try {
+    const alarm = cancelAlarm(req.params.id);
+    res.json({ ok: true, alarm });
+  } catch (error) {
+    res.status(error.code === "ALARM_NOT_FOUND" ? 404 : 400).json({ ok: false, code: error.code || "CANCEL_ALARM_FAILED", message: error.message });
+  }
+});
+
+router.post("/alarms/:id/stop", (req, res) => {
+  try {
+    const alarms = stopAlarm(req.params.id);
+    res.json({ ok: true, alarms });
+  } catch (error) {
+    res.status(error.code === "ALARM_NOT_RINGING" ? 409 : 400).json({ ok: false, code: error.code || "STOP_ALARM_FAILED", message: error.message });
+  }
 });
 
 export default router;
@@ -1243,22 +862,14 @@ export default router;
 function handleProjectFileAction(req, res, appId, action) {
   const project = getProjectById(appId, req.params.projectId);
   if (!project) {
-    res.status(404).json({
-      ok: false,
-      code: "PROJECT_NOT_FOUND",
-      message: `Project '${req.params.projectId}' not found.`
-    });
+    res.status(404).json({ ok: false, code: "PROJECT_NOT_FOUND", message: `Project '${req.params.projectId}' not found.` });
     return;
   }
 
   try {
     res.json(action());
   } catch (error) {
-    res.status(error.status || 500).json({
-      ok: false,
-      code: error.code || "PROJECT_FILE_ACTION_FAILED",
-      message: error.message || "Project file action failed."
-    });
+    res.status(error.status || 500).json({ ok: false, code: error.code || "PROJECT_FILE_ACTION_FAILED", message: error.message || "Project file action failed." });
   }
 }
 
@@ -1266,12 +877,7 @@ function handleProjectAction(res, action) {
   try {
     res.json(action());
   } catch (error) {
-    const status = Number(error.status || 500);
-    res.status(status).json({
-      ok: false,
-      code: error.code || "PROJECT_ACTION_FAILED",
-      message: error.message || "Project action failed."
-    });
+    res.status(Number(error.status || 500)).json({ ok: false, code: error.code || "PROJECT_ACTION_FAILED", message: error.message || "Project action failed." });
   }
 }
 
@@ -1288,7 +894,6 @@ async function openDirectoryDialog(defaultPath) {
     if (result.canceled || !result.filePaths?.length) {
       return { ok: true, canceled: true, path: null };
     }
-
     return { ok: true, canceled: false, path: result.filePaths[0] };
   } catch (error) {
     return {
@@ -1314,7 +919,6 @@ async function openFileDialog(defaultPath) {
     if (result.canceled || !result.filePaths?.length) {
       return { ok: true, canceled: true, path: null };
     }
-
     return { ok: true, canceled: false, path: result.filePaths[0] };
   } catch (error) {
     return {

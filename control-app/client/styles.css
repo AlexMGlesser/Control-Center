@@ -1443,6 +1443,7 @@ body {
 }/* Chatbot Neural Network Styles */
 
 .chatbot-container {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
@@ -1557,6 +1558,48 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Queue box shown in chatbot bottom-right */
+.queue-box {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: 260px;
+  max-height: 220px;
+  overflow: auto;
+  background: rgba(20,20,20,0.9);
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+  z-index: 999;
+}
+.queue-box .queue-header {
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+}
+.queue-box .queue-item {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 6px;
+  margin-top: 6px;
+}
+.queue-box .queue-meta {
+  color: rgba(255,255,255,0.6);
+  font-size: 11px;
+  margin-left: 6px;
+}
+.queue-box .queue-content {
+  color: rgba(255,255,255,0.8);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.queue-box .queue-empty {
+  color: rgba(255,255,255,0.6);
+  font-style: italic;
 }
 
 .chat-input-group {
@@ -1712,6 +1755,7 @@ body {
 }
 
 .chatbot-container {
+  position: relative;
   min-height: 640px;
 }
 
@@ -1727,4 +1771,69 @@ body {
 
 .event-item {
   background: rgba(13, 27, 32, 0.34);
+}
+
+.alarm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 8, 10, 0.92);
+  backdrop-filter: blur(6px);
+  animation: alarm-pulse 1.2s ease-in-out infinite;
+}
+
+.alarm-overlay.is-hidden {
+  display: none;
+}
+
+.alarm-overlay-content {
+  text-align: center;
+  padding: 48px 64px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--accent-red);
+  background: rgba(17, 36, 43, 0.95);
+  box-shadow: 0 0 60px rgba(159, 45, 55, 0.55);
+}
+
+.alarm-overlay-kicker {
+  margin: 0 0 6px 0;
+  letter-spacing: 0.3em;
+  font-size: 0.8rem;
+  color: var(--accent-red);
+  font-weight: 700;
+}
+
+.alarm-overlay-content h2 {
+  margin: 0 0 28px 0;
+  font-size: 2rem;
+  color: var(--text-primary);
+}
+
+.alarm-stop-btn {
+  border: none;
+  border-radius: 12px;
+  padding: 18px 40px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent-red), #c0424e);
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(159, 45, 55, 0.5);
+  transition: transform 0.15s ease;
+}
+
+.alarm-stop-btn:hover {
+  transform: translateY(-2px);
+}
+
+@keyframes alarm-pulse {
+  0%, 100% {
+    background: rgba(4, 8, 10, 0.92);
+  }
+  50% {
+    background: rgba(30, 6, 9, 0.92);
+  }
 }

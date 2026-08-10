@@ -3,18 +3,15 @@ import path from "path";
 import { getBundledDocumentPath } from "../appPaths.js";
 
 const CONTEXT_SPECS = [
-  { label: "Project Status", path: getBundledDocumentPath("CONTROL_CENTER_PROJECT_STATUS.txt"), maxChars: 500 },
-  { label: "Control Center Design", path: getBundledDocumentPath("design-documents", "control-center-design.txt"), maxChars: 460 },
-  { label: "Control Center PRD", path: getBundledDocumentPath("design-documents", "control-center-prd.txt"), maxChars: 460 },
   {
-    label: "Control Center Functional Spec",
-    path: getBundledDocumentPath("design-documents", "control-center-functional-spec.txt"),
-    maxChars: 460
+    label: "Control Center Overview",
+    path: getBundledDocumentPath("design-documents", "control-center-overview.md"),
+    maxChars: 700
   },
   {
     label: "Control Center Architecture",
-    path: getBundledDocumentPath("design-documents", "control-center-architecture.txt"),
-    maxChars: 500
+    path: getBundledDocumentPath("design-documents", "control-center-architecture.md"),
+    maxChars: 700
   },
   { label: "Movie App Design", path: getBundledDocumentPath("design-documents", "movie-app-design.txt"), maxChars: 360 },
   { label: "Movie App PRD", path: getBundledDocumentPath("design-documents", "movie-app-prd.txt"), maxChars: 360 },
@@ -26,7 +23,7 @@ const CONTEXT_SPECS = [
 ];
 
 const MAX_BUNDLE_CHARS = 2200;
-const PRIORITY_LABELS = new Set(["Project Status", "Control Center Architecture"]);
+const PRIORITY_LABELS = new Set(["Control Center Overview", "Control Center Architecture"]);
 
 export function buildAgentContextBundle(userText = "") {
   const chunks = [];
@@ -96,7 +93,7 @@ function scoreSpec(spec, tokens) {
       score += 20;
     }
 
-    if ((token === "settings" || token === "voice" || token === "audio") && spec.label.includes("Functional Spec")) {
+    if ((token === "settings" || token === "voice" || token === "audio") && spec.label.includes("Overview")) {
       score += 20;
     }
   }

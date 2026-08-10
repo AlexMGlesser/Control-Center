@@ -45,6 +45,7 @@ const state = {
   chatStickToBottom: true,
   chatSessionStartedAt: Date.now(),
   chatInputShouldRefocus: false,
+  queueStatus: null,
   skills: [],
   selectedSkillId: null,
   skillsViewMode: "list", // "list" or "editor"
@@ -86,6 +87,54 @@ const modeDesktopBtn = document.getElementById("mode-desktop-btn");
 const modeMobileBtn = document.getElementById("mode-mobile-btn");
 const startupSplash = document.getElementById("startup-splash");
 const appShell = document.getElementById("app-shell");
+const alarmOverlay = document.getElementById("alarm-overlay");
+const alarmOverlayLabel = document.getElementById("alarm-overlay-label");
+const alarmStopBtn = document.getElementById("alarm-stop-btn");
+
+let ringingAlarmId = null;
+const alarmAudioEl = new Audio("/assets/alarm-sound.mp3");
+alarmAudioEl.loop = true;
+
+function startAlarmSound() {
+  alarmAudioEl.currentTime = 0;
+  alarmAudioEl.play().catch(() => {
+    // Autoplay may be blocked before any user gesture; the overlay's Stop
+    // button click (a real gesture) will unblock it for the next alarm.
+  });
+}
+
+function stopAlarmSound() {
+  alarmAudioEl.pause();
+  alarmAudioEl.currentTime = 0;
+}
+
+function showAlarmOverlay(meta) {
+  ringingAlarmId = meta?.alarmId || ringingAlarmId;
+  alarmOverlayLabel.textContent = meta?.label || "Alarm";
+  alarmOverlay.classList.remove("is-hidden");
+  alarmOverlay.setAttribute("aria-hidden", "false");
+  startAlarmSound();
+}
+
+function hideAlarmOverlay() {
+  ringingAlarmId = null;
+  alarmOverlay.classList.add("is-hidden");
+  alarmOverlay.setAttribute("aria-hidden", "true");
+  stopAlarmSound();
+}
+
+async function checkRingingAlarms() {
+  try {
+    const res = await fetch("/api/alarms/ringing");
+    const data = await res.json();
+    const alarms = data.alarms ?? [];
+    if (alarms.length) {
+      showAlarmOverlay({ alarmId: alarms[0].id, label: alarms[0].label });
+    }
+  } catch {
+    // Ignore — overlay simply won't show until the next alarm-fired event.
+  }
+}
 
 async function loadApps() {
   const res = await fetch("/api/apps");
@@ -367,8 +416,8 @@ async function openKnownAppWindow(appId) {
   return false;
 }
 
-async function lmStudioStart() {
-  const res = await fetch("/api/lmstudio/start", {
+async function ollamaStart() {
+  const res = await fetch("/api/ollama/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({})
@@ -376,8 +425,8 @@ async function lmStudioStart() {
   return res.json();
 }
 
-async function lmStudioStop() {
-  const res = await fetch("/api/lmstudio/stop", {
+async function ollamaStop() {
+  const res = await fetch("/api/ollama/stop", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({})
@@ -464,6 +513,58 @@ function bindChatPanelState() {
       panel.scrollTop = panel.scrollHeight;
     });
   }
+}
+
+let _queuePollId = null;
+
+async function loadQueueStatus() {
+  try {
+    const res = await fetch('/api/agent/queue/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    state.queueStatus = data.queue || null;
+    renderQueueBox();
+  } catch (e) {
+    // ignore fetch errors silently
+  }
+}
+
+function renderQueueBox() {
+  const el = document.getElementById('queue-box');
+  if (!el) return;
+
+  const q = state.queueStatus;
+  if (!q || q.isEmpty) {
+    el.innerHTML = `<div class="queue-header">Queue: 0</div><div class="queue-empty">No tasks queued</div>`;
+    return;
+  }
+
+  const items = (q.tasks || []).slice(0,5).map(t => `<div class="queue-item"><strong>${t.task_id}</strong> <span class="queue-meta">${t.priority}</span> <div class="queue-content">${escapeHtml(t.content)}</div></div>`).join('');
+
+  el.innerHTML = `
+    <div class="queue-header">Queue: ${q.queueLength}</div>
+    <div class="queue-list">${items}</div>
+  `;
+}
+
+function startQueuePolling() {
+  if (_queuePollId) return;
+  loadQueueStatus();
+  _queuePollId = window.setInterval(loadQueueStatus, 30000);
+}
+
+function stopQueuePolling() {
+  if (_queuePollId) {
+    clearInterval(_queuePollId);
+    _queuePollId = null;
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, function (s) {
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]);
+  });
 }
 
 function modeButtonsActiveState() {
@@ -602,29 +703,29 @@ function appCard(app) {
   `;
 }
 
-function renderLmStudioCard(system) {
-  const lm = system.lmStudio || {};
-  const status = String(lm.status || "not_connected");
-  const model = String(lm.model || "");
+function renderOllamaCard(system) {
+  const ollama = system.ollama || {};
+  const status = String(ollama.status || "not_connected");
+  const model = String(ollama.model || "");
   const isConnected = status === "connected";
   const statusClass = isConnected ? "ready" : (status === "error" ? "wip" : "muted");
   const statusLabel = isConnected ? "Connected" : (status === "error" ? "Error" : "Offline");
-  const errorHtml = lm.lastError ? `<li class="muted" style="font-size:0.78em">Last error: ${lm.lastError}</li>` : "";
+  const errorHtml = ollama.lastError ? `<li class="muted" style="font-size:0.78em">Last error: ${ollama.lastError}</li>` : "";
   const modelHtml = model ? `<li>Model: <span class="muted">${model}</span></li>` : "";
 
   return `
     <article class="card stack">
-      <h3>LMStudio</h3>
+      <h3>Ollama</h3>
       <ul class="list">
         <li>Status: <span class="status ${statusClass}">${statusLabel}</span></li>
         ${modelHtml}
         ${errorHtml}
       </ul>
       <div class="event-controls">
-        <button class="action-btn" data-action="lmstudio-start" ${isConnected ? "disabled" : ""}>Start Model</button>
-        <button class="action-btn" data-action="lmstudio-stop" ${!isConnected ? "disabled" : ""}>Stop Model</button>
+        <button class="action-btn" data-action="ollama-start" ${isConnected ? "disabled" : ""}>Start Model</button>
+        <button class="action-btn" data-action="ollama-stop" ${!isConnected ? "disabled" : ""}>Stop Model</button>
       </div>
-      <p class="muted" id="lmstudio-feedback" style="font-size:0.8em;min-height:1.2em"></p>
+      <p class="muted" id="ollama-feedback" style="font-size:0.8em;min-height:1.2em"></p>
     </article>
   `;
 }
@@ -716,7 +817,7 @@ function renderOverview(system) {
         </ul>
       </article>
 
-      ${renderLmStudioCard(system)}
+      ${renderOllamaCard(system)}
       ${renderVoiceCard(system)}
       ${renderMusicMiniPlayer()}
     </div>
@@ -953,10 +1054,12 @@ function renderChatbot() {
           </div>
         </form>
       </div>
+        <div id="queue-box" class="queue-box" aria-live="polite"></div>
     </div>
   `;
 
   bindChatPanelState();
+    startQueuePolling();
 }
 
 function renderAgentCore() {
@@ -1079,17 +1182,20 @@ function activateTab(tab) {
 
   if (tab === "overview") {
     setVisibleView("view-overview");
+    stopQueuePolling();
     return;
   }
 
   if (tab === "agent-core") {
     setVisibleView("view-agent-core");
+    stopQueuePolling();
     return;
   }
 
   if (tab === "settings") {
     renderSettings();
     setVisibleView("view-settings");
+    stopQueuePolling();
     return;
   }
 
@@ -1098,6 +1204,8 @@ function activateTab(tab) {
     setVisibleView("view-chatbot");
     return;
   }
+  // For all other tabs, ensure queue polling is stopped
+  stopQueuePolling();
 
   if (tab === "event-bus") {
     renderEventBus();
@@ -1127,17 +1235,28 @@ function activateTab(tab) {
 }
 
 function wireNavigation() {
+  alarmStopBtn.addEventListener("click", () => {
+    const idToStop = ringingAlarmId;
+    hideAlarmOverlay();
+    if (idToStop) {
+      fetch(`/api/alarms/${idToStop}/stop`, { method: "POST" }).catch(() => {
+        // Overlay is already hidden client-side; a failed stop call here just
+        // means the server-side state may briefly disagree until next sync.
+      });
+    }
+  });
+
   document.addEventListener("click", (event) => {
-    const lmStartButton = event.target.closest("[data-action='lmstudio-start']");
+    const lmStartButton = event.target.closest("[data-action='ollama-start']");
     if (lmStartButton && !lmStartButton.disabled) {
       lmStartButton.disabled = true;
       lmStartButton.textContent = "Loading...";
-      const feedback = document.getElementById("lmstudio-feedback");
+      const feedback = document.getElementById("ollama-feedback");
       if (feedback) feedback.textContent = "Starting model — this may take a moment...";
-      lmStudioStart()
+      ollamaStart()
         .then(async (result) => {
           await refreshSystemStatus();
-          const fb = document.getElementById("lmstudio-feedback");
+          const fb = document.getElementById("ollama-feedback");
           if (fb) fb.textContent = result.ok ? "Model loaded." : (result.message || "Failed to start.");
         })
         .catch(async () => {
@@ -1146,16 +1265,16 @@ function wireNavigation() {
       return;
     }
 
-    const lmStopButton = event.target.closest("[data-action='lmstudio-stop']");
+    const lmStopButton = event.target.closest("[data-action='ollama-stop']");
     if (lmStopButton && !lmStopButton.disabled) {
       lmStopButton.disabled = true;
       lmStopButton.textContent = "Stopping...";
-      const feedback = document.getElementById("lmstudio-feedback");
+      const feedback = document.getElementById("ollama-feedback");
       if (feedback) feedback.textContent = "Unloading model...";
-      lmStudioStop()
+      ollamaStop()
         .then(async (result) => {
           await refreshSystemStatus();
-          const fb = document.getElementById("lmstudio-feedback");
+          const fb = document.getElementById("ollama-feedback");
           if (fb) fb.textContent = result.ok ? "Model unloaded." : (result.message || "Failed to stop.");
         })
         .catch(async () => {
@@ -1698,6 +1817,14 @@ function startEventStream() {
           });
         }
 
+        if (payload.event.type === "alarm-fired") {
+          showAlarmOverlay(payload.event.meta || {});
+        }
+
+        if (payload.event.type === "alarm-stopped") {
+          hideAlarmOverlay();
+        }
+
         if (payload.event.source === "chat" || String(payload.event.type || "").startsWith("chat")) {
           loadChatMessages()
             .then(() => {
@@ -1814,6 +1941,7 @@ async function init() {
   activateTab("overview");
   runStartupSequence();
   autoStartVoice();
+  checkRingingAlarms();
 }
 
 init().catch((error) => {

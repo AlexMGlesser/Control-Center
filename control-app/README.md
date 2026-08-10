@@ -43,27 +43,13 @@ Closing the Control Center window also shuts down the local backend runtime, voi
 
 The packaged desktop build bundles the sibling app UIs and design documents, and it writes runtime data under your user profile instead of the install folder.
 
-## Google Calendar setup (optional)
+## AI integration (Ollama)
 
-By default, calendar data is local (`server/data/calendar-events.json`).
+The agent talks to a local [Ollama](https://ollama.ai) daemon.
 
-To connect to Google Calendar API:
-
-1. Copy `.env.example` to `.env` in `control-app/`.
-2. Set `CALENDAR_PROVIDER=google`.
-3. Configure one auth method:
-   - API key only: `GOOGLE_CALENDAR_API_KEY` (read-only)
-   - Service account (recommended): `GOOGLE_CALENDAR_CLIENT_EMAIL` + `GOOGLE_CALENDAR_PRIVATE_KEY`
-   - OAuth refresh token: `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, `GOOGLE_CALENDAR_REFRESH_TOKEN`
-4. Set `GOOGLE_CALENDAR_ID` (or keep `primary`).
-5. Restart the app.
-
-Notes:
-
-- API key mode supports calendar reads only; create/delete requires service account or OAuth credentials.
-- Service-account calendar access requires sharing the target Google Calendar with the service account email.
-- If your private key is pasted into `.env`, keep embedded newlines escaped as `\\n`.
-- You can set `CALENDAR_PROVIDER=auto` to use Google only when credentials are present; otherwise local storage is used.
+1. Install Ollama and pull the default model: `ollama pull qwen3.5:9b`.
+2. Optionally copy `.env.example` to `.env` and adjust `OLLAMA_BASE_URL` / `OLLAMA_MODEL`.
+3. Control Center will spawn `ollama serve` itself on launch if it isn't already running.
 
 ## Optional web-only runtime (development fallback)
 
@@ -96,7 +82,7 @@ npm run start:web
 ## Notes
 
 - Calendar reads are designed to avoid opening the calendar app unless explicitly requested.
-- Calendar provider supports both local storage and Google Calendar API (configurable by env).
+- Calendar data is entirely local, stored in `server/data/calendar-events.json`.
 - The installed desktop build stores mutable runtime data under `%APPDATA%/Control Center/` on Windows.
 - Standalone app windows use a shared Electron preload bridge and common open/close IPC wiring.
 - Server Manager SSH launch is routed through the local server so browser and Electron paths use the same behavior.

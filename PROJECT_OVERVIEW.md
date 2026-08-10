@@ -1,7 +1,7 @@
 # Control Center - Project Overview
 
 **Last Updated:** 2026-06-22  
-**Status:** Active Development (v1.0.0)
+**Status:** (v0.2.3)
 
 ---
 
@@ -9,9 +9,10 @@
 
 Control Center is a desktop-based AI system hub that combines:
 - **Desktop Application:** Electron-based GUI (Windows)
-- **Local AI Agent:** LMStudio integration for deterministic and fallback processing
+- **Local AI Agent:** Ollama integration with native tool-calling, plus a small deterministic fast path for trivial commands
 - **Modular App Ecosystem:** 8+ integrated applications with independent data/API access
 - **Backend Server:** Express.js running locally, provides API surface and orchestration
+- **Task Queue:** Chat/voice/app requests queue and drain in order instead of blocking on each other
 - **Voice Pipeline:** Whisper (STT) + Piper (TTS) for audio interaction
 
 **Primary Purpose:** Centralized app hub with AI orchestration, supporting both Desktop and Mobile modes.
@@ -33,15 +34,15 @@ Desktop UI (Electron) ←→ IPC/HTTP
 │ • Orchestrator                      │
 │ • App Registry & App Messages       │
 │ • Event Bus (in-memory + SSE)       │
+│ • Task Queue (chat/voice/app)       │
 │ • Chat Service (AI integration)     │
-│ • LMStudio Integration              │
+│ • Ollama Integration                │
 │ • Voice (Whisper/Piper)             │
 │ • Mode State Machine                │
 │ • Settings, Calendar, Drawing, etc. │
 └─────────────────────────────────────┘
          ↓
    App Modules (8 apps)
-   + External APIs (Google Calendar)
    + Local File System
 ```
 
@@ -79,7 +80,7 @@ control-app/
 1. `npm start` or `start-control-center.ps1` (PowerShell)
 2. Electron spawns main window (1400×900, min 1050×700)
 3. Loads `http://localhost:3000` (backend auto-starts)
-4. On close: graceful shutdown of backend, voice sockets, LMStudio probe
+4. On close: graceful shutdown of backend, voice sockets, Ollama probe
 
 ### Main Features
 - **Tab System:** System tabs (Overview, Settings, Chatbot, Event Bus, Agent Core, Integration Hub) + Dynamic app tabs
@@ -107,21 +108,21 @@ control-app/
 | **appMessageService.js** | In-memory app event logging with bounded history |
 | **eventBus.js** | System-wide event broadcasting (in-memory + SSE streaming) |
 | **chatService.js** | Local AI chat state and message history |
-| **lmStudioService.js** | LMStudio status probing (polls every 3s), chat completion requests |
+| **ollamaService.js** | Ollama status probing, lifecycle (start/stop), tool-calling chat completions |
 | **voiceService.js** | WebSocket attachment for voice I/O, audio stream handling |
 | **whisperService.js** | Speech-to-text (local or remote) |
 | **piperService.js** | Text-to-speech synthesis (Piper engine) |
 | **modeStateMachine.js** | Desktop ↔ Mobile mode state, transition history |
 | **settingsService.js** | Audio device, voice model, speed preferences |
-| **calendarService.js** | CRUD for calendar events (local JSON + Google Calendar API support) |
+| **calendarService.js** | CRUD for calendar events, entirely local JSON storage |
 | **drawingFileService.js** | Directory picker and path handling for drawing exports |
 | **musicLibraryService.js** | Music folder scanning and library state |
 | **newsService.js** | News feed integration |
 | **projectService.js** | Project folder and metadata management |
-| **agentRuntime.js** | AI agent execution context and tool invocation |
-| **agentCommandFilter.js** | Intent detection and command routing |
+| **agentRuntime.js** | Builds the agent's system prompt, runs the Ollama tool-calling loop, deterministic fast path |
+| **agentTools.js** | Tool catalog (JSON-schema definitions) and dispatcher for tool execution |
 | **agentContextLoader.js** | Builds context bundles from design docs for AI prompts |
-| **agentToolInterface.js** | Tool execution gateway and permission enforcement |
+| **queueManager.js** / **queueWorker.js** | Task queue (priority FIFO) and drain loop shared by chat, voice, and app messages |
 | **runtimePersistenceService.js** | Reads/writes `logs/control-center-runtime.json` and agent context |
 | **windowControlBridge.js** | IPC handler for opening/closing app windows |
 
@@ -137,7 +138,7 @@ All apps follow a dark-mode visual style and can run either:
 
 | App | Location | Features | Backend |
 |-----|----------|----------|---------|
-| **Calendar** | `calendar-app/` | Month view, agenda, CRUD events | Local JSON + Google Calendar API |
+| **Calendar** | `calendar-app/` | Month view, agenda, CRUD events | Local JSON only |
 | **Project** | `project-app/` | Folder browser, file management, IDE integration | Local file system |
 | **Work** | `work-app/` | Work/school project management | Local file system |
 | **Drawing** | `drawing-app/` | 2D canvas + 3D primitives, transform controls, STL export | Directory picker, local file save |
@@ -157,18 +158,19 @@ All apps follow a dark-mode visual style and can run either:
 ## 6. AI Agent Integration
 
 ### Agent Components
-- **LMStudio:** Local model hosting (status probed every 3 seconds)
-- **Intent Routing:** Deterministic command filter tries to route common requests first
-- **Tool Interface:** Approved tools mapped to app actions (file ops, calendar CRUD, drawing, etc.)
+- **Ollama:** Local model hosting (`qwen3.5:9b` by default), native tool-calling
+- **Task Queue:** Chat/voice/app requests enqueue and drain in order (voice gets priority) instead of blocking on each other
+- **Deterministic Fast Path:** Trivial commands ("open X", "what time is it") skip the LLM entirely
+- **Tool Catalog:** JSON-schema tool definitions the model can call directly (file ops, calendar CRUD, music control, etc.)
 - **Conversation State:** In-memory chat history with context loading
 - **Context Bundles:** Dynamically built from design documents for prompt enrichment
 
 ### Agent Execution Flow
-1. User text → Chatbot input or Voice (Whisper STT)
-2. `agentCommandFilter` analyzes intent
-3. If deterministic match → route to specific tool/app
-4. If non-deterministic → send to LMStudio with context bundle
-5. Tool execution → permission validation → response formatting
+1. User text → Chatbot input, Voice (Whisper STT), or an app's background message
+2. Request is enqueued; the queue worker processes tasks one at a time (voice preempts text)
+3. Deterministic fast path handles trivial commands with no LLM call
+4. Otherwise, Ollama receives the conversation + tool catalog and returns either a reply or structured tool calls
+5. Tool calls execute, results go back to Ollama, looping until a final reply is produced
 6. Response → Chat history + Event bus + UI update
 
 ### Runtime Continuity
@@ -208,7 +210,7 @@ control-app/voice/
 
 ### Runtime State
 - **`logs/control-center-runtime.json`** (ignored in git)
-  - Current mode, LMStudio connection state
+  - Current mode, Ollama connection state
   - Recent chat messages (last 60)
   - App message history (bounded)
   - Active session metadata
@@ -219,7 +221,7 @@ control-app/voice/
   - Tool access history
 
 ### App Data
-- **Calendar:** `control-app/server/data/calendar-events.json` (local) or Google Calendar API
+- **Calendar:** `control-app/server/data/calendar-events.json`, entirely local
 - **Drawing:** User-selected directories (file picker integration)
 - **Music/News:** Scanned from local folders or external APIs
 - **Server Manager:** Browser storage (persists in Electron storage)
@@ -247,7 +249,7 @@ control-app/voice/
 
 ### Dependencies
 ```
-Runtime: express, ws, dotenv, googleapis, fast-xml-parser
+Runtime: express, ws, dotenv, fast-xml-parser
 Desktop: electron, electron-builder
 ```
 
@@ -255,15 +257,10 @@ Desktop: electron, electron-builder
 
 ## 10. External Integrations
 
-### Google Calendar
-- Optional integration; defaults to local JSON
-- Requires OAuth setup in `.env`
-- Read/write events from calendar app
-
-### LMStudio
-- Runs on separate process (user-managed)
-- Backend polls `http://localhost:1234` for model status
-- Chat completions via LMStudio OpenAI-compatible API
+### Ollama
+- Runs as a local daemon; Control Center spawns/stops it if needed
+- Backend polls `http://127.0.0.1:11434` for status
+- Chat completions via Ollama's native tool-calling API (default model `qwen3.5:9b`)
 
 ### External APIs
 - News aggregation services (news-app)
@@ -298,8 +295,8 @@ Desktop: electron, electron-builder
 | `control-app/server/routes/api.js` | Main API endpoint definitions |
 | `control-app/package.json` | Dependencies, build config, scripts |
 | `control-app/server/config.js` | Server configuration (port, host) |
-| `design-documents/*.txt` | Architecture, PRD, functional spec (used for AI context) |
-| `CONTROL_CENTER_PROJECT_STATUS.txt` | Project status snapshot |
+| `design-documents/control-center-overview.md` | Product overview & per-app spec (used for AI context) |
+| `design-documents/control-center-architecture.md` | Architecture, current status, how to run (used for AI context) |
 
 ### Data Directories
 ```

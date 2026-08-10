@@ -4,8 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { serverConfig } from "./config.js";
 import { getBundledAppDirectory } from "./appPaths.js";
-import apiRouter from "./routes/api.js";
-import { stopLmStudioProbe } from "./services/lmStudioService.js";
+import apiRouter, { initializeAgentSystem, shutdownAgentSystem } from "./routes/api.js";
 import { attachVoiceWebSocket, closeVoiceWebSocket } from "./services/voiceService.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -48,6 +47,7 @@ export function startServer() {
       .listen(serverConfig.port, serverConfig.host, () => {
         console.log(`Control Center running at http://localhost:${serverConfig.port}`);
         attachVoiceWebSocket(server);
+        initializeAgentSystem();
         resolve(server);
       })
       .on("error", (error) => {
@@ -58,7 +58,7 @@ export function startServer() {
 
 export function stopServer(server) {
   closeVoiceWebSocket();
-  stopLmStudioProbe();
+  shutdownAgentSystem();
 
   return new Promise((resolve) => {
     if (!server) {
