@@ -119,7 +119,23 @@ export async function stopOllama() {
 
   if (spawnedProcess) {
     try {
-      spawnedProcess.kill();
+      if (process.platform === "win32" && spawnedProcess.pid) {
+        // ollama serve launches its own backend runner as a child of the
+        // process we spawned — spawnedProcess.kill() only signals that
+        // top-level process, leaving the runner orphaned. taskkill's /T
+        // takes the whole tree down. Awaited so it's done before the caller
+        // (app shutdown) proceeds to exit.
+        await new Promise((resolve) => {
+          const killer = spawn("taskkill", ["/pid", String(spawnedProcess.pid), "/t", "/f"], {
+            windowsHide: true,
+            stdio: "ignore"
+          });
+          killer.on("close", resolve);
+          killer.on("error", resolve);
+        });
+      } else {
+        spawnedProcess.kill();
+      }
     } catch {
       // Ignore.
     }

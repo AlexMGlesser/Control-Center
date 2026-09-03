@@ -56,9 +56,9 @@ export function startServer() {
   });
 }
 
-export function stopServer(server) {
+export async function stopServer(server) {
   closeVoiceWebSocket();
-  shutdownAgentSystem();
+  await shutdownAgentSystem();
 
   return new Promise((resolve) => {
     if (!server) {

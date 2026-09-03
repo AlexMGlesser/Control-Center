@@ -87,9 +87,13 @@ export function initializeAgentSystem() {
   return { ok: true, message: "Agent system initialized" };
 }
 
-export function shutdownAgentSystem() {
+export async function shutdownAgentSystem() {
   stopOllamaProbe();
   stopAlarmScheduler();
+  // Only tears down Ollama if this process is the one that spawned it
+  // (stopOllama() no-ops the kill otherwise) — without this, a daemon we
+  // started on launch is detached/unref'd and outlives Electron entirely.
+  await stopOllama();
   return { ok: true, message: "Agent system shut down" };
 }
 

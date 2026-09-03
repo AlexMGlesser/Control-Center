@@ -404,7 +404,7 @@ export function launchApp(toolName) {
     const platform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
     const command = tool[platform];
 
-    spawn(command, { shell: true, detached: true, stdio: "ignore" });
+    spawn(command, { shell: true, detached: true, stdio: "ignore", windowsHide: true });
 
     return {
       ok: true,
@@ -413,7 +413,7 @@ export function launchApp(toolName) {
   } catch (error) {
     if (tool.fallback) {
       try {
-        spawn(tool.fallback, { shell: true, detached: true, stdio: "ignore" });
+        spawn(tool.fallback, { shell: true, detached: true, stdio: "ignore", windowsHide: true });
         return {
           ok: true,
           message: `Launched ${tool.name} (fallback)`
@@ -577,7 +577,7 @@ function buildNode(targetPath) {
 function openPathWithShell(targetPath) {
   const child =
     process.platform === "win32"
-      ? spawn("cmd", ["/c", "start", "", targetPath], { detached: true, stdio: "ignore" })
+      ? spawn("cmd", ["/c", "start", "", targetPath], { detached: true, stdio: "ignore", windowsHide: true })
       : process.platform === "darwin"
         ? spawn("open", [targetPath], { detached: true, stdio: "ignore" })
         : spawn("xdg-open", [targetPath], { detached: true, stdio: "ignore" });
@@ -601,7 +601,8 @@ function openPathInVsCode(targetPath) {
     const child = spawn("code", ["-r", targetPath], {
       detached: true,
       stdio: "ignore",
-      shell: process.platform === "win32"
+      shell: process.platform === "win32",
+      windowsHide: true
     });
 
     child.unref();
@@ -616,7 +617,8 @@ function openPathInVsCode(targetPath) {
   const child = spawn(vscodeExecutable, [targetPath], {
     detached: true,
     stdio: "ignore",
-    shell: false
+    shell: false,
+    windowsHide: true
   });
 
   child.unref();

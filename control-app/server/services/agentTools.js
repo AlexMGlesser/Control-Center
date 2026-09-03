@@ -60,8 +60,8 @@ export const TOOL_DEFINITIONS = [
   tool("get_app", "Get one app's details by appId.", { appId: { type: "string" } }, ["appId"]),
   tool(
     "open_app",
-    `Open an app tab or system tab in the Control Center UI. To open every app at once, call this ONCE with target "all" — do not call it once per app.`,
-    { target: { type: "string", description: `One of: ${[...SYSTEM_TABS, ...WINDOW_APPS].join(", ")}, or "all" to open every app.` } },
+    `Open an app tab or system tab in the Control Center UI. This opens exactly ONE target per call. If the user names two or more SPECIFIC apps ("open calendar and music"), call this once per named app — do NOT use target "all" for that, it is not a shortcut for "several." Only use target "all" when the user asks for literally every app / everything, with no specific apps named.`,
+    { target: { type: "string", description: `One of: ${[...SYSTEM_TABS, ...WINDOW_APPS].join(", ")}, or "all" — but ONLY "all" when the user did not name specific apps.` } },
     ["target"]
   ),
   tool(
@@ -153,12 +153,16 @@ export const TOOL_DEFINITIONS = [
   ),
   tool(
     "list_music_tracks",
-    "List music tracks, optionally filtered by artist, genre, or search query.",
+    `List tracks from the small built-in starter catalog only (not the user's real synced music — that lives in playlists, see list_music_playlists). Optionally filtered by artist, genre, or search query.`,
     { artist: { type: "string" }, genre: { type: "string" }, query: { type: "string" }, limit: { type: "integer" } }
   ),
-  tool("list_music_artists", "List available artists in the music library.", {}),
-  tool("list_music_genres", "List available genres in the music library.", {}),
-  tool("list_music_playlists", "List playlists and their tracks.", {}),
+  tool("list_music_artists", "List artists in the small built-in starter catalog only — NOT the user's real music. For \"what artists/songs do I have\" questions, use list_music_playlists instead; the user's actual local music is organized as playlists, not a flat artist/track catalog.", {}),
+  tool("list_music_genres", "List genres in the small built-in starter catalog only (not the user's real music).", {}),
+  tool(
+    "list_music_playlists",
+    `List the user's real playlists and their tracks — this is the authoritative source for "what music/songs/artists do I have" questions, NOT list_music_tracks/list_music_artists (those only cover a small unrelated starter catalog). Playlist names often ARE artist or album names (e.g. a playlist named "Sixx AM" contains that artist's songs) — check playlist names and their track lists before saying the user doesn't have something.`,
+    {}
+  ),
   tool("create_music_playlist", "Create a new empty playlist by name.", { name: { type: "string" } }, ["name"]),
   tool(
     "add_track_to_playlist",
@@ -179,12 +183,12 @@ export const TOOL_DEFINITIONS = [
   tool("get_news_summary", "Fetch the latest weather, headlines, and tech news and return a spoken-style summary.", {}),
   tool(
     "set_alarm",
-    `Create an alarm or timer. "kind":"wakeup" plays a spoken news + today's-schedule briefing once the alarm is turned off, otherwise it's a plain alarm.`,
+    `Create an alarm or timer. Defaults to a plain "alarm" — only use "wakeup" if the user's own words explicitly ask for a wake-up alarm (e.g. they say "wake-up alarm" or "wake me up"). A time like 7am by itself is NOT a reason to pick "wakeup" — plenty of plain alarms are set for the morning. The result includes "nextFireAtLocal", an already-local-timezone-formatted date/time string — always use that when telling the user when the alarm will go off, never the raw "nextFireAt" UTC value (reading a UTC timestamp directly will often show the wrong calendar day).`,
     {
       time: { type: "string", description: "Local 24-hour time, format HH:mm, e.g. '07:00'." },
       date: {
         type: "string",
-        description: "Local YYYY-MM-DD date. Only used when recurrence is 'once'; if omitted, defaults to the next upcoming occurrence of that time."
+        description: "Local YYYY-MM-DD date. Only set this if the user named a specific day (e.g. \"tomorrow\", \"next Friday\", a date). If they just gave a bare time with no day mentioned, omit this entirely — the server will correctly pick today if that time hasn't passed yet, or the next occurrence otherwise. Do not compute or guess a date yourself when none was mentioned."
       },
       recurrence: { type: "string", enum: ["once", "daily", "weekly"] },
       daysOfWeek: {
@@ -193,11 +197,15 @@ export const TOOL_DEFINITIONS = [
         description: "Only used when recurrence is 'weekly': array of 'mon'..'sun'."
       },
       label: { type: "string" },
-      kind: { type: "string", enum: ["alarm", "wakeup"] }
+      kind: {
+        type: "string",
+        enum: ["alarm", "wakeup"],
+        description: `Default "alarm". Only set "wakeup" when the user explicitly said the words "wake up" / "wake-up alarm" themselves — never infer it from the time alone. "wakeup" plays a spoken news + today's-schedule briefing once turned off.`
+      }
     },
     ["time", "recurrence"]
   ),
-  tool("list_alarms", "List all scheduled alarms.", {}),
+  tool("list_alarms", `List all scheduled alarms. Use each alarm's "nextFireAtLocal" field to report when it fires, not the raw "nextFireAt" UTC value.`, {}),
   tool("cancel_alarm", "Cancel and delete an alarm by id.", { alarmId: { type: "string" } }, ["alarmId"]),
   tool(
     "stop_alarm",
@@ -427,14 +435,28 @@ export async function executeToolCall(toolName, args = {}) {
       if (!["play-pause", "next", "prev", "play-playlist", "play-artist"].includes(action)) {
         return fail("INVALID_MUSIC_ACTION", "action must be one of play-pause, next, prev, play-playlist, play-artist.");
       }
+
+      const needsAppOpen = action === "play-playlist" || action === "play-artist";
+      let openResult = null;
+      if (needsAppOpen) {
+        // The music app has to actually be open (and have loaded its
+        // command listener) to receive this. If it's already open, this is
+        // a harmless no-op focus; if not, opening it now plus the
+        // "openApp" flag below lets the music app's own startup replay
+        // logic pick this exact command up once it finishes loading —
+        // otherwise a play-playlist/play-artist command sent to a closed
+        // app is silently lost with nothing listening for it.
+        openResult = openSingleApp("music-app");
+      }
+
       const eventResult = publishEvent({
         appId: "music-app",
         source: "agent",
         type: "music-command",
         message: `Agent sent music command: ${action}.`,
-        meta: { action, playlistName: args.playlistName, artistName: args.artistName }
+        meta: { action, playlistName: args.playlistName, artistName: args.artistName, openApp: needsAppOpen }
       });
-      return ok({ action, event: eventResult.event });
+      return ok({ action, event: eventResult.event, openedApp: Boolean(openResult?.ok) });
     }
 
     case "get_news_summary": {

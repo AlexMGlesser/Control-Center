@@ -42,11 +42,11 @@ export function createAlarm({ time, date, recurrence = "once", daysOfWeek = [], 
 
   alarms.push(alarm);
   persistAlarms();
-  return alarm;
+  return describeAlarm(alarm);
 }
 
 export function listAlarms() {
-  return alarms.slice();
+  return alarms.map(describeAlarm);
 }
 
 export function cancelAlarm(id) {
@@ -57,15 +57,31 @@ export function cancelAlarm(id) {
   const [removed] = alarms.splice(index, 1);
   ringingAlarmIds.delete(id);
   persistAlarms();
-  return removed;
+  return describeAlarm(removed);
+}
+
+// Adds a pre-formatted local-timezone date/time string alongside the raw UTC
+// ISO timestamp, so callers (including the LLM reading tool results) never
+// have to interpret/convert the UTC string themselves — misreading a UTC
+// evening timestamp as "the next day" is an easy, systematic mistake since
+// LA evenings are already the next calendar day in UTC.
+function describeAlarm(alarm) {
+  return {
+    ...alarm,
+    nextFireAtLocal: alarm.nextFireAt
+      ? new Intl.DateTimeFormat("en-US", { timeZone: CALENDAR_TIMEZONE, dateStyle: "full", timeStyle: "short" }).format(
+          new Date(alarm.nextFireAt)
+        )
+      : null
+  };
 }
 
 export function getRingingAlarms() {
-  return alarms.filter((alarm) => ringingAlarmIds.has(alarm.id));
+  return alarms.filter((alarm) => ringingAlarmIds.has(alarm.id)).map(describeAlarm);
 }
 
 export function stopAlarm(id) {
-  const targets = id ? alarms.filter((alarm) => alarm.id === id && ringingAlarmIds.has(alarm.id)) : getRingingAlarms();
+  const targets = alarms.filter((alarm) => ringingAlarmIds.has(alarm.id) && (!id || alarm.id === id));
 
   if (id && !targets.length) {
     throw alarmError("ALARM_NOT_RINGING", `Alarm '${id}' is not currently ringing.`);
@@ -88,7 +104,7 @@ export function stopAlarm(id) {
     }
   }
 
-  return targets;
+  return targets.map(describeAlarm);
 }
 
 export function startAlarmScheduler() {

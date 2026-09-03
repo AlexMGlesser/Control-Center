@@ -27,7 +27,7 @@ export function onReplyDelivered(listener) {
  */
 export function enqueueUserTurn(content, { priority = "normal", origin = { type: "user" } } = {}) {
   const turnId = `turn_${nextTurnId++}`;
-  turns.set(turnId, { origin, messages: null, llmSteps: 0, replyDelivered: false });
+  turns.set(turnId, { origin, messages: null, llmSteps: 0, replyDelivered: false, deliveredReplyTexts: new Set() });
   const task = enqueueTask({ type: "user", message: content, turnId, origin, priority });
   drain();
   return { task, turnId };
@@ -149,13 +149,76 @@ async function runLlmStep(turnId, priority) {
     return;
   }
 
-  for (const envelope of envelopes) {
+  const sanitized = sanitizeEnvelopes(envelopes, turn);
+
+  for (const envelope of sanitized) {
     enqueueTask({ type: envelope.type, message: envelope.message, turnId, origin: turn.origin, priority });
   }
 }
 
+/**
+ * A reply can only legitimately report a task that already has a confirmed
+ * result. The prompt asks the model to follow that rule, but it isn't
+ * reliable on its own — this is the enforced version:
+ *  - On the turn's very first LLM step, nothing has executed yet, so any
+ *    reply sent alongside a system call is premature narration ("opening
+ *    now...") rather than a real result — drop it, keep the system call.
+ *  - A step with no system call in it has nothing new to report beyond one
+ *    answer — extra replies there are just rambling, not multiple real
+ *    tasks being closed out. Keep only the first.
+ */
+function sanitizeEnvelopes(envelopes, turn) {
+  const systemCount = envelopes.filter((entry) => entry.type === "system").length;
+  let replySeen = 0;
+  const seenTextsThisStep = new Set();
+
+  const sanitized = envelopes.filter((entry) => {
+    if (entry.type !== "reply") {
+      return true;
+    }
+    replySeen += 1;
+
+    if (turn.llmSteps === 1 && systemCount > 0) {
+      return false;
+    }
+    if (systemCount === 0 && replySeen > 1) {
+      return false;
+    }
+
+    // A reply repeating (near-)exactly what was already said earlier this
+    // turn is the same "premature narration" failure showing up on a later
+    // step — e.g. a system call and a reply claiming its result together in
+    // one response, followed by the real confirmation once the returned
+    // result actually comes back. Content-based, so it doesn't matter which
+    // step it happens on.
+    const normalized = normalizeReplyText(entry.message);
+    if (normalized && (turn.deliveredReplyTexts.has(normalized) || seenTextsThisStep.has(normalized))) {
+      return false;
+    }
+    seenTextsThisStep.add(normalized);
+    return true;
+  });
+
+  if (sanitized.length !== envelopes.length) {
+    console.warn(
+      `[Agent] Dropped ${envelopes.length - sanitized.length} premature/redundant reply envelope(s) on step ${turn.llmSteps}.`
+    );
+  }
+
+  return sanitized;
+}
+
+function normalizeReplyText(text) {
+  return String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function deliverReply(turnId, turn, message) {
   const persisted = message ? addAgentMessage(String(message)) : null;
+  turn.deliveredReplyTexts.add(normalizeReplyText(message));
 
   publishEvent({
     source: "agent",

@@ -32,12 +32,22 @@ const VAD_MIN_UTTERANCE_MS = 500;     // minimum utterance length to send
 const VAD_MAX_UTTERANCE_MS = 15000;   // maximum utterance length
 const SAMPLE_RATE = 16000;
 
+// Barge-in (interrupting active TTS playback) needs to be harder to trigger
+// than normal listening, not easier: the mic can still pick up some of
+// Jarvis's own speech bleeding back from the speakers despite echo
+// cancellation, and that residual echo — or ordinary room noise — must not
+// be mistaken for the user actually interrupting.
+const BARGE_IN_THRESHOLD_MULTIPLIER = 1.6; // require louder-than-normal energy to interrupt playback
+const BARGE_IN_CONFIRM_MS = 250;           // energy must stay above threshold this long before playback is cut
+
 // Recording state
 let isRecording = false;
 let recordedChunks = [];
 let recordStartTime = 0;
 let silenceStartTime = 0;
 let vadCheckInterval = null;
+let bargeInCandidateStart = 0;
+let pendingBargeIn = false;
 
 export function getVoiceState() {
   return {
@@ -249,13 +259,19 @@ function checkVAD() {
   const energy = computeRMSEnergy();
   const now = Date.now();
   const speakingBargeIn = voiceStatus === "speaking" || voiceStatus === "processing";
-  const threshold = speakingBargeIn ? VAD_ENERGY_THRESHOLD * 0.65 : VAD_ENERGY_THRESHOLD;
+  const threshold = speakingBargeIn ? VAD_ENERGY_THRESHOLD * BARGE_IN_THRESHOLD_MULTIPLIER : VAD_ENERGY_THRESHOLD;
 
   if (!isRecording) {
     // Check if speech started
     if (energy > threshold) {
-      // Barge-in: stop any active TTS playback
-      stopPlayback();
+      // Recording starts immediately either way, so no audio is lost — but
+      // during playback, actually cutting off Jarvis (pendingBargeIn) is
+      // held back until the speech is confirmed sustained, below.
+      pendingBargeIn = speakingBargeIn;
+      bargeInCandidateStart = now;
+      if (!speakingBargeIn) {
+        stopPlayback(); // harmless no-op when nothing is playing
+      }
 
       isRecording = true;
       recordedChunks = [];
@@ -269,7 +285,20 @@ function checkVAD() {
 
     if (energy > threshold) {
       silenceStartTime = 0;
+
+      // A single loud sample while Jarvis is speaking is as likely to be
+      // TTS echo bleeding back into the mic (or room noise) as real
+      // interruption — only cut playback once energy has stayed up for a
+      // sustained stretch, confirming it's genuine speech.
+      if (pendingBargeIn && now - bargeInCandidateStart >= BARGE_IN_CONFIRM_MS) {
+        stopPlayback();
+        pendingBargeIn = false;
+      }
     } else {
+      // Energy dropped before the barge-in was confirmed — treat it as a
+      // false alarm and leave Jarvis's playback alone.
+      pendingBargeIn = false;
+
       if (!silenceStartTime) {
         silenceStartTime = now;
       }

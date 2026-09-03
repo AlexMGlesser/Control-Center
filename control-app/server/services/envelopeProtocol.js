@@ -79,7 +79,7 @@ function parseSingleEnvelope(raw) {
   const type = fields[0].toLowerCase();
 
   if (type === "reply") {
-    const message = fields.slice(1).join("|").trim();
+    const message = unescapeReplyText(fields.slice(1).join("|").trim());
     return message ? { type: "reply", message } : null;
   }
 
@@ -101,6 +101,14 @@ function parseSingleEnvelope(raw) {
   // by renderUserEnvelope/renderReturnedEnvelope below), never parsed back
   // out of model output, but are harmless to ignore if a model echoes one.
   return null;
+}
+
+// Reply content is plain text, not JSON, so the model's own literal "\n"
+// (two characters: backslash + n) never gets decoded into a real line break
+// the way it would inside a JSON string. Models reach for that escape out of
+// habit anyway — convert it here rather than relying on the prompt to stop.
+function unescapeReplyText(text) {
+  return text.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
 }
 
 function splitTopLevel(text, separator) {
