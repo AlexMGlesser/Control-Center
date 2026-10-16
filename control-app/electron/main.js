@@ -5,6 +5,7 @@ import { startServer, stopServer } from "../server/index.js";
 import { serverConfig } from "../server/config.js";
 import { onShutdownRequested } from "../server/routes/api.js";
 import { registerWindowControlHandler } from "../server/services/windowControlBridge.js";
+import { isHandTrackerRunning, launchHandExplorer, stopHandTracker } from "../server/services/handTrackerService.js";
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
@@ -24,7 +25,18 @@ const APP_WINDOW_CONFIGS = {
   "drawing-app": { title: "Drawing App", backgroundColor: "#070f13" },
   "movie-app": { title: "Movie App", backgroundColor: "#160b0e" },
   "server-manager-app": { title: "Server Manager App", backgroundColor: "#0e1216" },
-  "wikipedia-app": { title: "Wikipedia App", backgroundColor: "#04060d" }
+  "wikipedia-app": { title: "Wikipedia App", backgroundColor: "#04060d" },
+  // Native Python/Tkinter window, not a BrowserWindow: "open" launches the
+  // process and "close" stops it (see NATIVE_APP_HANDLERS).
+  "hand-tracker-app": { title: "Hand Tracker App", backgroundColor: "#081114" }
+};
+
+const NATIVE_APP_HANDLERS = {
+  "hand-tracker-app": {
+    open: () => launchHandExplorer(),
+    close: () => stopHandTracker("all"),
+    isOpen: () => isHandTrackerRunning()
+  }
 };
 
 const appWindows = Object.fromEntries(Object.keys(APP_WINDOW_CONFIGS).map((appId) => [appId, null]));
@@ -54,6 +66,10 @@ function createMainWindow() {
 }
 
 function openAppWindow(appId) {
+  if (NATIVE_APP_HANDLERS[appId]) {
+    return NATIVE_APP_HANDLERS[appId].open();
+  }
+
   const existingWindow = appWindows[appId];
   if (existingWindow && !existingWindow.isDestroyed()) {
     existingWindow.focus();
@@ -99,6 +115,14 @@ function openAppWindow(appId) {
 }
 
 function closeAppWindow(appId) {
+  if (NATIVE_APP_HANDLERS[appId]) {
+    // Fire-and-forget like BrowserWindow.close(); shutdown still awaits the
+    // same stop through stopServer() -> shutdownHandTracker().
+    const wasOpen = NATIVE_APP_HANDLERS[appId].isOpen();
+    NATIVE_APP_HANDLERS[appId].close().catch(() => {});
+    return wasOpen;
+  }
+
   const appWindow = appWindows[appId];
   if (!appWindow || appWindow.isDestroyed()) {
     return false;
@@ -242,7 +266,10 @@ app.whenReady()
     registerWindowControlHandler({ closeAppWindow: closeAppWindowByTarget });
     createMainWindow();
     Object.keys(APP_WINDOW_CONFIGS).forEach((appId) => {
-      ipcMain.handle(`${appId}:open`, () => {
+      ipcMain.handle(`${appId}:open`, async () => {
+        if (NATIVE_APP_HANDLERS[appId]) {
+          return openAppWindow(appId);
+        }
         openAppWindow(appId);
         return { ok: true };
       });

@@ -9,7 +9,8 @@ const WINDOW_APP_BRIDGE_NAMES = {
   "drawing-app": "DrawingApp",
   "movie-app": "MovieApp",
   "server-manager-app": "ServerManagerApp",
-  "wikipedia-app": "WikipediaApp"
+  "wikipedia-app": "WikipediaApp",
+  "hand-tracker-app": "HandTrackerApp"
 };
 
 const desktopBridge = {

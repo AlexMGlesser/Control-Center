@@ -111,6 +111,17 @@
         ]
       },
       {
+        "from": "../hand-tracker-app",
+        "to": "apps/hand-tracker-app",
+        "filter": [
+          "**/*",
+          "!dataset/**",
+          "!gesture_profiles/**",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
         "from": "../design-documents",
         "to": "design-documents",
         "filter": [

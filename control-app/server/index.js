@@ -20,7 +20,10 @@ const APP_STATIC_DIRS = [
   ["drawing-app", getBundledAppDirectory("drawing-app")],
   ["movie-app", getBundledAppDirectory("movie-app")],
   ["server-manager-app", getBundledAppDirectory("server-manager-app")],
-  ["wikipedia-app", getBundledAppDirectory("wikipedia-app")]
+  ["wikipedia-app", getBundledAppDirectory("wikipedia-app")],
+  // Only the panel/ subfolder is served — the rest of hand-tracker-app is
+  // Python code, the model, and the user's gesture data.
+  ["hand-tracker-app", path.join(getBundledAppDirectory("hand-tracker-app"), "panel")]
 ];
 
 function createServerApp() {

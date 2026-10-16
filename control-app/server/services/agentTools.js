@@ -39,6 +39,7 @@ import { getNewsBriefing, formatNewsSummary } from "./newsService.js";
 import { closeAppWindow } from "./windowControlBridge.js";
 import { createAlarm, listAlarms, cancelAlarm, stopAlarm } from "./alarmService.js";
 import { queryLibrarian, startWikipedia } from "./wikipediaService.js";
+import { launchGestureRecorder, launchHandExplorer, stopHandTracker } from "./handTrackerService.js";
 
 const CALENDAR_TIMEZONE = getCalendarTimeZone();
 
@@ -51,8 +52,20 @@ const WINDOW_APPS = [
   "drawing-app",
   "movie-app",
   "server-manager-app",
-  "wikipedia-app"
+  "wikipedia-app",
+  "hand-tracker-app"
 ];
+// Window apps whose "window" is a native process rather than an Electron
+// BrowserWindow. They go through exactly the same open/close paths as the
+// rest (including "all"); opening additionally launches the process here on
+// the server, so it works with no UI client connected (voice), and closing
+// stops it. The client/Electron open path is idempotent (alreadyRunning).
+const NATIVE_PROCESS_APPS = {
+  "hand-tracker-app": {
+    launch: () => launchHandExplorer(),
+    stop: () => stopHandTracker("all")
+  }
+};
 const SYSTEM_TABS = ["overview", "settings", "chatbot", "event-bus", "agent-core", "integration-hub"];
 
 // Size caps for wiki tool results — everything returned lands in the model's
@@ -74,16 +87,25 @@ export const TOOL_DEFINITIONS = [
   tool(
     "open_app",
     `Open an app tab or system tab in the Control Center UI. This opens exactly ONE target per call. If the user names two or more SPECIFIC apps ("open calendar and music"), call this once per named app — do NOT use target "all" for that, it is not a shortcut for "several." Only use target "all" when the user asks for literally every app / everything, with no specific apps named.`,
-    { target: { type: "string", description: `One of: ${[...SYSTEM_TABS, ...WINDOW_APPS].join(", ")}, or "all" — but ONLY "all" when the user did not name specific apps.` } },
+    { target: { type: "string", description: `One of: ${[...SYSTEM_TABS, ...WINDOW_APPS].join(", ")}, or "all" — but ONLY "all" when the user did not name specific apps. hand-tracker-app is the gesture-controlled "file explorer" / "hand tracker" (it turns on the webcam).` } },
     ["target"]
   ),
   tool(
     "close_app",
-    "Close an open app window.",
+    "Close an open app window. For hand-tracker-app this stops its running file explorer and gesture recorder.",
     { target: { type: "string", description: `One of: ${WINDOW_APPS.join(", ")}, or 'all-apps'.` } },
     ["target"]
   ),
   tool("connect_app", "Run the connector handshake for one app.", { appId: { type: "string" } }, ["appId"]),
+  tool(
+    "start_gesture_recorder",
+    `Launch the Hand Tracker gesture recorder, which records labeled training clips of the user's own hand gestures. Stops the hand-tracker file explorer if it is running (they share the webcam). Use label "none" for background/negative examples.`,
+    {
+      label: { type: "string", description: `Gesture label, e.g. "swipe_left". Lowercase letters, digits, '_' or '-'.` },
+      reps: { type: "integer", description: "Number of repetitions to record (1-500). Omit for the recorder's default (10)." },
+      autostart: { type: "boolean", description: "Start the countdown/record loop as soon as the camera is ready. Only if the user asks to start right away." }
+    }
+  ),
   tool("get_mode", "Get current desktop/mobile mode state.", {}),
   tool(
     "switch_mode",
@@ -295,11 +317,11 @@ export async function executeToolCall(toolName, args = {}) {
       }
 
       if (["all", "apps", "all-apps", "everything", "window-apps"].includes(target)) {
-        const opened = WINDOW_APPS.map((appId) => openSingleApp(appId));
-        return ok({ target: "all-apps", opened, count: opened.length });
+        const opened = await Promise.all(WINDOW_APPS.map((appId) => openSingleApp(appId)));
+        return ok({ target: "all-apps", opened, count: opened.filter((entry) => entry.ok).length });
       }
 
-      const result = openSingleApp(target);
+      const result = await openSingleApp(target);
       if (!result.ok) {
         return result;
       }
@@ -317,6 +339,15 @@ export async function executeToolCall(toolName, args = {}) {
         return fail("INVALID_CLOSE_TARGET", `close_app supports ${WINDOW_APPS.join(", ")}, or 'all-apps'.`);
       }
 
+      // Native-process apps are stopped here (awaited), not only via the
+      // desktop window bridge below, so closing works without Electron too.
+      const nativeTargets = Object.keys(NATIVE_PROCESS_APPS).filter((appId) => closeAll || appId === target);
+      const nativeStops = [];
+      for (const appId of nativeTargets) {
+        const stopResult = await NATIVE_PROCESS_APPS[appId].stop();
+        nativeStops.push({ target: appId, ok: stopResult.ok, stopped: stopResult.stopped });
+      }
+
       const app = closeAll ? null : getAppById(target);
       const label = closeAll ? "all app windows" : app?.name || target;
       const closeTarget = closeAll ? "all-apps" : target;
@@ -329,11 +360,39 @@ export async function executeToolCall(toolName, args = {}) {
         meta: { target: closeTarget, label, closeAll, directCloseOk: Boolean(closeResult?.ok) }
       });
 
-      return ok({ target: closeTarget, label, closeAll, directClose: closeResult, event: eventResult.event });
+      return ok({
+        target: closeTarget,
+        label,
+        closeAll,
+        directClose: closeResult,
+        event: eventResult.event,
+        ...(nativeStops.length ? { nativeStops } : {})
+      });
     }
 
     case "connect_app":
       return connectApp(String(args.appId || ""));
+
+    case "start_gesture_recorder": {
+      const result = await launchGestureRecorder({
+        label: args.label,
+        reps: args.reps,
+        autostart: args.autostart === true
+      });
+      if (!result.ok) {
+        return result;
+      }
+      return ok({
+        process: "recorder",
+        pid: result.pid,
+        args: result.args,
+        alreadyRunning: Boolean(result.alreadyRunning),
+        stoppedExplorer: result.stoppedOther === "explorer",
+        message: result.alreadyRunning
+          ? "Gesture recorder was already running; its settings were not changed."
+          : "Gesture recorder window launched."
+      });
+    }
 
     case "get_mode":
       return ok({ mode: getModeState() });
@@ -478,7 +537,7 @@ export async function executeToolCall(toolName, args = {}) {
         // logic pick this exact command up once it finishes loading —
         // otherwise a play-playlist/play-artist command sent to a closed
         // app is silently lost with nothing listening for it.
-        openResult = openSingleApp("music-app");
+        openResult = await openSingleApp("music-app");
       }
 
       const eventResult = publishEvent({
@@ -714,12 +773,20 @@ function trimText(text, maxChars) {
   return clean.length > maxChars ? `${clean.slice(0, maxChars - 1).trimEnd()}…` : clean;
 }
 
-function openSingleApp(target) {
+async function openSingleApp(target) {
   const isSystemTab = SYSTEM_TABS.includes(target);
   const app = isSystemTab ? null : getAppById(target);
 
   if (!isSystemTab && !app) {
     return fail("APP_NOT_FOUND", `No app found for target '${target}'.`);
+  }
+
+  let nativeLaunch = null;
+  if (NATIVE_PROCESS_APPS[target]) {
+    nativeLaunch = await NATIVE_PROCESS_APPS[target].launch();
+    if (!nativeLaunch.ok) {
+      return { ...nativeLaunch, target };
+    }
   }
 
   const isWindowApp = WINDOW_APPS.includes(target);
@@ -732,15 +799,27 @@ function openSingleApp(target) {
   }
   const tab = isSystemTab ? target : `app:${app.id}`;
   const label = isSystemTab ? target : app.name;
+  const nativeMeta = nativeLaunch
+    ? { isNativeApp: true, pid: nativeLaunch.pid, alreadyRunning: Boolean(nativeLaunch.alreadyRunning) }
+    : {};
   const eventResult = publishEvent({
     appId: isSystemTab ? "control-center" : app.id,
     source: "agent",
     type: "open-app",
     message: `Agent opened ${label}.`,
-    meta: { target, tab, label, isWindowApp }
+    meta: { target, tab, label, isWindowApp, ...nativeMeta }
   });
 
-  return { ok: true, target, tab, label, isWindowApp, event: eventResult.event };
+  return {
+    ok: true,
+    target,
+    tab,
+    label,
+    isWindowApp,
+    ...nativeMeta,
+    ...(nativeLaunch?.stoppedOther ? { stoppedOther: nativeLaunch.stoppedOther } : {}),
+    event: eventResult.event
+  };
 }
 
 function ok(data) {
