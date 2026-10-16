@@ -9,7 +9,8 @@ Control Center is meant to do.*
 
 Control Center is a desktop AI system hub: a single Electron app that gives
 one primary user access to a set of independent apps (calendar, projects,
-work, drawing, news, music, server management, movies), plus a local AI
+work, drawing, news, music, server management, movies, offline Wikipedia),
+plus a local AI
 agent (via Ollama) that can act across those apps through tool calls. The
 user is always the higher authority — the agent only acts through approved
 tools, never direct system access.
@@ -80,6 +81,19 @@ Local movie server with folder import, a poster-style library, and inline
 in-app playback. Library state is per-session (rebuilt from the imported
 folder each time), not a persistent indexed database — that's a planned
 improvement.
+
+### wikipedia-app
+Offline English Wikipedia: the GLESSER ARCHIVE librarian (a Python server
+Control Center starts on demand) with ranked search, an article reader, and
+its own librarian chat page, shown in the app window. The archive is read in
+place from a local folder, read-only. Control Center's agent looks facts up
+here instead of answering from memory — it searches, reads the best article,
+and answers citing the article title. Example:
+
+> User: "Who designed the Eiffel Tower?"
+> Agent: (searches "Eiffel Tower design", reads "Eiffel Tower") "The Eiffel
+> Tower was designed by Maurice Koechlin and Émile Nouguier, two senior
+> engineers at Gustave Eiffel's company..."
 
 ## Cross-cutting requirements
 

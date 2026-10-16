@@ -283,7 +283,7 @@ async function openMusicAppWindow() {
   await openWindowApp("music-app");
 }
 
-const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"];
+const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app", "wikipedia-app"];
 
 const WINDOW_APP_BRIDGE_NAMES = {
   "calendar-app": "CalendarApp",
@@ -293,7 +293,8 @@ const WINDOW_APP_BRIDGE_NAMES = {
   "music-app": "MusicApp",
   "drawing-app": "DrawingApp",
   "movie-app": "MovieApp",
-  "server-manager-app": "ServerManagerApp"
+  "server-manager-app": "ServerManagerApp",
+  "wikipedia-app": "WikipediaApp"
 };
 
 function getDesktopWindowMethod(appId, action) {
@@ -334,6 +335,10 @@ async function openServerManagerAppWindow() {
   await openWindowApp("server-manager-app");
 }
 
+async function openWikipediaAppWindow() {
+  await openWindowApp("wikipedia-app");
+}
+
 async function closeCalendarAppWindow() {
   await closeWindowApp("calendar-app");
 }
@@ -366,6 +371,10 @@ async function closeServerManagerAppWindow() {
   await closeWindowApp("server-manager-app");
 }
 
+async function closeWikipediaAppWindow() {
+  await closeWindowApp("wikipedia-app");
+}
+
 async function closeKnownAppWindow(appId) {
   if (appId === "all-apps") {
     if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeAllAppWindows) {
@@ -395,6 +404,8 @@ async function closeKnownAppWindow(appId) {
     await closeMovieAppWindow();
   } else if (appId === "server-manager-app") {
     await closeServerManagerAppWindow();
+  } else if (appId === "wikipedia-app") {
+    await closeWikipediaAppWindow();
   } else {
     return false;
   }
@@ -1131,7 +1142,7 @@ function renderSingleApp(appId) {
   }
 
   const capHtml = app.capabilities.map((cap) => `<li>${cap}</li>`).join("");
-  const launchButton = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"].includes(app.id)
+  const launchButton = WINDOW_APP_IDS.includes(app.id)
     ? `<div><button class="action-btn" data-action="open-app" data-app-id="${app.id}">Open ${app.name}</button></div>`
     : "";
 
@@ -1803,6 +1814,10 @@ function startEventStream() {
             });
           } else if (targetTab === "app:server-manager-app") {
             openServerManagerAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
+          } else if (targetTab === "app:wikipedia-app") {
+            openWikipediaAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
           } else {

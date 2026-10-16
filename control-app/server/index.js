@@ -19,7 +19,8 @@ const APP_STATIC_DIRS = [
   ["music-app", getBundledAppDirectory("music-app")],
   ["drawing-app", getBundledAppDirectory("drawing-app")],
   ["movie-app", getBundledAppDirectory("movie-app")],
-  ["server-manager-app", getBundledAppDirectory("server-manager-app")]
+  ["server-manager-app", getBundledAppDirectory("server-manager-app")],
+  ["wikipedia-app", getBundledAppDirectory("wikipedia-app")]
 ];
 
 function createServerApp() {
@@ -27,6 +28,9 @@ function createServerApp() {
 
   app.use(express.json());
   app.use("/api", apiRouter);
+  // The Wikipedia App's Python server code isn't a static asset — only its
+  // wrapper page (index.html/app.js/styles.css) is served from that folder.
+  app.use("/wikipedia-app/librarian", (req, res) => res.status(404).end());
   APP_STATIC_DIRS.forEach(([routeKey, appDir]) => {
     app.use(`/${routeKey}`, express.static(appDir));
   });

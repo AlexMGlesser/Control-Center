@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wikipedia App</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!-- Thin wrapper: Control Center starts the librarian's Python server, then
+         this page embeds the librarian's own web UI (search, reader, /agent). -->
+    <section id="status-panel" class="status-panel">
+      <div class="card">
+        <p class="eyebrow">Control Center</p>
+        <h1>Wikipedia App</h1>
+        <p id="status-text" class="status-text">Starting the offline archive…</p>
+        <p id="status-detail" class="muted"></p>
+        <div class="actions">
+          <button id="retry-btn" class="action-btn" type="button" hidden>Retry</button>
+        </div>
+      </div>
+    </section>
+    <iframe id="librarian-frame" class="librarian-frame" title="GLESSER ARCHIVE" hidden></iframe>
+    <script src="./app.js"></script>
+  </body>
+</html>

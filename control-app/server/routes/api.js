@@ -22,6 +22,7 @@ import {
 import { addUserMessage, getChatMessages } from "../services/chatService.js";
 import { getAgentContextText, getAgentRuntimeStatus, getAgentToolCatalog } from "../services/agentRuntime.js";
 import { startOllama, stopOllama, startOllamaProbe, stopOllamaProbe } from "../services/ollamaService.js";
+import { getWikipediaStatus, startWikipedia, stopWikipedia } from "../services/wikipediaService.js";
 import { getVoiceStatus } from "../services/voiceService.js";
 import { enqueueUserTurn, getQueueStatus, onReplyDelivered } from "../services/queueWorker.js";
 import {
@@ -94,6 +95,9 @@ export async function shutdownAgentSystem() {
   // (stopOllama() no-ops the kill otherwise) — without this, a daemon we
   // started on launch is detached/unref'd and outlives Electron entirely.
   await stopOllama();
+  // Same rule for the Wikipedia App's librarian server: only killed if this
+  // process spawned it (it's started lazily, on app open or first wiki tool call).
+  await stopWikipedia();
   return { ok: true, message: "Agent system shut down" };
 }
 
@@ -409,6 +413,24 @@ router.get("/apps/news-app/briefing", async (req, res) => {
       details: error.message
     });
   }
+});
+
+router.get("/apps/wikipedia-app/server", async (req, res) => {
+  res.json({ ok: true, ...(await getWikipediaStatus()) });
+});
+
+router.post("/apps/wikipedia-app/server/start", async (req, res) => {
+  const result = await startWikipedia();
+  if (result.ok && !result.alreadyRunning) {
+    publishEvent({
+      source: "wikipedia-app",
+      appId: "wikipedia-app",
+      type: "status",
+      message: "Wikipedia librarian server started.",
+      meta: { url: result.url }
+    });
+  }
+  res.status(result.ok ? 200 : 503).json(result);
 });
 
 router.get("/apps/music-app/library", (req, res) => {

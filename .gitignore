@@ -43,9 +43,16 @@ control-app/server/data/drawing-files.json
 control-app/server/data/music-library.json
 control-app/server/data/music-local-playlists.json
 
+# Python bytecode (wikipedia-app librarian)
+__pycache__/
+*.pyc
+
 # Agentic testing folder
 agentic-testing/
 
 # Local alarm sound asset (user-supplied audio, not licensed for the repo)
 control-app/client/assets/alarm-sound.mp3
 The Clash - Should I Stay or Should I Go (Official Audio).mp3
+
+# Never commit Wikipedia archive data (it is read in place from WIKIPEDIA_DATA_DIR)
+wikipedia-app/**/*.sqlite*

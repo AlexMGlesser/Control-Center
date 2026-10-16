@@ -6,7 +6,7 @@ Session Manager, Copilot Automation Adapter, Movie Server Control Service,
 etc.) that were never built. This doc describes what actually exists, plus
 current status and how to run it, so it doesn't drift from reality again.*
 
-**Last updated:** 2026-08-08
+**Last updated:** 2026-10-15
 
 ## Principles
 
@@ -31,6 +31,9 @@ Express backend (control-app/server, localhost:3100)
    server/services/*.js — one file per concern (see below)
         |
    *-app/ static bundles served per-route, or standalone Electron windows
+        |
+   wikipedia-app only: a Python child process (librarian.py, 127.0.0.1:8766)
+   started on demand by wikipediaService.js
 ```
 
 ## Backend services (`control-app/server/services/`)
@@ -41,9 +44,10 @@ Express backend (control-app/server, localhost:3100)
 | `queueManager.js` / `queueWorker.js` | Priority queue where every step of a request's lifecycle — not just the initial message — is its own entry (`user`, `system`, `returned`, `reply`). `queueWorker.js` dispatches each dequeued entry by type, driving multi-step tool-call chains one queue cycle at a time; voice gets high priority on every entry of its turn. |
 | `agentRuntime.js` | Builds the agent's system prompt (role doc + tool catalog description + static docs + chat history + app messages + current date/time) and seeds each new turn's message history. No fast path — every request reaches Ollama. |
 | `envelopeProtocol.js` | The `{type \| message}` envelope grammar: a brace/quote-aware parser for the model's raw text output, renderers for the system-authored `user`/`returned` envelopes, and the tool-catalog-to-text renderer used in the system prompt. |
-| `agentTools.js` | The tool catalog (JSON-schema-shaped function defs, now rendered as prompt text rather than passed to Ollama's structured tool-calling API) and the dispatcher that executes them — calendar CRUD, app open/close (including bulk `target: "all"`), music control, project create/open, settings, mode switch, news summary, event publish. This is the actual permission boundary: if a tool isn't defined here, the agent cannot do it. |
+| `agentTools.js` | The tool catalog (JSON-schema-shaped function defs, now rendered as prompt text rather than passed to Ollama's structured tool-calling API) and the dispatcher that executes them — calendar CRUD, app open/close (including bulk `target: "all"`), music control, project create/open, settings, mode switch, news summary, event publish, offline Wikipedia lookup (`search_wikipedia`, `read_wikipedia_article`). This is the actual permission boundary: if a tool isn't defined here, the agent cannot do it. |
 | `agentContextLoader.js` | Ranks and trims excerpts from this design-documents folder into a small context bundle for the system prompt (capped ~2200 chars). |
 | `ollamaService.js` | Talks to a local Ollama daemon (`OLLAMA_BASE_URL`, default `http://127.0.0.1:11434`) — status probing, start/stop lifecycle, and plain chat completions (no `tools` parameter — tool-call intent is expressed in the model's text via the envelope grammar). Default model `qwen3.5:9b` (configurable via `OLLAMA_MODEL`). |
+| `wikipediaService.js` | Lifecycle + HTTP client for the Wikipedia App's librarian server (`wikipedia-app/librarian/librarian.py`, stdlib Python). Starts it on demand as a child process (`WIKIPEDIA_PYTHON`, port `WIKIPEDIA_LIBRARIAN_PORT` = 8766), reuses one already answering on that port, and on shutdown kills it only if it spawned it — same rules as `ollamaService.js`. Points it at `WIKIPEDIA_DATA_DIR` (the archive's `organized` folder, read in place). `queryLibrarian()` calls its `/api/v1` endpoints for the wiki agent tools. |
 | `voiceService.js` | WebSocket at `/voice`. Wake word ("Jarvis") gates commands; transcribed speech is enqueued through the same task queue as chat, then spoken back via Piper. |
 | `whisperService.js` / `piperService.js` | Local STT/TTS binaries under `control-app/voice/`. |
 | `chatService.js` | In-memory chat history. |
@@ -99,6 +103,11 @@ required for core functionality.
 - `control-app/agent/AGENT_RUNTIME_CONTEXT.txt` — agent continuity log,
   regenerated from runtime state (gitignored)
 - Drawing/music/movie apps read/write user-chosen local directories
+- Wikipedia App reads an offline English Wikipedia archive in place from
+  `WIKIPEDIA_DATA_DIR` (default `D:Glesser-Industries-DatabaseWikipediaorganized`;
+  `en/enwiki.sqlite` + `en/search_index.sqlite` + article files, tens of GB).
+  Never copied into the repo; the SQLite files are opened `mode=ro&immutable=1`
+  so nothing in that folder is written (see `wikipedia-app/README.md`).
 
 ## Security model
 
@@ -111,7 +120,7 @@ tradeoff for a single-user local desktop tool, not a multi-tenant system.
 
 ## Current status
 
-All 8 apps are implemented and wired into the app registry. Voice
+All 9 apps are implemented and wired into the app registry. Voice
 (Whisper STT + Piper TTS) is functional end-to-end through the task queue.
 The agent runs on Ollama via the raw-text envelope protocol described above.
 
@@ -131,6 +140,13 @@ The agent runs on Ollama via the raw-text envelope protocol described above.
   telemetry are not implemented.
 - Mobile Mode is a UI/state-machine toggle only — there is no actual mobile
   client yet.
+- Wikipedia lookups hit a 33 GB search index on a hard drive: a search whose
+  index pages aren't cached yet can take from ~10 s to over a minute (common
+  words), repeats are sub-second. The queue is sequential, so a slow lookup
+  delays other agent work for that long.
+- The librarian's plain-text conversion drops wikitext templates, so figures
+  written as `{{convert|...}}` (heights, distances) are missing from article
+  text the agent reads.
 
 **Possible next priorities:**
 1. Recurring events and event editing in calendar-app.
@@ -148,3 +164,8 @@ Requires a local Ollama daemon with the configured model pulled
 (`ollama pull qwen3.5:9b`, or whatever `OLLAMA_MODEL` is set to) — Control
 Center will spawn `ollama serve` itself if it isn't already running, but it
 won't pull a missing model for you.
+
+The Wikipedia App additionally needs Python 3.8+ with SQLite FTS5 on `PATH`
+(or `WIKIPEDIA_PYTHON`) and the prebuilt archive at `WIKIPEDIA_DATA_DIR`;
+Control Center starts the librarian itself when the app is opened or the agent
+first looks something up.

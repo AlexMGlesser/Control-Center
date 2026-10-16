@@ -14,19 +14,19 @@ USAGE (no installs needed - standard Python 3.8+ only)
      finished organizing). It's resumable - Ctrl+C and rerun to continue:
          python librarian.py --build-index            (English)
          python librarian.py --build-index --lang de  (German, etc.)
-  2. Start the archive (opens in your browser at http://127.0.0.1:8765):
+  2. Start the archive (opens in your browser at http://127.0.0.1:8766):
          python librarian.py
 
   3. Ask the librarian agent (a local AI that browses the archive for you):
-         open http://127.0.0.1:8765/agent  - needs Ollama (free, https://ollama.com);
+         open http://127.0.0.1:8766/agent  - needs Ollama (free, https://ollama.com);
          the page starts it and offers to download the model the first time.
 
 For other AI agents:
-  * HTTP API: http://127.0.0.1:8765/api/v1  (guide at /agents.txt)
+  * HTTP API: http://127.0.0.1:8766/api/v1  (guide at /agents.txt)
   * MCP server (Claude Desktop etc.):  python librarian.py --mcp
 
 Options: --data-dir PATH   use a different Wikipedia folder
-         --port N          use a different port (default 8765)
+         --port N          use a different port (default 8766)
          --no-browser      don't open the browser automatically
          --force           build the index even if organizing isn't marked complete
          --model NAME      local model for the agent (default qwen2.5:14b)
@@ -34,6 +34,9 @@ Options: --data-dir PATH   use a different Wikipedia folder
                            OpenAI-compatible server such as LM Studio also works)
 
 Text from Wikipedia is licensed CC BY-SA 4.0; each article page links its source.
+
+CONTROL CENTER COPY: this is the wikipedia-app port inside Control Center. Changes from
+the original are listed in ../README.md (default port 8766, databases opened immutable).
 """
 
 import argparse
@@ -58,7 +61,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 DATA_DIR = Path(r"D:\Glesser-Industries-Database\Wikipedia")
-PORT = 8765
+PORT = 8766              # Control Center copy (the original uses 8765)
 BODY_CHARS = 6000        # characters of each article's text that get indexed (the lead
                          # sections, which matter most); raise for deeper search, bigger index
 CANDIDATES = 500         # top matches re-ranked per query
@@ -288,8 +291,19 @@ def index_db_path(lang):
 
 
 def ro_connect(path):
-    con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True,
-                          check_same_thread=False)
+    # Control Center copy: open with immutable=1 so SQLite never creates, locks or writes
+    # the database's -wal/-shm files (plain mode=ro still writes read-marks into -shm on
+    # a WAL database). That is only correct while the -wal file is empty, i.e. every
+    # write has been checkpointed into the main file, so otherwise fall back to the
+    # original mode=ro open and say why.
+    path = Path(path).resolve()
+    wal = Path(str(path) + "-wal")
+    flags = "?mode=ro&immutable=1"
+    if wal.exists() and wal.stat().st_size > 0:
+        flags = "?mode=ro"
+        print(f"warning: {wal.name} is not empty, opening {path.name} without immutable=1 "
+              f"(SQLite may update its -shm file)", file=sys.stderr)
+    con = sqlite3.connect(path.as_uri() + flags, uri=True, check_same_thread=False)
     con.execute("PRAGMA query_only=1")
     return con
 

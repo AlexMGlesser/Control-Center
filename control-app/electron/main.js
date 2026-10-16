@@ -23,7 +23,8 @@ const APP_WINDOW_CONFIGS = {
   "music-app": { title: "Music App", backgroundColor: "#070f13" },
   "drawing-app": { title: "Drawing App", backgroundColor: "#070f13" },
   "movie-app": { title: "Movie App", backgroundColor: "#160b0e" },
-  "server-manager-app": { title: "Server Manager App", backgroundColor: "#0e1216" }
+  "server-manager-app": { title: "Server Manager App", backgroundColor: "#0e1216" },
+  "wikipedia-app": { title: "Wikipedia App", backgroundColor: "#04060d" }
 };
 
 const appWindows = Object.fromEntries(Object.keys(APP_WINDOW_CONFIGS).map((appId) => [appId, null]));

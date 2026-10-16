@@ -103,6 +103,14 @@
         ]
       },
       {
+        "from": "../wikipedia-app",
+        "to": "apps/wikipedia-app",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**"
+        ]
+      },
+      {
         "from": "../design-documents",
         "to": "design-documents",
         "filter": [

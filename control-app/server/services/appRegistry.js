@@ -62,6 +62,14 @@ const appRegistry = [
     status: "online",
     routeKey: "movie-app",
     capabilities: ["movie-library", "streaming", "desktop-playback", "server-control"]
+  },
+  {
+    id: "wikipedia-app",
+    name: "Wikipedia App",
+    description: "Offline English Wikipedia (GLESSER ARCHIVE librarian): ranked search, article reader, and lookups for the agent.",
+    status: "online",
+    routeKey: "wikipedia-app",
+    capabilities: ["offline-wikipedia", "search", "article-reader", "agent-lookup"]
   }
 ];
 
