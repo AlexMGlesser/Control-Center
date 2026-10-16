@@ -633,7 +633,8 @@ function isVsCodeCliAvailable() {
   const lookupCommand = process.platform === "win32" ? "where" : "which";
   const result = spawnSync(lookupCommand, ["code"], {
     stdio: "ignore",
-    shell: process.platform === "win32"
+    shell: process.platform === "win32",
+    windowsHide: true
   });
 
   hasVsCodeCli = result.status === 0;

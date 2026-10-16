@@ -56,7 +56,13 @@ export function stopOllamaProbe() {
 function spawnOllamaServe() {
   return new Promise((resolve) => {
     try {
-      spawnedProcess = spawn("ollama", ["serve"], { shell: false, windowsHide: true, stdio: "ignore", detached: true });
+      // Not detached on Windows: a detached child gets no console, so every
+      // runner ollama serve launches (llama-server, gpu-discover — several
+      // per chat request) pops its own console window for a moment. Attached
+      // and hidden, those runners share this one hidden console instead.
+      // stopOllama() still kills the tree on shutdown either way.
+      const detached = process.platform !== "win32";
+      spawnedProcess = spawn("ollama", ["serve"], { shell: false, windowsHide: true, stdio: "ignore", detached });
       spawnedProcess.on("error", () => {
         spawnedProcess = null;
       });
@@ -107,14 +113,21 @@ export async function startOllama() {
  * process was the one that spawned it.
  */
 export async function stopOllama() {
-  try {
-    await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: OLLAMA_MODEL, messages: [], stream: false, keep_alive: 0 })
-    });
-  } catch {
-    // Ignore — daemon may already be down.
+  // Only a daemon we're leaving running needs its model unloaded — one we
+  // spawned is about to be killed, and asking it to unload first just spins
+  // up more runner processes during shutdown. Bounded so a busy or hung
+  // daemon can't stall app exit.
+  if (!spawnedProcess) {
+    try {
+      await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: OLLAMA_MODEL, messages: [], stream: false, keep_alive: 0 }),
+        signal: AbortSignal.timeout(3000)
+      });
+    } catch {
+      // Ignore — daemon may already be down.
+    }
   }
 
   if (spawnedProcess) {

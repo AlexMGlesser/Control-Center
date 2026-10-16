@@ -16,6 +16,7 @@ let backendServer = null;
 let mainWindow = null;
 let isShuttingDown = false;
 let shutdownPromise = null;
+const SHUTDOWN_TIMEOUT_MS = 15000;
 const APP_WINDOW_CONFIGS = {
   "calendar-app": { title: "Calendar App", backgroundColor: "#0d1417" },
   "news-app": { title: "News App", backgroundColor: "#070f13" },
@@ -352,11 +353,20 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", (event) => {
   if (isShuttingDown) {
+    // shutdownRuntime() destroys every window, which fires window-all-closed
+    // -> app.quit() again. Letting that second quit through would exit the
+    // process mid-shutdown (before Ollama etc. are stopped); app.exit(0)
+    // below doesn't emit before-quit, so blocking here is safe.
+    event.preventDefault();
     return;
   }
 
   isShuttingDown = true;
   event.preventDefault();
+  // Child-process cleanup normally takes a few seconds (the Hand Tracker's
+  // graceful-then-forced stop is the slowest); if anything ever hangs, exit
+  // anyway rather than leave a windowless Control Center running.
+  setTimeout(() => app.exit(0), SHUTDOWN_TIMEOUT_MS).unref();
   shutdownRuntime()
     .catch((error) => {
       console.error("Failed to fully shut down Control Center runtime:", error?.message || error);

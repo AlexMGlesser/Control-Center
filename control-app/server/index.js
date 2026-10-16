@@ -74,6 +74,10 @@ export async function stopServer(server) {
     }
 
     server.close(() => resolve());
+    // close() waits for every open connection to end, and the UI's SSE
+    // stream (/api/events/stream) never ends on its own — without this the
+    // close callback never fires and shutdown hangs.
+    server.closeAllConnections?.();
   });
 }
 
