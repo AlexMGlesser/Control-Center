@@ -283,7 +283,7 @@ async function openMusicAppWindow() {
   await openWindowApp("music-app");
 }
 
-const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"];
+const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app", "hand-tracker-app"];
 
 const WINDOW_APP_BRIDGE_NAMES = {
   "calendar-app": "CalendarApp",
@@ -293,8 +293,15 @@ const WINDOW_APP_BRIDGE_NAMES = {
   "music-app": "MusicApp",
   "drawing-app": "DrawingApp",
   "movie-app": "MovieApp",
-  "server-manager-app": "ServerManagerApp"
+  "server-manager-app": "ServerManagerApp",
+  "hand-tracker-app": "HandTrackerApp"
 };
+
+// Window apps whose window is a native process launched by the backend
+// (handTrackerService.js) instead of a web page. In Electron the regular
+// <appId>:open/close IPC already launches/stops it; in a plain browser the
+// equivalent is the app's launch/stop endpoint rather than window.open().
+const NATIVE_WINDOW_APP_IDS = ["hand-tracker-app"];
 
 function getDesktopWindowMethod(appId, action) {
   const bridgeName = WINDOW_APP_BRIDGE_NAMES[appId];
@@ -312,6 +319,11 @@ async function openWindowApp(appId) {
     return;
   }
 
+  if (NATIVE_WINDOW_APP_IDS.includes(appId)) {
+    await fetch(`/api/apps/${appId}/launch`, { method: "POST" });
+    return;
+  }
+
   window.open(`/${appId}/`, "_blank", "noopener");
 }
 
@@ -319,6 +331,15 @@ async function closeWindowApp(appId) {
   const methodName = getDesktopWindowMethod(appId, "close");
   if (window.controlCenterDesktop?.runtime === "electron" && methodName && typeof window.controlCenterDesktop[methodName] === "function") {
     await window.controlCenterDesktop[methodName]();
+    return;
+  }
+
+  if (NATIVE_WINDOW_APP_IDS.includes(appId)) {
+    await fetch(`/api/apps/${appId}/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ process: "all" })
+    });
   }
 }
 
@@ -366,6 +387,14 @@ async function closeServerManagerAppWindow() {
   await closeWindowApp("server-manager-app");
 }
 
+async function openHandTrackerAppWindow() {
+  await openWindowApp("hand-tracker-app");
+}
+
+async function closeHandTrackerAppWindow() {
+  await closeWindowApp("hand-tracker-app");
+}
+
 async function closeKnownAppWindow(appId) {
   if (appId === "all-apps") {
     if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeAllAppWindows) {
@@ -395,6 +424,8 @@ async function closeKnownAppWindow(appId) {
     await closeMovieAppWindow();
   } else if (appId === "server-manager-app") {
     await closeServerManagerAppWindow();
+  } else if (appId === "hand-tracker-app") {
+    await closeHandTrackerAppWindow();
   } else {
     return false;
   }
@@ -410,7 +441,9 @@ async function closeKnownAppWindow(appId) {
 async function openKnownAppWindow(appId) {
   if (WINDOW_APP_IDS.includes(appId)) {
     await openWindowApp(appId);
-    return true;
+    // Native apps open their own OS window; returning false also brings up
+    // their tab, whose content is the status/recorder panel.
+    return !NATIVE_WINDOW_APP_IDS.includes(appId);
   }
 
   return false;
@@ -697,7 +730,7 @@ function appCard(app) {
       <p>${app.description}</p>
       <div class="caps">${capHtml}</div>
       <div style="margin-top: 10px">
-        ${appStatusPill(app)}
+        ${appStatusPill(app)}${app.version ? ` <span class="cap">v${app.version}</span>` : ""}
       </div>
     </article>
   `;
@@ -1130,8 +1163,21 @@ function renderSingleApp(appId) {
     return;
   }
 
+  if (NATIVE_WINDOW_APP_IDS.includes(app.id)) {
+    appView.innerHTML = `
+      <article class="card stack">
+        <h3>${app.name}${app.version ? ` <span class="cap">v${app.version}</span>` : ""}</h3>
+        <p>${app.description}</p>
+        <div><button class="action-btn" data-action="open-app" data-app-id="${app.id}">Open ${app.name}</button></div>
+      </article>
+      <iframe class="card" src="/${app.routeKey}/" title="${app.name} panel"
+        style="width: 100%; min-height: 760px; border: 0; padding: 0; background: transparent"></iframe>
+    `;
+    return;
+  }
+
   const capHtml = app.capabilities.map((cap) => `<li>${cap}</li>`).join("");
-  const launchButton = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"].includes(app.id)
+  const launchButton = WINDOW_APP_IDS.includes(app.id)
     ? `<div><button class="action-btn" data-action="open-app" data-app-id="${app.id}">Open ${app.name}</button></div>`
     : "";
 
@@ -1805,6 +1851,10 @@ function startEventStream() {
             openServerManagerAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
+          } else if (targetTab === "app:hand-tracker-app") {
+            openHandTrackerAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
           } else {
             activateTab(targetTab);
           }
@@ -1854,7 +1904,8 @@ function startEventStream() {
         renderChatbot();
       }
 
-      if (state.activeTab.startsWith("app:") && state.activeTab !== "app:news-app") {
+      // Skip the native app's tab too: re-rendering it would reload its panel iframe on every event.
+      if (state.activeTab.startsWith("app:") && state.activeTab !== "app:news-app" && !NATIVE_WINDOW_APP_IDS.includes(state.activeTab.replace("app:", ""))) {
         const appId = state.activeTab.replace("app:", "");
         renderSingleApp(appId);
       }

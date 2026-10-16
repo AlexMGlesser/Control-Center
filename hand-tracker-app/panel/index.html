@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hand Tracker App</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="card header">
+        <div>
+          <p class="eyebrow">Control Center</p>
+          <h1>Hand Tracker App <span id="version-pill" class="pill">v0.1</span></h1>
+          <p class="subtitle">
+            Native Python windows using the webcam. Only one of them runs at a time — launching one stops the other.
+          </p>
+        </div>
+      </header>
+
+      <section class="card panel">
+        <div class="panel-head">
+          <h2>Gesture File Explorer</h2>
+          <span id="explorer-status" class="status muted">Checking…</span>
+        </div>
+        <p class="muted">Browse files with hand gestures. Calibration lives in the explorer's own Calibration Wizard.</p>
+        <div class="actions">
+          <button id="explorer-launch" class="btn primary" type="button">Launch</button>
+          <button id="explorer-stop" class="btn" type="button">Stop</button>
+        </div>
+        <pre id="explorer-output" class="output hidden"></pre>
+      </section>
+
+      <section class="card panel">
+        <div class="panel-head">
+          <h2>Gesture Recorder</h2>
+          <span id="recorder-status" class="status muted">Checking…</span>
+        </div>
+        <p class="muted">
+          Records labeled training clips: countdown, record, rest, repeat. Use label <code>none</code> for background
+          (non-gesture) examples.
+        </p>
+        <form id="recorder-form" class="form-grid">
+          <label class="field">
+            <span>Label</span>
+            <input id="rec-label" type="text" list="label-options" placeholder="e.g. swipe_left" maxlength="64" />
+            <datalist id="label-options"></datalist>
+          </label>
+          <label class="field">
+            <span>Reps</span>
+            <input id="rec-reps" type="number" min="1" max="500" value="10" />
+          </label>
+          <label class="field">
+            <span>Clip length (s)</span>
+            <input id="rec-duration" type="number" min="0.5" max="30" step="0.5" value="2" />
+          </label>
+          <label class="check">
+            <input id="rec-video" type="checkbox" />
+            <span>Also save raw video</span>
+          </label>
+          <label class="check">
+            <input id="rec-autostart" type="checkbox" />
+            <span>Start reps as soon as the camera is ready</span>
+          </label>
+        </form>
+        <div class="actions">
+          <button id="recorder-launch" class="btn primary" type="button">Start Gesture Recorder</button>
+          <button id="recorder-stop" class="btn" type="button">Stop</button>
+        </div>
+        <pre id="recorder-output" class="output hidden"></pre>
+      </section>
+
+      <section class="card panel">
+        <div class="panel-head">
+          <h2>Recorded Dataset</h2>
+          <span id="dataset-total" class="pill">0 samples</span>
+        </div>
+        <ul id="dataset-labels" class="label-list"></ul>
+        <p class="meta">Data folder: <span id="data-dir">—</span></p>
+      </section>
+
+      <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

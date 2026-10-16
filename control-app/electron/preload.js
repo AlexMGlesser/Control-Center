@@ -8,7 +8,8 @@ const WINDOW_APP_BRIDGE_NAMES = {
   "music-app": "MusicApp",
   "drawing-app": "DrawingApp",
   "movie-app": "MovieApp",
-  "server-manager-app": "ServerManagerApp"
+  "server-manager-app": "ServerManagerApp",
+  "hand-tracker-app": "HandTrackerApp"
 };
 
 const desktopBridge = {

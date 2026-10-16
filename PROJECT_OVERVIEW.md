@@ -96,7 +96,7 @@ control-app/
 
 ### Core Config
 - **Port:** localhost:3000 (configurable via `server/config.js`)
-- **Static Routes:** `/calendar-app`, `/news-app`, `/work-app`, `/project-app`, `/music-app`, `/drawing-app`, `/movie-app`, `/server-manager-app`
+- **Static Routes:** `/calendar-app`, `/news-app`, `/work-app`, `/project-app`, `/music-app`, `/drawing-app`, `/movie-app`, `/server-manager-app`, `/hand-tracker-app` (panel only)
 - **API Route:** `/api/*` (main orchestration endpoint)
 
 ### Service Modules (`server/services/`)
@@ -146,6 +146,7 @@ All apps follow a dark-mode visual style and can run either:
 | **Music** | `music-app/` | Library management, playback controls | Local folder scanning |
 | **News** | `news-app/` | Feed aggregation | External news APIs |
 | **Server Manager** | `server-manager-app/` | SSH config, server inventory, PowerShell launch | Browser storage, SSH bridge |
+| **Hand Tracker** (v0.1) | `hand-tracker-app/` | Native Python gesture file explorer + gesture training-data recorder | Python child processes (`handTrackerService.js`), webcam |
 
 ### App Lifecycle
 - Each app is a standalone HTML/JS/CSS bundle

@@ -49,3 +49,12 @@ agentic-testing/
 # Local alarm sound asset (user-supplied audio, not licensed for the repo)
 control-app/client/assets/alarm-sound.mp3
 The Clash - Should I Stay or Should I Go (Official Audio).mp3
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Hand Tracker user data: personal calibration recordings and gesture
+# training datasets (biometric-ish, can grow large) stay local
+hand-tracker-app/gesture_profiles/
+hand-tracker-app/dataset/
