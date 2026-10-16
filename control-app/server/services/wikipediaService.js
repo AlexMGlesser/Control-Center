@@ -19,9 +19,6 @@ const LIBRARIAN_BASE_URL = `http://127.0.0.1:${LIBRARIAN_PORT}`;
 // Center's model so opening that page never loads a second model into VRAM.
 const LIBRARIAN_MODEL = process.env.WIKIPEDIA_LIBRARIAN_MODEL || process.env.OLLAMA_MODEL || "qwen3.5:9b";
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-// The archive lives on a hard drive: a cold search over common words can take
-// over a minute before the OS cache warms up, so API calls get a long timeout.
-const REQUEST_TIMEOUT_MS = Number(process.env.WIKIPEDIA_REQUEST_TIMEOUT_MS || 150000);
 const STARTUP_TIMEOUT_MS = 30000;
 
 let spawnedProcess = null;
@@ -201,41 +198,6 @@ export async function stopWikipedia() {
     // Ignore — it may already be gone.
   }
   return { ok: true, stopped: true, message: "Librarian stopped." };
-}
-
-/**
- * GET a librarian /api/v1 endpoint, starting the server first if needed.
- * Returns { ok: true, data } or a fail() shape. The librarian answers 404
- * with { error, ... } for "not found"-style results, which is passed through.
- */
-export async function queryLibrarian(endpoint, params = {}) {
-  if (!(await probeLibrarian())) {
-    const started = await startWikipedia();
-    if (!started.ok) {
-      return started;
-    }
-  }
-
-  const url = new URL(`${LIBRARIAN_BASE_URL}/api/v1/${endpoint}`);
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      url.searchParams.set(key, String(value));
-    }
-  });
-
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-    const data = await res.json();
-    return { ok: true, status: res.status, data };
-  } catch (error) {
-    const timedOut = error?.name === "TimeoutError";
-    return fail(
-      timedOut ? "WIKIPEDIA_TIMEOUT" : "WIKIPEDIA_REQUEST_FAILED",
-      timedOut
-        ? `The archive took longer than ${Math.round(REQUEST_TIMEOUT_MS / 1000)}s to answer (cold disk cache). Try again or use fewer common words.`
-        : error?.message || "Wikipedia archive request failed."
-    );
-  }
 }
 
 function fail(code, message) {

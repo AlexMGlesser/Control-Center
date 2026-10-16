@@ -86,14 +86,9 @@ improvement.
 Offline English Wikipedia: the GLESSER ARCHIVE librarian (a Python server
 Control Center starts on demand) with ranked search, an article reader, and
 its own librarian chat page, shown in the app window. The archive is read in
-place from a local folder, read-only. Control Center's agent looks facts up
-here instead of answering from memory — it searches, reads the best article,
-and answers citing the article title. Example:
-
-> User: "Who designed the Eiffel Tower?"
-> Agent: (searches "Eiffel Tower design", reads "Eiffel Tower") "The Eiffel
-> Tower was designed by Maurice Koechlin and Émile Nouguier, two senior
-> engineers at Gustave Eiffel's company..."
+place from a local folder, read-only. It's an app the user prompts directly;
+Control Center's agent can open and close it like any other app but doesn't
+query the archive itself.
 
 ### hand-tracker-app (v0.1)
 The one app that isn't a web UI: a native Python/Tkinter window using the

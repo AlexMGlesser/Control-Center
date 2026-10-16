@@ -66,10 +66,10 @@ const appRegistry = [
   {
     id: "wikipedia-app",
     name: "Wikipedia App",
-    description: "Offline English Wikipedia (GLESSER ARCHIVE librarian): ranked search, article reader, and lookups for the agent.",
+    description: "Offline English Wikipedia (GLESSER ARCHIVE librarian): ranked search, article reader, and librarian chat.",
     status: "online",
     routeKey: "wikipedia-app",
-    capabilities: ["offline-wikipedia", "search", "article-reader", "agent-lookup"]
+    capabilities: ["offline-wikipedia", "search", "article-reader", "librarian-chat"]
   },
   {
     id: "hand-tracker-app",

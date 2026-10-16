@@ -146,7 +146,7 @@ All apps follow a dark-mode visual style and can run either:
 | **Music** | `music-app/` | Library management, playback controls | Local folder scanning |
 | **News** | `news-app/` | Feed aggregation | External news APIs |
 | **Server Manager** | `server-manager-app/` | SSH config, server inventory, PowerShell launch | Browser storage, SSH bridge |
-| **Wikipedia** | `wikipedia-app/` | Offline Wikipedia search/reader (Python librarian server on 127.0.0.1:8766, started on demand); agent `search_wikipedia` / `read_wikipedia_article` tools | Read-only archive at `WIKIPEDIA_DATA_DIR` |
+| **Wikipedia** | `wikipedia-app/` | Offline Wikipedia search/reader (Python librarian server on 127.0.0.1:8766, started when the app opens) | Read-only archive at `WIKIPEDIA_DATA_DIR` |
 | **Hand Tracker** (v0.1) | `hand-tracker-app/` | Native Python gesture file explorer + gesture training-data recorder | Python child processes (`handTrackerService.js`), webcam |
 
 ### App Lifecycle

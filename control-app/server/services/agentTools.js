@@ -38,7 +38,7 @@ import {
 import { getNewsBriefing, formatNewsSummary } from "./newsService.js";
 import { closeAppWindow } from "./windowControlBridge.js";
 import { createAlarm, listAlarms, cancelAlarm, stopAlarm } from "./alarmService.js";
-import { queryLibrarian, startWikipedia } from "./wikipediaService.js";
+import { startWikipedia } from "./wikipediaService.js";
 import { launchGestureRecorder, launchHandExplorer, stopHandTracker } from "./handTrackerService.js";
 
 const CALENDAR_TIMEZONE = getCalendarTimeZone();
@@ -67,17 +67,6 @@ const NATIVE_PROCESS_APPS = {
   }
 };
 const SYSTEM_TABS = ["overview", "settings", "chatbot", "event-bus", "agent-core", "integration-hub"];
-
-// Size caps for wiki tool results — everything returned lands in the model's
-// 16k-token context (see num_ctx in ollamaService.js) next to a large system
-// prompt, so results are trimmed hard here rather than trusting the model to
-// ask for little.
-const WIKI_SEARCH_DEFAULT_LIMIT = 5;
-const WIKI_SEARCH_MAX_LIMIT = 8;
-const WIKI_SNIPPET_CHARS = 200;
-const WIKI_ARTICLE_DEFAULT_CHARS = 3000;
-const WIKI_ARTICLE_MAX_CHARS = 6000;
-const WIKI_MAX_SECTION_NAMES = 25;
 
 // JSON-schema tool definitions in Ollama's native function-calling format.
 export const TOOL_DEFINITIONS = [
@@ -239,25 +228,6 @@ export const TOOL_DEFINITIONS = [
       }
     },
     ["time", "recurrence"]
-  ),
-  tool(
-    "search_wikipedia",
-    `Search Alex's offline copy of English Wikipedia (stored on this computer, no internet needed). Use this FIRST for any factual, encyclopedic, historical, scientific, geographic or biographical question ("who was...", "what is...", "when did...", "how does X work", "how far/big/old is...") instead of answering from memory — your memory can be wrong or out of date; the archive is the source to trust. Pass 1-4 key words, not the whole question (e.g. "speed of light", not "how fast does light travel"). Returns ranked article titles with short snippets; then call read_wikipedia_article on the best-matching title to get the facts. A search can take a minute or more when the disk cache is cold — that is normal, don't repeat the same search.`,
-    {
-      query: { type: "string", description: "1-4 key words. Put an exact phrase in double quotes." },
-      limit: { type: "integer", description: `Results to return, 1-${WIKI_SEARCH_MAX_LIMIT} (default ${WIKI_SEARCH_DEFAULT_LIMIT}).` }
-    },
-    ["query"]
-  ),
-  tool(
-    "read_wikipedia_article",
-    `Read an article from the offline Wikipedia archive by its exact title (as returned by search_wikipedia; redirects are followed). Returns the article's opening text (size-capped), whether it was cut off, and its section names. Pass "section" to read one specific section (e.g. "History") when the answer is further down. Answer the user from this text and name the article title(s) you used in your reply (e.g. "According to Wikipedia's article on Ada Lovelace, ..."). If the text doesn't contain the answer, say the archive didn't cover it rather than filling the gap from memory. Note: this offline text drops Wikipedia templates, so some figures (e.g. heights/distances written as unit conversions) are missing and a sentence can read "measured as ." — if the number you need is missing, say the archive's text leaves it out instead of writing an incomplete sentence.`,
-    {
-      title: { type: "string", description: "Exact article title, e.g. \"Ada Lovelace\"." },
-      section: { type: "string", description: "Optional section name from the article's sections list." },
-      maxChars: { type: "integer", description: `Max characters of text, up to ${WIKI_ARTICLE_MAX_CHARS} (default ${WIKI_ARTICLE_DEFAULT_CHARS}).` }
-    },
-    ["title"]
   ),
   tool("list_alarms", `List all scheduled alarms. Use each alarm's "nextFireAtLocal" field to report when it fires, not the raw "nextFireAt" UTC value.`, {}),
   tool("cancel_alarm", "Cancel and delete an alarm by id.", { alarmId: { type: "string" } }, ["alarmId"]),
@@ -585,12 +555,6 @@ export async function executeToolCall(toolName, args = {}) {
       }
     }
 
-    case "search_wikipedia":
-      return await searchWikipediaTool(args);
-
-    case "read_wikipedia_article":
-      return await readWikipediaArticleTool(args);
-
     default:
       return fail("UNKNOWN_TOOL", `Tool '${toolName}' is not supported.`);
   }
@@ -689,88 +653,6 @@ async function newsSummaryTool() {
   }
 
   return ok({ summary: formatNewsSummary(briefing), digest: briefing.chatbotDigest });
-}
-
-async function searchWikipediaTool(args) {
-  const query = String(args.query || "").trim();
-  if (!query) {
-    return fail("INVALID_WIKI_QUERY", "search_wikipedia requires a query.");
-  }
-
-  const limit = clampInt(args.limit, 1, WIKI_SEARCH_MAX_LIMIT, WIKI_SEARCH_DEFAULT_LIMIT);
-  const response = await queryLibrarian("search", { q: query, limit });
-  if (!response.ok) {
-    return response;
-  }
-  if (response.data?.error) {
-    return fail("WIKI_SEARCH_FAILED", String(response.data.error));
-  }
-
-  const results = (response.data.results || []).map((entry) => ({
-    title: entry.title,
-    snippet: trimText(entry.snippet, WIKI_SNIPPET_CHARS)
-  }));
-  return ok({
-    query,
-    totalMatches: response.data.total_matches,
-    results,
-    ...(response.data.note ? { note: response.data.note } : {}),
-    ...(results.length ? {} : { hint: "Nothing found. Try fewer, broader or different key words." })
-  });
-}
-
-async function readWikipediaArticleTool(args) {
-  const title = String(args.title || "").trim();
-  if (!title) {
-    return fail("INVALID_WIKI_TITLE", "read_wikipedia_article requires a title.");
-  }
-
-  const maxChars = clampInt(args.maxChars, 500, WIKI_ARTICLE_MAX_CHARS, WIKI_ARTICLE_DEFAULT_CHARS);
-  const section = String(args.section || "").trim();
-  const response = await queryLibrarian("article", { title, section, max_chars: maxChars });
-  if (!response.ok) {
-    return response;
-  }
-
-  const data = response.data || {};
-  if (data.error) {
-    // The librarian reports a missing section with the article's section list,
-    // and a missing article with "did you mean" title suggestions.
-    const sectionMissing = Array.isArray(data.sections);
-    return {
-      ...fail(sectionMissing ? "WIKI_SECTION_NOT_FOUND" : "WIKI_ARTICLE_NOT_FOUND", String(data.error)),
-      ...(data.did_you_mean?.length ? { didYouMean: data.did_you_mean } : {}),
-      ...(sectionMissing ? { sections: data.sections.slice(0, WIKI_MAX_SECTION_NAMES) } : {}),
-      hint: sectionMissing ? "Pick a section from the list." : "Use search_wikipedia to find the exact title."
-    };
-  }
-
-  const sections = (data.sections || []).filter((name) => name !== "Introduction");
-  return ok({
-    title: data.title,
-    ...(data.redirected_from ? { redirectedFrom: data.redirected_from } : {}),
-    ...(section ? { section } : {}),
-    text: String(data.text || "").slice(0, maxChars),
-    truncated: Boolean(data.truncated),
-    sections: sections.slice(0, WIKI_MAX_SECTION_NAMES).map((name) => trimText(name, 60)),
-    source: `Wikipedia (offline archive): ${data.title}`
-  });
-}
-
-function clampInt(value, min, max, fallback) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.max(min, Math.min(max, parsed));
-}
-
-function trimText(text, maxChars) {
-  const clean = String(text || "")
-    .replace(/\s+/g, " ")
-    .replace(/\s*…\s*$/, "")
-    .trim();
-  return clean.length > maxChars ? `${clean.slice(0, maxChars - 1).trimEnd()}…` : clean;
 }
 
 async function openSingleApp(target) {

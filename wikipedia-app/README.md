@@ -24,16 +24,15 @@ and the article files, tens of GB) is read in place, read-only, from
 
 - `control-app/server/services/wikipediaService.js` runs
   `python -B librarian/librarian.py --data-dir <parent of organized> --port 8766 --no-browser --model <OLLAMA_MODEL> --llm-url <OLLAMA_BASE_URL>`
-  as a child process, on demand (opening the app, or the agent's first wiki
-  tool call). If something already answers as GLESSER ARCHIVE on that port,
+  as a child process when the app is opened (card, tab, launch button, or
+  `open_app`). If something already answers as GLESSER ARCHIVE on that port,
   it's reused. On shutdown, Control Center kills the server only if it spawned
   it.
-- The agent gets `search_wikipedia` and `read_wikipedia_article`
-  (`agentTools.js`), which call `/api/v1/search` and `/api/v1/article` and trim
-  results to fit the agent's 16k-token context.
+- It's an app you use yourself: search and read in the window, or ask the
+  librarian's own `/agent` chat page. Control Center's agent (Jarvis) can open
+  and close it but has no wiki lookup tools of its own.
 - Config (`control-app/.env`): `WIKIPEDIA_DATA_DIR`, `WIKIPEDIA_PYTHON`,
-  `WIKIPEDIA_LIBRARIAN_PORT`, `WIKIPEDIA_LIBRARIAN_MODEL`,
-  `WIKIPEDIA_REQUEST_TIMEOUT_MS` (see `.env.example`).
+  `WIKIPEDIA_LIBRARIAN_PORT`, `WIKIPEDIA_LIBRARIAN_MODEL` (see `.env.example`).
 
 Running it by hand still works exactly like the original:
 `python librarian/librarian.py --no-browser` (port 8766).
@@ -66,8 +65,8 @@ Not changed, but worth knowing:
 
 - The archive is on a hard drive. A search whose index pages aren't in the
   OS cache can take 10 s to over a minute for common words; repeats are
-  sub-second. Agent tool calls use a 150 s timeout.
+  sub-second.
 - Plain text drops all `{{templates}}`, so figures written with templates
-  such as `{{convert|8848.86|m}}` vanish ("measured as ."). Numeric answers
-  (heights, distances) can be missing from what the agent reads.
+  such as `{{convert|8848.86|m}}` vanish ("measured as ."), so some numbers
+  (heights, distances) are missing from article text.
 - The "View the live article on Wikipedia" link needs internet.
