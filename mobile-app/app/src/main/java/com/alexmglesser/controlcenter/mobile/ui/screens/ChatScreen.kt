@@ -43,7 +43,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.alexmglesser.controlcenter.mobile.R
+import com.alexmglesser.controlcenter.mobile.data.api.AppInfo
 import com.alexmglesser.controlcenter.mobile.data.api.ChatMessage
+import com.alexmglesser.controlcenter.mobile.ui.components.shortAppName
 import com.alexmglesser.controlcenter.mobile.ui.ChatUiState
 import com.alexmglesser.controlcenter.mobile.ui.PendingTurn
 import com.alexmglesser.controlcenter.mobile.ui.theme.ButtonShape
@@ -58,7 +60,7 @@ fun ChatScreen(
     state: ChatUiState,
     myDeviceId: String,
     online: Boolean,
-    openedChip: String?,
+    openedChip: AppInfo?,
     onSend: (String) -> Unit,
     onChipTap: () -> Unit
 ) {
@@ -95,10 +97,10 @@ fun ChatScreen(
                 }
                 items(state.messages, key = { "m${it.id}" }) { message -> MessageBubble(message, myDeviceId) }
                 items(state.pending, key = { "p${it.turnId}" }) { pending -> PendingBubble(pending, state.queuedAhead) }
-                openedChip?.let { name ->
+                openedChip?.let { app ->
                     item {
                         Text(
-                            "Opened $name ›",
+                            "Opened ${shortAppName(app.name)} ›",
                             color = CC.cyan,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier

@@ -75,7 +75,7 @@ export const TOOL_DEFINITIONS = [
   tool("get_app", "Get one app's details by appId.", { appId: { type: "string" } }, ["appId"]),
   tool(
     "open_app",
-    `Open an app tab or system tab in the Control Center UI. This opens exactly ONE target per call. If the user names two or more SPECIFIC apps ("open calendar and music"), call this once per named app — do NOT use target "all" for that, it is not a shortcut for "several." Only use target "all" when the user asks for literally every app / everything, with no specific apps named.`,
+    `Open an app tab or system tab in the Control Center UI. Only call this when the user explicitly asks to open, show or launch an app ("open the calendar"). Never use it to answer a question: for "what do I have scheduled?" read the calendar tools and answer in your reply, without opening anything. This opens exactly ONE target per call. If the user names two or more SPECIFIC apps ("open calendar and music"), call this once per named app — do NOT use target "all" for that, it is not a shortcut for "several." Only use target "all" when the user asks for literally every app / everything, with no specific apps named.`,
     { target: { type: "string", description: `One of: ${[...SYSTEM_TABS, ...WINDOW_APPS].join(", ")}, or "all" — but ONLY "all" when the user did not name specific apps. file-system-app is the gesture-controlled "file system" / "file explorer" (formerly called the "hand tracker"; it turns on the webcam).` } },
     ["target"]
   ),
@@ -256,6 +256,64 @@ function tool(name, description, properties, required = []) {
 export function getToolDefinitions() {
   return TOOL_DEFINITIONS;
 }
+
+const AGENT_DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: CALENDAR_TIMEZONE,
+  weekday: "long",
+  year: "numeric",
+  month: "long",
+  day: "numeric"
+});
+
+/**
+ * Calendar events store UTC instants (startAt "2026-10-22T02:00:00.000Z" is
+ * 7 PM on Oct 21 in Los Angeles). Handed to the model raw, it reads the UTC
+ * date and reports evening events as "tomorrow". So the model only ever sees
+ * local wall-clock fields: date, start and end time, never the UTC instants.
+ */
+function localizeCalendarForAgent(value) {
+  if (Array.isArray(value)) {
+    return value.map(localizeCalendarForAgent);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  if (typeof value.startAt === "string" && "title" in value) {
+    const { startAt, endAt, startDateKey, startLabel, endLabel, accent, ...rest } = value;
+    const start = new Date(startAt);
+    const end = endAt ? new Date(endAt) : null;
+    const endDate = end ? AGENT_DATE_FORMAT.format(end) : null;
+    const startDate = AGENT_DATE_FORMAT.format(start);
+    return {
+      ...rest,
+      date: startDate,
+      startTime: startLabel,
+      ...(endLabel ? { endTime: endLabel } : {}),
+      // Only for events that run past midnight.
+      ...(endDate && endDate !== startDate ? { endDate } : {})
+    };
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      // Any other UTC instant (query range, "now") gets the same treatment.
+      typeof entry === "string" && UTC_INSTANT_PATTERN.test(entry)
+        ? AGENT_DATE_TIME_FORMAT.format(new Date(entry))
+        : localizeCalendarForAgent(entry)
+    ])
+  );
+}
+
+const UTC_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+const AGENT_DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: CALENDAR_TIMEZONE,
+  weekday: "long",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit"
+});
 
 // Tools that act on the PC itself in ways a remote device must not trigger,
 // even through Jarvis (so a prompt injection reaching Jarvis from the phone
@@ -464,24 +522,26 @@ export async function executeToolCall(toolName, args = {}, context = {}) {
       });
 
     case "get_calendar_month":
-      return ok(await getCalendarMonthView({ year: args.year, month: args.month }));
+      return ok(localizeCalendarForAgent(await getCalendarMonthView({ year: args.year, month: args.month })));
 
     case "list_calendar_events":
-      return ok(await listCalendarEvents({ start: args.start, end: args.end, limit: args.limit }));
+      return ok(localizeCalendarForAgent(await listCalendarEvents({ start: args.start, end: args.end, limit: args.limit })));
 
     case "get_remaining_calendar_events":
-      return ok(await getRemainingCalendarEvents({}));
+      return ok(localizeCalendarForAgent(await getRemainingCalendarEvents({})));
 
     case "create_calendar_event": {
       try {
         return ok(
-          await createCalendarEvent({
-            title: args.title,
-            startsAt: args.startsAt,
-            endsAt: args.endsAt,
-            location: args.location,
-            notes: args.notes
-          })
+          localizeCalendarForAgent(
+            await createCalendarEvent({
+              title: args.title,
+              startsAt: args.startsAt,
+              endsAt: args.endsAt,
+              location: args.location,
+              notes: args.notes
+            })
+          )
         );
       } catch (error) {
         return fail(error?.code || "CREATE_CALENDAR_EVENT_FAILED", error?.message || "Failed to create calendar event.");
@@ -490,7 +550,7 @@ export async function executeToolCall(toolName, args = {}, context = {}) {
 
     case "delete_calendar_event": {
       try {
-        return ok(await deleteCalendarEvent({ eventId: args.eventId, title: args.title }));
+        return ok(localizeCalendarForAgent(await deleteCalendarEvent({ eventId: args.eventId, title: args.title })));
       } catch (error) {
         return fail(error?.code || "DELETE_CALENDAR_EVENT_FAILED", error?.message || "Failed to delete calendar event.");
       }

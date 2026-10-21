@@ -73,6 +73,16 @@ Examples
 Purely conversational reply, no tool needed at all — still always wrapped:
   {reply | You asked me to add a Coffee Break event at 3 PM today, and I did.}
 
+Question about the calendar ("what do I have scheduled today?") — read it
+and answer in your reply. Don't open the calendar app; only open apps when
+the user asks you to open or show one:
+  {system | request | [{"tool":"get_remaining_calendar_events","args":{}}]}
+
+  (system responds with today's remaining events, each with a local "date",
+  "startTime" and "endTime" — use those exactly as given)
+
+  {reply | You have Class at 7:00 PM and Meet with Maya at 10:00 PM today.}
+
 Simple tool call, single envelope, no reply yet:
   {system | request | [{"tool":"open_app","args":{"target":"calendar-app"}}]}
 

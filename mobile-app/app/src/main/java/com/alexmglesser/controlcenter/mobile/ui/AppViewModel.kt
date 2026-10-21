@@ -70,9 +70,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _pairing = MutableStateFlow(PairingUiState())
     val pairing: StateFlow<PairingUiState> = _pairing.asStateFlow()
 
-    /** A one-line chip in the chat after Jarvis opens an app for this phone. */
-    private val _openedByJarvis = MutableStateFlow<String?>(null)
-    val openedByJarvis: StateFlow<String?> = _openedByJarvis.asStateFlow()
+    /** A chip in the chat after Jarvis opens an app for this phone: tap it to go there. */
+    private val _openedByJarvis = MutableStateFlow<AppInfo?>(null)
+    val openedByJarvis: StateFlow<AppInfo?> = _openedByJarvis.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -164,8 +164,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun dismissOpenedChip() {
+    /** Tapping the "Opened …" chip in the chat goes to that app. */
+    fun openChipApp() {
+        val app = _openedByJarvis.value ?: return
         _openedByJarvis.value = null
+        openApp(app.id)
     }
 
     private fun onServerEvent(event: ServerEvent) {
@@ -185,11 +188,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             "open-app" -> if (event.metaString("targetDeviceId") == myDeviceId) {
-                val target = event.metaString("target") ?: return
-                if (_apps.value.any { it.id == target }) {
-                    _openedByJarvis.value = _apps.value.first { it.id == target }.name
-                    openApp(target)
-                }
+                val app = _apps.value.firstOrNull { it.id == event.metaString("target") } ?: return
+                // In the chat, don't jump away: the reply is about to arrive there.
+                // A chip under it opens the app with one tap instead.
+                if (_tab.value == Tab.JARVIS) _openedByJarvis.value = app else openApp(app.id)
             }
             "close-app" -> if (event.metaString("targetDeviceId") == myDeviceId) closeApp()
             "device-revoked" -> if (event.metaString("deviceId") == myDeviceId) container.sessionStore.markRemoved()

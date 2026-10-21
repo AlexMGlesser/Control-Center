@@ -166,10 +166,7 @@ private fun MainScaffold(viewModel: AppViewModel, session: Session) {
                             online = online,
                             openedChip = openedChip,
                             onSend = viewModel::sendChat,
-                            onChipTap = {
-                                viewModel.dismissOpenedChip()
-                                viewModel.selectTab(Tab.APPS)
-                            }
+                            onChipTap = viewModel::openChipApp
                         )
                         Tab.SETTINGS -> SettingsScreen(
                             session = session,
