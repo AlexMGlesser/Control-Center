@@ -26,6 +26,7 @@ object Notifications {
     const val CHANNEL_ALERTS = "connection_alerts"
     const val CHANNEL_CALENDAR = "calendar"
     const val CHANNEL_JARVIS = "jarvis"
+    const val CHANNEL_ALARMS = "alarms"
 
     const val STATUS_ID = 1
     const val CONNECTION_ALERT_ID = 2
@@ -54,6 +55,13 @@ object Notifications {
                 },
                 NotificationChannel(CHANNEL_JARVIS, "Jarvis", NotificationManager.IMPORTANCE_DEFAULT).apply {
                     description = "Jarvis's replies when you've left the app."
+                },
+                // Silent channel: the alarm service plays the sound itself, on loop.
+                NotificationChannel(CHANNEL_ALARMS, "Alarms", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Alarms you set from this phone."
+                    setSound(null, null)
+                    enableVibration(false)
+                    setBypassDnd(true)
                 }
             )
         )

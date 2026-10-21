@@ -38,6 +38,7 @@ import { getVoiceStatus } from "../services/voiceService.js";
 import { enqueueUserTurn, getQueueStatus, onReplyDelivered } from "../services/queueWorker.js";
 import {
   createAlarm,
+  getAlarm,
   listAlarms,
   cancelAlarm,
   stopAlarm,
@@ -1039,9 +1040,18 @@ router.get("/alarms/ringing", (req, res) => {
   res.json({ ok: true, alarms: getRingingAlarms() });
 });
 
+// A phone may only touch its own alarms (they ring on that phone).
+function rejectIfNotOwnAlarm(req, res) {
+  if (req.auth?.scope !== "remote") return false;
+  const alarm = getAlarm(req.params.id);
+  if (alarm && alarm.deviceId === req.auth.device.id) return false;
+  res.status(403).json({ ok: false, code: "NOT_YOUR_ALARM", message: "That alarm belongs to another device." });
+  return true;
+}
+
 router.post("/alarms", (req, res) => {
   try {
-    const alarm = createAlarm(req.body || {});
+    const alarm = createAlarm({ ...(req.body || {}), device: req.auth?.device || null });
     res.status(201).json({ ok: true, alarm });
   } catch (error) {
     res.status(400).json({ ok: false, code: error.code || "CREATE_ALARM_FAILED", message: error.message });
@@ -1049,6 +1059,7 @@ router.post("/alarms", (req, res) => {
 });
 
 router.delete("/alarms/:id", (req, res) => {
+  if (rejectIfNotOwnAlarm(req, res)) return;
   try {
     const alarm = cancelAlarm(req.params.id);
     res.json({ ok: true, alarm });
@@ -1058,6 +1069,7 @@ router.delete("/alarms/:id", (req, res) => {
 });
 
 router.post("/alarms/:id/stop", (req, res) => {
+  if (rejectIfNotOwnAlarm(req, res)) return;
   try {
     const alarms = stopAlarm(req.params.id);
     res.json({ ok: true, alarms });

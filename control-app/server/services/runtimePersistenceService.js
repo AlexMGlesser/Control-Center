@@ -101,8 +101,9 @@ export function refreshAgentRuntimeContext() {
   writeFileSync(agentContextPath, lines.join("\n"), "utf-8");
 }
 
+// CC_RUNTIME_STATE_FILE lets tests use a throwaway state file instead of the real one.
 export function getRuntimeLogPath() {
-  return path.join(getRuntimeLogsDirectory(), "control-center-runtime.json");
+  return process.env.CC_RUNTIME_STATE_FILE || path.join(getRuntimeLogsDirectory(), "control-center-runtime.json");
 }
 
 export function getAgentRuntimeContextPath() {

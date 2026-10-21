@@ -66,6 +66,22 @@ data class PairResponse(
 )
 
 @Serializable
+data class AlarmInfo(
+    val id: String,
+    val label: String = "Alarm",
+    val kind: String = "alarm",
+    val time: String = "",
+    val enabled: Boolean = true,
+    val nextFireAt: String? = null,
+    val nextFireAtLocal: String? = null,
+    /** Set when the alarm was created from a paired device: only that device rings. */
+    val deviceId: String? = null
+)
+
+@Serializable
+data class AlarmsResponse(val alarms: List<AlarmInfo> = emptyList())
+
+@Serializable
 data class SystemInfo(val name: String = "", val version: String = "")
 
 @Serializable

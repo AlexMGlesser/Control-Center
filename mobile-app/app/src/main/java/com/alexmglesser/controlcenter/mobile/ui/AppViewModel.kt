@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.alexmglesser.controlcenter.mobile.alarm.PhoneAlarms
 import com.alexmglesser.controlcenter.mobile.appContainer
 import com.alexmglesser.controlcenter.mobile.data.AppSettings
 import com.alexmglesser.controlcenter.mobile.data.Session
@@ -266,6 +267,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             ConnectionServiceController.stop(getApplication())
             container.connection.stop()
+            PhoneAlarms.cancelAll(getApplication())
             container.sessionStore.clear()
             _apps.value = emptyList()
             _chat.value = ChatUiState()

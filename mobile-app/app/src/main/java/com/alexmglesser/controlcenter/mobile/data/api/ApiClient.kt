@@ -64,6 +64,13 @@ class ApiClient(private val sessionStore: SessionStore) {
     suspend fun queueStatus(): QueueStatus =
         get("/api/agent/queue/status") { json.decodeFromString(QueueStatusResponse.serializer(), it).queue }
 
+    suspend fun alarms(): List<AlarmInfo> = get("/api/alarms") { json.decodeFromString(AlarmsResponse.serializer(), it).alarms }
+
+    /** Tells the PC this phone's alarm was stopped (so the PC stops tracking it as ringing). */
+    suspend fun stopAlarm(alarmId: String) {
+        send("POST", "/api/alarms/$alarmId/stop", "{}") { }
+    }
+
     /** Unpairs this device on the PC (Settings > Sign out). */
     suspend fun signOutDevice() {
         send("DELETE", "/api/devices/self", null) { }

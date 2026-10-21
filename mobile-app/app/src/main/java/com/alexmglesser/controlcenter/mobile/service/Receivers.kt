@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.RemoteInput
+import com.alexmglesser.controlcenter.mobile.alarm.PhoneAlarms
 import com.alexmglesser.controlcenter.mobile.appContainer
 import com.alexmglesser.controlcenter.mobile.notify.Notifications
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +19,8 @@ class BootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
+                // Phone alarms come back first, without waiting for the PC.
+                PhoneAlarms.restore(context)
                 val store = context.appContainer.sessionStore
                 store.load()
                 if (store.currentSession() != null && store.currentSettings().stayConnected) {

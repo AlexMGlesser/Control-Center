@@ -207,9 +207,13 @@ export const TOOL_DEFINITIONS = [
   tool("get_news_summary", "Fetch the latest weather, headlines, and tech news and return a spoken-style summary.", {}),
   tool(
     "set_alarm",
-    `Create an alarm or timer. Defaults to a plain "alarm" — only use "wakeup" if the user's own words explicitly ask for a wake-up alarm (e.g. they say "wake-up alarm" or "wake me up"). A time like 7am by itself is NOT a reason to pick "wakeup" — plenty of plain alarms are set for the morning. The result includes "nextFireAtLocal", an already-local-timezone-formatted date/time string — always use that when telling the user when the alarm will go off, never the raw "nextFireAt" UTC value (reading a UTC timestamp directly will often show the wrong calendar day).`,
+    `Create an alarm or timer. It rings on the device the user asked from (their phone or the PC). For relative requests ("set an alarm in 30 seconds", "a 2 minute alarm", "timer for an hour") pass inSeconds (30, 120, 3600) and omit time, date and recurrence. Defaults to a plain "alarm" — only use "wakeup" if the user's own words explicitly ask for a wake-up alarm (e.g. they say "wake-up alarm" or "wake me up"). A time like 7am by itself is NOT a reason to pick "wakeup" — plenty of plain alarms are set for the morning. The result includes "nextFireAtLocal", an already-local-timezone-formatted date/time string — always use that when telling the user when the alarm will go off, never the raw "nextFireAt" UTC value (reading a UTC timestamp directly will often show the wrong calendar day).`,
     {
-      time: { type: "string", description: "Local 24-hour time, format HH:mm, e.g. '07:00'." },
+      time: { type: "string", description: "Local 24-hour time, format HH:mm, e.g. '07:00'. Omit when using inSeconds." },
+      inSeconds: {
+        type: "integer",
+        description: "For relative alarms and timers only: seconds from now (30 seconds = 30, 2 minutes = 120, 1 hour = 3600). Use this instead of time; never compute a clock time yourself for these."
+      },
       date: {
         type: "string",
         description: "Local YYYY-MM-DD date. Only set this if the user named a specific day (e.g. \"tomorrow\", \"next Friday\", a date). If they just gave a bare time with no day mentioned, omit this entirely — the server will correctly pick today if that time hasn't passed yet, or the next occurrence otherwise. Do not compute or guess a date yourself when none was mentioned."
@@ -227,7 +231,7 @@ export const TOOL_DEFINITIONS = [
         description: `Default "alarm". Only set "wakeup" when the user explicitly said the words "wake up" / "wake-up alarm" themselves — never infer it from the time alone. "wakeup" plays a spoken news + today's-schedule briefing once turned off.`
       }
     },
-    ["time", "recurrence"]
+    []
   ),
   tool("list_alarms", `List all scheduled alarms. Use each alarm's "nextFireAtLocal" field to report when it fires, not the raw "nextFireAt" UTC value.`, {}),
   tool("cancel_alarm", "Cancel and delete an alarm by id.", { alarmId: { type: "string" } }, ["alarmId"]),
@@ -639,7 +643,8 @@ export async function executeToolCall(toolName, args = {}, context = {}) {
 
     case "set_alarm": {
       try {
-        return ok({ alarm: createAlarm(args) });
+        // The alarm rings on the device the user asked from.
+        return ok({ alarm: createAlarm({ ...args, device: context.origin?.device || null }) });
       } catch (error) {
         return fail(error?.code || "SET_ALARM_FAILED", error?.message || "Failed to create alarm.");
       }

@@ -10,7 +10,11 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.alexmglesser.controlcenter.mobile.appContainer
 import com.alexmglesser.controlcenter.mobile.data.api.ServerEvent
+import com.alexmglesser.controlcenter.mobile.alarm.AlarmRingService
+import com.alexmglesser.controlcenter.mobile.alarm.PhoneAlarms
+import com.alexmglesser.controlcenter.mobile.data.events.ConnectionState
 import com.alexmglesser.controlcenter.mobile.data.events.OutageNotifier
+import java.time.Instant
 import com.alexmglesser.controlcenter.mobile.notify.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +67,14 @@ class ConnectionService : Service() {
         scope.launch {
             container.connection.events.collect { event -> handleEvent(event) }
         }
+        scope.launch {
+            var wasConnected = false
+            container.connection.state.collect { state ->
+                val connected = state is ConnectionState.Connected
+                if (connected && !wasConnected) syncAlarms()
+                wasConnected = connected
+            }
+        }
 
         container.connection.start()
     }
@@ -77,9 +89,32 @@ class ConnectionService : Service() {
 
     private fun serverName(): String = appContainer.sessionStore.currentSession()?.serverName ?: "your PC"
 
-    /** A reply to a message sent from this phone, arriving while the app isn't on screen. */
+    /** Mirror this phone's alarms into Android's alarm clock (PhoneAlarms). */
+    private suspend fun syncAlarms() {
+        val session = appContainer.sessionStore.currentSession() ?: return
+        runCatching { appContainer.api.alarms() }.onSuccess { PhoneAlarms.sync(this, it, session.deviceId) }
+    }
+
     private suspend fun handleEvent(event: ServerEvent) {
-        if (event.type != "chat") return
+        val myDeviceId = appContainer.sessionStore.currentSession()?.deviceId ?: return
+        when (event.type) {
+            "data-changed" -> if (event.appId == "alarms") syncAlarms()
+            // Backup path: the PC fired this phone's alarm. Rings only if the
+            // local alarm clock hasn't already rung this occurrence.
+            "alarm-fired" -> if (event.metaString("targetDeviceId") == myDeviceId) {
+                val alarmId = event.metaString("alarmId") ?: return
+                val firedFor = event.metaString("firedFor")?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+                AlarmRingService.start(this, alarmId, event.metaString("label") ?: "Alarm", firedFor ?: System.currentTimeMillis())
+            }
+            "alarm-stopped" -> if (event.metaString("targetDeviceId") == myDeviceId) {
+                event.metaString("alarmId")?.let { AlarmRingService.stopFromElsewhere(this, it) }
+            }
+            "chat" -> handleChatReply(event)
+        }
+    }
+
+    /** A reply to a message sent from this phone, arriving while the app isn't on screen. */
+    private suspend fun handleChatReply(event: ServerEvent) {
         val container = appContainer
         val session = container.sessionStore.currentSession() ?: return
         if (event.originDeviceId() != session.deviceId) return

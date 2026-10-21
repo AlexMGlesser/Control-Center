@@ -127,7 +127,8 @@ async function checkRingingAlarms() {
   try {
     const res = await fetch("/api/alarms/ringing");
     const data = await res.json();
-    const alarms = data.alarms ?? [];
+    // Alarms set from a paired phone ring on that phone, not here.
+    const alarms = (data.alarms ?? []).filter((alarm) => !alarm.deviceId);
     if (alarms.length) {
       showAlarmOverlay({ alarmId: alarms[0].id, label: alarms[0].label });
     }
@@ -2064,11 +2065,11 @@ function startEventStream() {
             .catch(() => {});
         }
 
-        if (payload.event.type === "alarm-fired") {
+        if (payload.event.type === "alarm-fired" && !targetedElsewhere) {
           showAlarmOverlay(payload.event.meta || {});
         }
 
-        if (payload.event.type === "alarm-stopped") {
+        if (payload.event.type === "alarm-stopped" && !targetedElsewhere) {
           hideAlarmOverlay();
         }
 
