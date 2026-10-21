@@ -8,12 +8,20 @@ export function getChatMessages(limit = 80) {
   return chatState.messages.slice(-safeLimit);
 }
 
-export function addUserMessage(text) {
+// `device` ({ id, kind, name }) records which device sent it, for the
+// "from Phone" / "from PC" label in the shared chat history.
+export function addUserMessage(text, device = null) {
   const cleaned = String(text || "").trim();
   if (!cleaned) {
     return { ok: false, code: "EMPTY_MESSAGE", message: "Message text is required." };
   }
-  const message = { id: chatState.nextId++, role: "user", text: cleaned, timestamp: new Date().toISOString() };
+  const message = {
+    id: chatState.nextId++,
+    role: "user",
+    text: cleaned,
+    timestamp: new Date().toISOString(),
+    ...(device ? { device } : {})
+  };
   chatState.messages.push(message);
   return { ok: true, message };
 }

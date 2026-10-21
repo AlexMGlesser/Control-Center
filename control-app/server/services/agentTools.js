@@ -257,7 +257,39 @@ export function getToolDefinitions() {
   return TOOL_DEFINITIONS;
 }
 
-export async function executeToolCall(toolName, args = {}) {
+// Tools that act on the PC itself in ways a remote device must not trigger,
+// even through Jarvis (so a prompt injection reaching Jarvis from the phone
+// can't do anything the phone couldn't do directly).
+const DESKTOP_ONLY_TOOLS = new Set([
+  "shutdown_app",
+  "update_desktop_settings",
+  "test_voice",
+  "switch_mode",
+  "publish_event",
+  "connect_app",
+  "create_project",
+  "open_project",
+  "start_gesture_recorder"
+]);
+
+/** True when a turn came from a paired remote device rather than the PC. */
+function isRemoteOrigin(origin) {
+  return Boolean(origin?.device && origin.device.kind !== "desktop");
+}
+
+/**
+ * `context.origin` is the turn's origin (see queueWorker) — it decides
+ * whether desktop-only tools are allowed and which device open/close_app act on.
+ */
+export async function executeToolCall(toolName, args = {}, context = {}) {
+  const remoteDevice = isRemoteOrigin(context.origin) ? context.origin.device : null;
+  if (remoteDevice && DESKTOP_ONLY_TOOLS.has(toolName)) {
+    return fail(
+      "DESKTOP_ONLY_TOOL",
+      `'${toolName}' only works when asked from the PC, not from ${remoteDevice.name || "a remote device"}.`
+    );
+  }
+
   switch (toolName) {
     case "get_system_state":
       return ok({
@@ -287,11 +319,14 @@ export async function executeToolCall(toolName, args = {}) {
       }
 
       if (["all", "apps", "all-apps", "everything", "window-apps"].includes(target)) {
+        if (remoteDevice) {
+          return fail("ONE_APP_AT_A_TIME", "On the phone, apps open one at a time. Ask for a specific app.");
+        }
         const opened = await Promise.all(WINDOW_APPS.map((appId) => openSingleApp(appId)));
         return ok({ target: "all-apps", opened, count: opened.filter((entry) => entry.ok).length });
       }
 
-      const result = await openSingleApp(target);
+      const result = await openSingleApp(target, { targetDevice: remoteDevice });
       if (!result.ok) {
         return result;
       }
@@ -307,6 +342,20 @@ export async function executeToolCall(toolName, args = {}) {
       const closeAll = ["all", "apps", "all-apps", "window-apps"].includes(target);
       if (!closeAll && !WINDOW_APPS.includes(target)) {
         return fail("INVALID_CLOSE_TARGET", `close_app supports ${WINDOW_APPS.join(", ")}, or 'all-apps'.`);
+      }
+
+      if (remoteDevice) {
+        // Closing from the phone closes it on the phone; PC windows and
+        // processes are left alone.
+        const closeTarget = closeAll ? "all-apps" : target;
+        const eventResult = publishEvent({
+          appId: closeAll ? "control-center" : target,
+          source: "agent",
+          type: "close-app",
+          message: `Agent closed ${closeAll ? "all apps" : getAppById(target)?.name || target} on ${remoteDevice.name}.`,
+          meta: { target: closeTarget, closeAll, targetDeviceId: remoteDevice.id }
+        });
+        return ok({ target: closeTarget, closeAll, targetDeviceId: remoteDevice.id, event: eventResult.event });
       }
 
       // Native-process apps are stopped here (awaited), not only via the
@@ -655,12 +704,27 @@ async function newsSummaryTool() {
   return ok({ summary: formatNewsSummary(briefing), digest: briefing.chatbotDigest });
 }
 
-async function openSingleApp(target) {
+async function openSingleApp(target, { targetDevice = null } = {}) {
   const isSystemTab = SYSTEM_TABS.includes(target);
   const app = isSystemTab ? null : getAppById(target);
 
   if (!isSystemTab && !app) {
     return fail("APP_NOT_FOUND", `No app found for target '${target}'.`);
+  }
+
+  if (targetDevice) {
+    // Opening from the phone opens it on the phone: no PC window, no PC
+    // process (e.g. the webcam-based File System explorer stays off).
+    const tab = isSystemTab ? target : `app:${app.id}`;
+    const label = isSystemTab ? target : app.name;
+    const eventResult = publishEvent({
+      appId: isSystemTab ? "control-center" : app.id,
+      source: "agent",
+      type: "open-app",
+      message: `Agent opened ${label} on ${targetDevice.name}.`,
+      meta: { target, tab, label, targetDeviceId: targetDevice.id }
+    });
+    return { ok: true, target, tab, label, targetDeviceId: targetDevice.id, event: eventResult.event };
   }
 
   let nativeLaunch = null;

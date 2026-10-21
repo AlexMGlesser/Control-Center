@@ -6,6 +6,7 @@ import { serverConfig } from "./config.js";
 import { getBundledAppDirectory } from "./appPaths.js";
 import apiRouter, { initializeAgentSystem, shutdownAgentSystem } from "./routes/api.js";
 import { attachVoiceWebSocket, closeVoiceWebSocket } from "./services/voiceService.js";
+import { apiAuthMiddleware, getLocalSessionSecret, initLocalSession, localLoginHandler } from "./services/authService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,11 +27,12 @@ const APP_STATIC_DIRS = [
   ["file-system-app", path.join(getBundledAppDirectory("file-system-app"), "panel")]
 ];
 
-function createServerApp() {
+export function createServerApp() {
   const app = express();
 
   app.use(express.json());
-  app.use("/api", apiRouter);
+  app.get("/auth/local", localLoginHandler);
+  app.use("/api", apiAuthMiddleware, apiRouter);
   // The Wikipedia App's Python server code isn't a static asset — only its
   // wrapper page (index.html/app.js/styles.css) is served from that folder.
   app.use("/wikipedia-app/librarian", (req, res) => res.status(404).end());
@@ -47,12 +49,19 @@ function createServerApp() {
 }
 
 export function startServer() {
+  initLocalSession();
   const app = createServerApp();
 
   return new Promise((resolve, reject) => {
     const server = app
       .listen(serverConfig.port, serverConfig.host, () => {
         console.log(`Control Center running at http://localhost:${serverConfig.port}`);
+        if (isDirectRun) {
+          // Browser (start:web) has no Electron to set the session cookie.
+          console.log(
+            `Open this link to sign in from this PC's browser: http://localhost:${serverConfig.port}/auth/local?token=${getLocalSessionSecret()}`
+          );
+        }
         attachVoiceWebSocket(server);
         initializeAgentSystem();
         resolve(server);

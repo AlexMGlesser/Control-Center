@@ -1,10 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import { startServer, stopServer } from "../server/index.js";
 import { serverConfig } from "../server/config.js";
 import { onShutdownRequested } from "../server/routes/api.js";
 import { registerWindowControlHandler } from "../server/services/windowControlBridge.js";
+import {
+  LOCAL_SESSION_COOKIE,
+  getLocalSessionSecret,
+  readPersistedLocalSessionSecret
+} from "../server/services/authService.js";
 import { isFileSystemRunning, launchFileExplorer, stopFileSystem } from "../server/services/fileSystemService.js";
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
@@ -208,6 +213,9 @@ function closeAppWindowByTarget(target) {
 }
 
 async function ensureBackendServer() {
+  // Read before startServer(): starting writes this launch's secret over the
+  // file, and an already-running instance only accepts its own secret.
+  const previousInstanceSecret = readPersistedLocalSessionSecret();
   try {
     backendServer = await startServer();
     onShutdownRequested(() => app.quit());
@@ -222,7 +230,7 @@ async function ensureBackendServer() {
       throw error;
     }
 
-    const shutDown = await shutdownExistingServer();
+    const shutDown = await shutdownExistingServer(previousInstanceSecret);
     if (!shutDown) {
       throw new Error(`Control Center backend port ${serverConfig.port} is already in use by another process.`);
     }
@@ -230,6 +238,18 @@ async function ensureBackendServer() {
     backendServer = await startServer();
     onShutdownRequested(() => app.quit());
   }
+}
+
+// Every desktop page, app window, fetch, EventSource and the voice socket
+// authenticate with this cookie automatically — no page code needs to know.
+async function setLocalSessionCookie() {
+  await session.defaultSession.cookies.set({
+    url: `http://localhost:${serverConfig.port}`,
+    name: LOCAL_SESSION_COOKIE,
+    value: getLocalSessionSecret(),
+    httpOnly: true,
+    sameSite: "strict"
+  });
 }
 
 async function isExistingServerHealthy() {
@@ -241,9 +261,12 @@ async function isExistingServerHealthy() {
   }
 }
 
-async function shutdownExistingServer() {
+async function shutdownExistingServer(instanceSecret) {
   try {
-    await fetch(`http://localhost:${serverConfig.port}/api/shutdown`, { method: "POST" });
+    await fetch(`http://localhost:${serverConfig.port}/api/shutdown`, {
+      method: "POST",
+      headers: instanceSecret ? { Cookie: `${LOCAL_SESSION_COOKIE}=${encodeURIComponent(instanceSecret)}` } : {}
+    });
   } catch {
     return false;
   }
@@ -264,6 +287,7 @@ async function shutdownExistingServer() {
 app.whenReady()
   .then(async () => {
     await ensureBackendServer();
+    await setLocalSessionCookie();
     registerWindowControlHandler({ closeAppWindow: closeAppWindowByTarget });
     createMainWindow();
     Object.keys(APP_WINDOW_CONFIGS).forEach((appId) => {

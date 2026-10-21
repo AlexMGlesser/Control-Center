@@ -121,6 +121,29 @@ export function listMusicPlaylists({ localOnly = false } = {}) {
   };
 }
 
+/**
+ * True when `resolvedPath` is a track in a synced local playlist. Remote
+ * devices may only stream these; Windows paths compare case-insensitively.
+ */
+export function isSyncedLocalTrackPath(resolvedPath) {
+  const target = normalizeComparablePath(resolvedPath);
+  if (!target) {
+    return false;
+  }
+  return localPlaylistState.playlists.some((playlist) =>
+    playlist.tracks.some((track) => track.sourcePath && normalizeComparablePath(track.sourcePath) === target)
+  );
+}
+
+function normalizeComparablePath(rawPath) {
+  const value = String(rawPath || "").trim();
+  if (!value) {
+    return "";
+  }
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
 export function syncLocalMusicPlaylists(playlists) {
   const normalizedPlaylists = Array.isArray(playlists)
     ? playlists.map(normalizeLocalPlaylist).filter(Boolean)

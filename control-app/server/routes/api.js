@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { existsSync, statSync } from "fs";
+import { existsSync, realpathSync, statSync } from "fs";
 import { spawn } from "child_process";
 import path from "path";
 import { systemConfig } from "../config.js";
@@ -59,6 +59,7 @@ import {
   addTrackToPlaylist,
   createMusicPlaylist,
   getMusicLibraryState,
+  isSyncedLocalTrackPath,
   listMusicArtists,
   listMusicGenres,
   listMusicPlaylists,
@@ -82,6 +83,13 @@ import {
 } from "../services/fileSystemService.js";
 
 const router = Router();
+
+// Files /apps/music-app/local-file will stream (the music app imports
+// audio/*; video formats are allowed for music videos).
+const MEDIA_FILE_EXTENSIONS = new Set([
+  ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".oga", ".opus", ".wav", ".wma", ".aif", ".aiff", ".ape", ".alac",
+  ".mp4", ".m4v", ".webm", ".mkv", ".mov"
+]);
 let shutdownCallback = null;
 
 export function onShutdownRequested(cb) {
@@ -269,7 +277,7 @@ router.post("/agent/respond", async (req, res) => {
     return;
   }
 
-  const { turnId } = enqueueUserTurn(userText, { origin: { type: "user" } });
+  const { turnId } = enqueueUserTurn(userText, { origin: { type: "user", device: req.auth?.device } });
   const agentText = await new Promise((resolve) => {
     const unsubscribe = onReplyDelivered(({ turnId: completedTurnId, message }) => {
       if (completedTurnId !== turnId) {
@@ -290,13 +298,15 @@ router.post("/chat/messages", (req, res) => {
     return;
   }
 
-  const userMessageResult = addUserMessage(userText);
+  // req.auth is set by apiAuthMiddleware: the PC, or the paired device that sent it.
+  const device = req.auth?.device || null;
+  const userMessageResult = addUserMessage(userText, device);
   if (!userMessageResult.ok) {
     res.status(400).json(userMessageResult);
     return;
   }
 
-  const { task, turnId } = enqueueUserTurn(userText, { origin: { type: "user" } });
+  const { task, turnId } = enqueueUserTurn(userText, { origin: { type: "user", device } });
 
   publishEvent({
     source: "chat",
@@ -489,7 +499,26 @@ router.get("/apps/music-app/local-file", (req, res) => {
     return;
   }
 
-  res.sendFile(resolvedPath, (error) => {
+  // This used to serve any file on disk. Now: media files only (judged on
+  // the real target, so a renamed symlink/junction can't point elsewhere),
+  // and remote devices only get tracks that are in a synced playlist.
+  let realPath = resolvedPath;
+  try {
+    realPath = realpathSync(resolvedPath);
+  } catch {
+    res.status(500).json({ ok: false, code: "MUSIC_FILE_STAT_FAILED", message: "Could not read local file metadata." });
+    return;
+  }
+  if (!MEDIA_FILE_EXTENSIONS.has(path.extname(realPath).toLowerCase())) {
+    res.status(403).json({ ok: false, code: "MUSIC_FILE_NOT_MEDIA", message: "Only audio and video files can be streamed." });
+    return;
+  }
+  if (req.auth?.scope === "remote" && !isSyncedLocalTrackPath(resolvedPath) && !isSyncedLocalTrackPath(realPath)) {
+    res.status(403).json({ ok: false, code: "MUSIC_FILE_NOT_IN_LIBRARY", message: "That file isn't in your music library." });
+    return;
+  }
+
+  res.sendFile(realPath, (error) => {
     if (error && !res.headersSent) {
       res.status(500).json({ ok: false, code: "MUSIC_FILE_STREAM_FAILED", message: "Could not stream local music file." });
     }

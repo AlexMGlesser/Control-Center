@@ -73,7 +73,7 @@ async function processEntry(entry) {
       const toolResults = [];
       for (const call of apiCalls) {
         publishAIThought(`Calling tool ${call.tool}`, { tool: call.tool, args: call.args });
-        const result = await executeToolCall(call.tool, call.args || {});
+        const result = await executeToolCall(call.tool, call.args || {}, { origin: entry.origin });
         toolResults.push({ tool: call.tool, args: call.args, result });
       }
       turn.messages.push({ role: "user", content: renderReturnedEnvelope(toolResults) });

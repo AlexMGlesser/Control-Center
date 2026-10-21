@@ -3,6 +3,7 @@ import { transcribeAudio, isWhisperReady } from "./whisperService.js";
 import { synthesizeSpeech, isPiperReady } from "./piperService.js";
 import { addUserMessage } from "./chatService.js";
 import { enqueueUserTurn, onReplyDelivered } from "./queueWorker.js";
+import { isDesktopUpgradeRequest } from "./authService.js";
 
 const WAKE_WORD_VARIANTS = ["jarvis", "jarves", "jarv is", "jar vis", "jarvas"];
 const MUTE_PATTERN = /^\s*mute\b/i;
@@ -40,6 +41,12 @@ export function attachVoiceWebSocket(httpServer) {
   upgradeHandler = (request, socket, head) => {
     const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
     if (pathname === "/voice") {
+      // Voice is desktop-only: the handshake must carry the local session cookie.
+      if (!isDesktopUpgradeRequest(request)) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
+      }
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit("connection", ws, request);
       });

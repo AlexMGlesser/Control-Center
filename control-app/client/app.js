@@ -1828,7 +1828,11 @@ function startEventStream() {
           });
         }
 
-        if (payload.event.type === "open-app" && payload.event.meta?.tab) {
+        // Open/close events carrying targetDeviceId were asked for from a
+        // paired phone and are meant for that phone, not for this desktop.
+        const targetedElsewhere = Boolean(payload.event.meta?.targetDeviceId);
+
+        if (payload.event.type === "open-app" && payload.event.meta?.tab && !targetedElsewhere) {
           const targetTab = String(payload.event.meta.tab);
           if (targetTab === "app:calendar-app") {
             openCalendarAppWindow().catch(() => {
@@ -1875,7 +1879,7 @@ function startEventStream() {
           }
         }
 
-        if (payload.event.type === "close-app") {
+        if (payload.event.type === "close-app" && !targetedElsewhere) {
           const closeTarget = String(payload.event.meta?.target || "").trim();
           closeKnownAppWindow(closeTarget).catch(() => {
             // Ignore close failures for now.
