@@ -18,6 +18,7 @@
     "dotenv": "^17.4.2",
     "express": "^4.21.2",
     "fast-xml-parser": "^5.7.0",
+    "qrcode": "1.5.4",
     "ws": "^8.20.0"
   },
   "devDependencies": {
@@ -132,12 +133,16 @@
       {
         "from": "voice/whisper",
         "to": "voice/whisper",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "voice/piper",
         "to": "voice/piper",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

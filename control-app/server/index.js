@@ -6,6 +6,7 @@ import { serverConfig } from "./config.js";
 import { getBundledAppDirectory } from "./appPaths.js";
 import apiRouter, { initializeAgentSystem, shutdownAgentSystem } from "./routes/api.js";
 import { attachVoiceWebSocket, closeVoiceWebSocket } from "./services/voiceService.js";
+import { publishEvent } from "./services/eventBus.js";
 import { apiAuthMiddleware, getLocalSessionSecret, initLocalSession, localLoginHandler } from "./services/authService.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -73,6 +74,14 @@ export function startServer() {
 }
 
 export async function stopServer(server) {
+  // Tell connected devices this is a deliberate shutdown, not a network
+  // problem, before their streams close.
+  publishEvent({
+    source: "control-center",
+    appId: "control-center",
+    type: "server-stopping",
+    message: "Control Center is shutting down."
+  });
   closeVoiceWebSocket();
   await shutdownAgentSystem();
 

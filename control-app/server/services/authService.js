@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { getSecurityDirectory } from "../appPaths.js";
@@ -46,8 +46,23 @@ const REMOTE_ALLOWLIST = [
 ];
 
 // Reachable without credentials: the health probe (no data, and a second
-// Control Center instance uses it to detect a running one).
-const PUBLIC_ROUTES = [["GET", /^\/health$/]];
+// Control Center instance uses it to detect a running one), and pairing,
+// which is how a device gets credentials in the first place.
+const PUBLIC_ROUTES = [
+  ["GET", /^\/health$/],
+  ["POST", /^\/devices\/pair$/]
+];
+
+// Pairing: one active code at a time, shown on the PC as a QR code.
+// 8 Crockford base32 characters (~40 bits; no I, L, O or U to misread).
+const PAIRING_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const PAIRING_CODE_LENGTH = 8;
+const PAIRING_CODE_TTL_MS = 5 * 60_000;
+const PAIRING_MAX_WRONG_ATTEMPTS = 5;
+const PAIR_RATE_LIMIT = { attempts: 10, windowMs: 10 * 60_000 };
+
+let activePairingCode = null; // { code, expiresAt, wrongAttempts }
+const pairAttemptsBySource = new Map(); // source -> [timestamps]
 
 /* ------------------------------------------------------------------ */
 /* Desktop local session                                               */
@@ -181,6 +196,83 @@ function publicDevice(device) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Pairing                                                             */
+/* ------------------------------------------------------------------ */
+
+/** Creates the one active pairing code, replacing any previous one. */
+export function createPairingCode() {
+  let code = "";
+  for (let i = 0; i < PAIRING_CODE_LENGTH; i += 1) {
+    code += PAIRING_ALPHABET[randomInt(PAIRING_ALPHABET.length)];
+  }
+  activePairingCode = { code, expiresAt: Date.now() + PAIRING_CODE_TTL_MS, wrongAttempts: 0 };
+  return { code, expiresAt: new Date(activePairingCode.expiresAt).toISOString() };
+}
+
+export function cancelPairingCode() {
+  activePairingCode = null;
+}
+
+function normalizePairingCode(raw) {
+  // Accept what a person might type: lowercase, spaces or dashes, and the
+  // letters Crockford base32 maps to digits.
+  return String(raw || "")
+    .toUpperCase()
+    .replace(/[\s-]/g, "")
+    .replace(/[IL]/g, "1")
+    .replace(/O/g, "0");
+}
+
+/**
+ * Exchanges a pairing code for a device token. Returns
+ * { ok: true, device, token } or { ok: false, status, code, message }.
+ */
+export function pairDevice({ code, deviceName, kind = "phone", source = "unknown" }) {
+  const now = Date.now();
+  const recent = (pairAttemptsBySource.get(source) || []).filter((time) => now - time < PAIR_RATE_LIMIT.windowMs);
+  if (recent.length >= PAIR_RATE_LIMIT.attempts) {
+    pairAttemptsBySource.set(source, recent);
+    return { ok: false, status: 429, code: "TOO_MANY_PAIRING_ATTEMPTS", message: "Too many pairing attempts. Wait a few minutes." };
+  }
+  recent.push(now);
+  pairAttemptsBySource.set(source, recent);
+
+  const active = activePairingCode;
+  if (!active || now > active.expiresAt) {
+    activePairingCode = null;
+    return { ok: false, status: 401, code: "PAIRING_CODE_EXPIRED", message: "No active pairing code. Start pairing again on the PC." };
+  }
+
+  const given = Buffer.from(normalizePairingCode(code));
+  const expected = Buffer.from(active.code);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+    active.wrongAttempts += 1;
+    if (active.wrongAttempts >= PAIRING_MAX_WRONG_ATTEMPTS) {
+      activePairingCode = null;
+    }
+    return { ok: false, status: 401, code: "INVALID_PAIRING_CODE", message: "That pairing code isn't right." };
+  }
+
+  activePairingCode = null; // single use
+  const { device, token } = createDevice({ name: deviceName, kind });
+  return { ok: true, device, token };
+}
+
+/**
+ * Where a request came from, for rate limits and the audit log. Uses the
+ * last X-Forwarded-For entry (the one `tailscale serve` adds), not the
+ * first, which a client could set to anything to dodge the rate limit.
+ */
+export function requestSource(req) {
+  const forwardedFor = String(req.headers?.["x-forwarded-for"] || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .pop();
+  return forwardedFor || req.ip || req.socket?.remoteAddress || "unknown";
+}
+
+/* ------------------------------------------------------------------ */
 /* Request authentication                                              */
 /* ------------------------------------------------------------------ */
 
@@ -279,8 +371,7 @@ export function buildLocalSessionCookie() {
 }
 
 function logRejection(req, reason, device) {
-  const forwardedFor = String(req.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
-  const source = forwardedFor || req.ip || req.socket?.remoteAddress || "unknown";
+  const source = requestSource(req);
   const key = `${source}|${reason}`;
   const now = Date.now();
   if (now - (rejectionLogTimes.get(key) || 0) < REJECTION_LOG_INTERVAL_MS) {

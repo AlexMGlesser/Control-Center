@@ -169,6 +169,134 @@ async function loadSettings() {
   state.settingsOptions = data.options;
 }
 
+/* Paired devices (Settings > Devices) for the mobile app. */
+
+async function loadDevices() {
+  try {
+    const [devicesRes, accessRes] = await Promise.all([
+      fetch("/api/devices"),
+      fetch("/api/devices/remote-access?fresh=1")
+    ]);
+    state.devices = (await devicesRes.json()).devices ?? [];
+    state.remoteAccess = (await accessRes.json()).remoteAccess ?? null;
+  } catch {
+    state.devices = state.devices ?? [];
+  }
+}
+
+async function startPairing() {
+  const res = await fetch("/api/devices/pairing-codes", { method: "POST" });
+  const data = await res.json();
+  if (!data.ok) {
+    return;
+  }
+  state.pairing = data;
+  state.remoteAccess = data.remoteAccess ?? state.remoteAccess;
+  startPairingCountdown();
+}
+
+async function cancelPairing() {
+  state.pairing = null;
+  stopPairingCountdown();
+  await fetch("/api/devices/pairing-codes", { method: "DELETE" }).catch(() => {});
+}
+
+async function removeDevice(deviceId) {
+  await fetch(`/api/devices/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+  await loadDevices();
+}
+
+function startPairingCountdown() {
+  stopPairingCountdown();
+  const tick = () => {
+    const remainingMs = state.pairing ? Date.parse(state.pairing.expiresAt) - Date.now() : 0;
+    if (remainingMs <= 0) {
+      state.pairing = null;
+      stopPairingCountdown();
+      if (state.activeTab === "settings") {
+        renderSettings();
+      }
+      return;
+    }
+    const countdown = document.getElementById("pairing-countdown");
+    if (countdown) {
+      const seconds = Math.ceil(remainingMs / 1000);
+      countdown.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    }
+  };
+  tick();
+  state.pairingTimer = setInterval(tick, 1000);
+}
+
+function stopPairingCountdown() {
+  clearInterval(state.pairingTimer);
+  state.pairingTimer = null;
+}
+
+function formatLastSeen(isoTime) {
+  const minutes = Math.round((Date.now() - Date.parse(isoTime)) / 60000);
+  if (!Number.isFinite(minutes)) return "never";
+  if (minutes < 2) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} h ago`;
+  return new Date(isoTime).toLocaleDateString();
+}
+
+function renderDevicesCard() {
+  const access = state.remoteAccess;
+  const steps = access
+    ? [
+        ["Tailscale installed", access.installed],
+        ["Signed in to Tailscale", access.signedIn],
+        ["HTTPS certificates on", access.httpsCertificates],
+        ["Control Center published (tailscale serve)", access.serveConfigured]
+      ]
+    : [];
+  const checklist = steps
+    .map(([label, done]) => `<li>${label} <span class="status ${done ? "ready" : "wip"}">${done ? "Done" : "To do"}</span></li>`)
+    .join("");
+
+  const devices = state.devices ?? [];
+  const deviceRows = devices.length
+    ? devices
+        .map(
+          (device) => `
+          <li>
+            <span>${escapeHtml(device.name)} <span class="muted">· last seen ${formatLastSeen(device.lastSeenAt)}</span></span>
+            <button type="button" class="action-btn remove-device-btn" data-device-id="${escapeHtml(device.id)}">Remove</button>
+          </li>`
+        )
+        .join("")
+    : `<li class="muted">No paired devices yet.</li>`;
+
+  const pairing = state.pairing;
+  const pairingPanel = pairing
+    ? `
+      <div class="pairing-panel">
+        <div class="pairing-qr">${pairing.qrSvg}</div>
+        <div class="stack">
+          <p>Scan this with the Control Center app on your phone.</p>
+          <p class="pairing-code">${escapeHtml(pairing.code.replace(/(.{4})/, "$1 "))}</p>
+          <p class="muted">Or enter the code manually. Expires in <span id="pairing-countdown"></span>.</p>
+          ${pairing.url ? `<p class="muted">Address: ${escapeHtml(pairing.url)}</p>` : `<p class="status wip">Remote access isn't set up yet, so the phone won't be able to connect. See the checklist above.</p>`}
+          <div class="event-controls"><button type="button" class="action-btn" id="cancel-pairing-btn">Cancel</button></div>
+        </div>
+      </div>`
+    : `<div class="event-controls"><button type="button" class="action-btn" id="pair-device-btn">Pair a device</button></div>`;
+
+  return `
+    <article class="card stack" id="devices-card">
+      <h3>Devices</h3>
+      <p class="muted">Phones paired here can use Control Center from anywhere over Tailscale.</p>
+      ${access?.nextStep ? `<p class="status wip">Next step: ${escapeHtml(access.nextStep)}</p>` : ""}
+      ${checklist ? `<ul class="list">${checklist}</ul>` : ""}
+      <h4>Paired devices</h4>
+      <ul class="list device-list">${deviceRows}</ul>
+      ${pairingPanel}
+    </article>
+  `;
+}
+
 async function loadChatMessages() {
   const res = await fetch("/api/chat/messages?limit=120");
   const data = await res.json();
@@ -1038,6 +1166,8 @@ function renderSettings() {
       </form>
     </article>
 
+    ${renderDevicesCard()}
+
     <article class="card stack">
       <h3>Mode Notice</h3>
       <p class="muted">
@@ -1253,6 +1383,13 @@ function activateTab(tab) {
     renderSettings();
     setVisibleView("view-settings");
     stopQueuePolling();
+    loadDevices()
+      .then(() => {
+        if (state.activeTab === "settings") {
+          renderSettings();
+        }
+      })
+      .catch(() => {});
     return;
   }
 
@@ -1470,6 +1607,33 @@ function wireNavigation() {
         .catch(() => {
           // Ignore refresh failures for now.
         });
+      return;
+    }
+
+    const pairButton = event.target.closest("#pair-device-btn");
+    if (pairButton) {
+      startPairing()
+        .then(() => renderSettings())
+        .catch(() => {});
+      return;
+    }
+
+    const cancelPairingButton = event.target.closest("#cancel-pairing-btn");
+    if (cancelPairingButton) {
+      cancelPairing()
+        .then(() => renderSettings())
+        .catch(() => {});
+      return;
+    }
+
+    const removeDeviceButton = event.target.closest(".remove-device-btn");
+    if (removeDeviceButton) {
+      const device = (state.devices ?? []).find((entry) => entry.id === removeDeviceButton.dataset.deviceId);
+      if (window.confirm(`Remove ${device?.name || "this device"}? It will need to pair again to connect.`)) {
+        removeDevice(removeDeviceButton.dataset.deviceId)
+          .then(() => renderSettings())
+          .catch(() => {});
+      }
       return;
     }
 
@@ -1884,6 +2048,20 @@ function startEventStream() {
           closeKnownAppWindow(closeTarget).catch(() => {
             // Ignore close failures for now.
           });
+        }
+
+        if (payload.event.type === "device-paired" || payload.event.type === "device-revoked") {
+          if (payload.event.type === "device-paired") {
+            state.pairing = null;
+            stopPairingCountdown();
+          }
+          loadDevices()
+            .then(() => {
+              if (state.activeTab === "settings") {
+                renderSettings();
+              }
+            })
+            .catch(() => {});
         }
 
         if (payload.event.type === "alarm-fired") {

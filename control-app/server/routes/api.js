@@ -1,8 +1,19 @@
 import { Router } from "express";
 import { existsSync, realpathSync, statSync } from "fs";
 import { spawn } from "child_process";
+import os from "os";
 import path from "path";
+import QRCode from "qrcode";
 import { systemConfig } from "../config.js";
+import {
+  cancelPairingCode,
+  createPairingCode,
+  listDevices,
+  pairDevice,
+  requestSource,
+  revokeDevice
+} from "../services/authService.js";
+import { getRemoteAccessStatus } from "../services/remoteAccessService.js";
 import { getAllApps, getAppById } from "../services/appRegistry.js";
 import { addAppMessage } from "../services/appMessageService.js";
 import { connectApp, getOrchestratorStatus } from "../services/orchestrator.js";
@@ -83,6 +94,9 @@ import {
 } from "../services/fileSystemService.js";
 
 const router = Router();
+
+// Live event streams per paired device, so removing a device cuts it off.
+const deviceStreams = new Map(); // deviceId -> Set<close function>
 
 // Files /apps/music-app/local-file will stream (the music app imports
 // audio/*; video formats are allowed for music videos).
@@ -833,20 +847,111 @@ router.get("/events/stream", (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  res.write(`data: ${JSON.stringify({ type: "snapshot", events: getRecentEvents(15) })}\n\n`);
+  // Never write to a stream that has ended (e.g. its device was just
+  // removed): that throws "write after end" and would crash the server.
+  const send = (chunk) => {
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(chunk);
+    }
+  };
+
+  send(`data: ${JSON.stringify({ type: "snapshot", events: getRecentEvents(15) })}\n\n`);
 
   const unsubscribe = subscribeToEvents((event) => {
-    res.write(`data: ${JSON.stringify({ type: "event", event })}\n\n`);
+    send(`data: ${JSON.stringify({ type: "event", event })}\n\n`);
   });
 
+  // Heartbeat: lets a phone tell a quiet connection from a dead one.
   const keepAliveId = setInterval(() => {
-    res.write(`event: ping\ndata: ${Date.now()}\n\n`);
+    send(`event: ping\ndata: ${Date.now()}\n\n`);
   }, 20000);
 
-  req.on("close", () => {
+  const deviceId = req.auth?.scope === "remote" ? req.auth.device.id : null;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
     clearInterval(keepAliveId);
     unsubscribe();
+    deviceStreams.get(deviceId)?.delete(close);
+    if (!res.writableEnded) {
+      res.end();
+    }
+  };
+
+  if (deviceId) {
+    if (!deviceStreams.has(deviceId)) {
+      deviceStreams.set(deviceId, new Set());
+    }
+    deviceStreams.get(deviceId).add(close);
+  }
+
+  req.on("close", close);
+});
+
+/* Paired devices (mobile app). Management is desktop-only via the remote
+   allowlist; POST /devices/pair is the one public route. */
+
+router.get("/devices", (req, res) => {
+  res.json({ ok: true, devices: listDevices() });
+});
+
+router.delete("/devices/:deviceId(dev_[a-f0-9]+)", (req, res) => {
+  const deviceId = String(req.params.deviceId || "");
+  if (!revokeDevice(deviceId)) {
+    res.status(404).json({ ok: false, code: "DEVICE_NOT_FOUND", message: "No paired device with that id." });
+    return;
+  }
+  // A removed device loses its live event stream now, not on its next request.
+  for (const closeStream of [...(deviceStreams.get(deviceId) || [])]) {
+    closeStream();
+  }
+  deviceStreams.delete(deviceId);
+  publishEvent({ source: "auth", appId: "control-center", type: "device-revoked", message: "A paired device was removed.", meta: { deviceId } });
+  res.json({ ok: true });
+});
+
+router.get("/devices/remote-access", async (req, res) => {
+  res.json({ ok: true, remoteAccess: await getRemoteAccessStatus({ fresh: req.query.fresh === "1" }) });
+});
+
+router.post("/devices/pairing-codes", async (req, res) => {
+  const remoteAccess = await getRemoteAccessStatus({ fresh: true });
+  const { code, expiresAt } = createPairingCode();
+  const serverName = remoteAccess.dnsName ? remoteAccess.dnsName.split(".")[0] : os.hostname();
+  // The QR code carries everything the phone needs: where to connect and the code.
+  const payload = JSON.stringify({ v: 1, url: remoteAccess.publicUrl, code, name: serverName });
+  const qrSvg = await QRCode.toString(payload, { type: "svg", errorCorrectionLevel: "M", margin: 1 });
+  res.json({ ok: true, code, expiresAt, serverName, url: remoteAccess.publicUrl, qrSvg, remoteAccess });
+});
+
+router.delete("/devices/pairing-codes", (req, res) => {
+  cancelPairingCode();
+  res.json({ ok: true });
+});
+
+router.post("/devices/pair", async (req, res) => {
+  const result = pairDevice({
+    code: req.body?.code,
+    deviceName: req.body?.deviceName,
+    kind: req.body?.kind === "laptop" ? "laptop" : "phone",
+    source: requestSource(req)
   });
+  if (!result.ok) {
+    console.warn(`[Auth] Pairing failed (${result.code}) from ${requestSource(req)}`);
+    res.status(result.status).json({ ok: false, code: result.code, message: result.message });
+    return;
+  }
+  publishEvent({
+    source: "auth",
+    appId: "control-center",
+    type: "device-paired",
+    message: `Paired ${result.device.name}.`,
+    meta: { deviceId: result.device.id, name: result.device.name }
+  });
+  const remoteAccess = await getRemoteAccessStatus();
+  const serverName = remoteAccess.dnsName ? remoteAccess.dnsName.split(".")[0] : os.hostname();
+  res.json({ ok: true, deviceId: result.device.id, token: result.token, device: result.device, serverName });
 });
 
 router.get("/skills", (req, res) => {
