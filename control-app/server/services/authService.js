@@ -33,6 +33,7 @@ const REMOTE_ALLOWLIST = [
   ["POST", /^\/chat\/messages$/],
   ["GET", /^\/agent\/queue\/status$/],
   ["GET", /^\/events\/stream$/],
+  ["DELETE", /^\/devices\/self$/],
   ["GET", /^\/apps\/calendar-app\/(month|events|events\/remaining)$/],
   ["POST", /^\/apps\/calendar-app\/events$/],
   ["DELETE", /^\/apps\/calendar-app\/events\/[^/]+$/],

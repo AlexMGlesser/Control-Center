@@ -130,6 +130,13 @@ describe("device management", () => {
     assert.equal((await request("GET", "/api/devices/remote-access", { token })).status, 403);
   });
 
+  test("a device can sign itself out, and only itself", async () => {
+    const { token } = auth.createDevice({ name: "Leaving" });
+    assert.equal((await request("DELETE", "/api/devices/self", { cookie: desktopCookie })).status, 400);
+    assert.equal((await request("DELETE", "/api/devices/self", { token })).status, 200);
+    assert.equal((await request("GET", "/api/apps", { token })).status, 401);
+  });
+
   test("removing a device ends its live stream and rejects it from then on", async () => {
     const { device, token } = auth.createDevice({ name: "Soon removed" });
 

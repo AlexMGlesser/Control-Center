@@ -335,6 +335,8 @@ router.post("/chat/messages", (req, res) => {
     queued: true,
     userMessage: userMessageResult.message,
     task,
+    // Lets the sender match this turn's tool updates and reply events.
+    turnId,
     queue: getQueueStatus()
   });
 });
@@ -908,6 +910,17 @@ router.delete("/devices/:deviceId(dev_[a-f0-9]+)", (req, res) => {
   }
   deviceStreams.delete(deviceId);
   publishEvent({ source: "auth", appId: "control-center", type: "device-revoked", message: "A paired device was removed.", meta: { deviceId } });
+  res.json({ ok: true });
+});
+
+// A paired device signing itself out (the phone's "Sign out of this device").
+router.delete("/devices/self", (req, res) => {
+  const deviceId = req.auth?.scope === "remote" ? req.auth.device.id : null;
+  if (!deviceId || !revokeDevice(deviceId)) {
+    res.status(400).json({ ok: false, code: "NOT_A_PAIRED_DEVICE", message: "Only a paired device can sign itself out." });
+    return;
+  }
+  publishEvent({ source: "auth", appId: "control-center", type: "device-revoked", message: "A paired device signed out.", meta: { deviceId } });
   res.json({ ok: true });
 });
 

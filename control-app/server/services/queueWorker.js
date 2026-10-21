@@ -72,7 +72,7 @@ async function processEntry(entry) {
       const apiCalls = Array.isArray(entry.message?.apiCalls) ? entry.message.apiCalls : [];
       const toolResults = [];
       for (const call of apiCalls) {
-        publishAIThought(`Calling tool ${call.tool}`, { tool: call.tool, args: call.args });
+        publishAIThought(`Calling tool ${call.tool}`, { tool: call.tool, args: call.args, turnId: entry.turnId });
         const result = await executeToolCall(call.tool, call.args || {}, { origin: entry.origin });
         toolResults.push({ tool: call.tool, args: call.args, result });
       }
