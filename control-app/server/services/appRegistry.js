@@ -1,6 +1,9 @@
+// `icon` is a Lucide icon name; the phone app shows it on the app grid
+// (design-documents/mobile-app-design.md 3.2).
 const appRegistry = [
   {
     id: "project-app",
+    icon: "folder-git-2",
     name: "Project App",
     description: "Personal projects, coding workflows, and IDE launch integration.",
     status: "online",
@@ -9,6 +12,7 @@ const appRegistry = [
   },
   {
     id: "work-app",
+    icon: "briefcase",
     name: "Work App",
     description: "Work and school projects with isolated file boundaries.",
     status: "online",
@@ -17,6 +21,7 @@ const appRegistry = [
   },
   {
     id: "calendar-app",
+    icon: "calendar-days",
     name: "Calendar App",
     description: "Monthly schedule workspace with local event reads, adds, removals, and future calendar sync.",
     status: "online",
@@ -25,6 +30,7 @@ const appRegistry = [
   },
   {
     id: "drawing-app",
+    icon: "pen-tool",
     name: "Drawing App",
     description: "2D/3D design workspace with reusable asset pipeline.",
     status: "online",
@@ -33,6 +39,7 @@ const appRegistry = [
   },
   {
     id: "news-app",
+    icon: "newspaper",
     name: "News App",
     description: "Weather, headlines, tech updates, and daily STEM content.",
     status: "live",
@@ -41,6 +48,7 @@ const appRegistry = [
   },
   {
     id: "music-app",
+    icon: "music",
     name: "Music App",
     description: "Desktop-first playback for local music.",
     status: "online",
@@ -49,6 +57,7 @@ const appRegistry = [
   },
   {
     id: "server-manager-app",
+    icon: "server",
     name: "Server Manager App",
     description: "Remote server inventory, SSH sessions, and control actions.",
     status: "online",
@@ -57,6 +66,7 @@ const appRegistry = [
   },
   {
     id: "movie-app",
+    icon: "clapperboard",
     name: "Movie App",
     description: "Local movie server hosting, streaming sessions, and desktop playback.",
     status: "online",
@@ -65,6 +75,7 @@ const appRegistry = [
   },
   {
     id: "wikipedia-app",
+    icon: "book-open-text",
     name: "Wikipedia App",
     description: "Offline English Wikipedia (GLESSER ARCHIVE librarian): ranked search, article reader, and librarian chat.",
     status: "online",
@@ -73,6 +84,7 @@ const appRegistry = [
   },
   {
     id: "file-system-app",
+    icon: "folder-tree",
     name: "File System App",
     description: "Gesture-controlled file explorer and gesture training-data recorder (native Python window, uses the webcam).",
     status: "online",

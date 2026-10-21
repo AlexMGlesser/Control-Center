@@ -1,0 +1,8 @@
+<resources>
+    <!-- Dark window background so there's no white flash before Compose draws. -->
+    <style name="Theme.ControlCenter" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg_primary</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
