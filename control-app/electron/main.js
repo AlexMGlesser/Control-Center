@@ -5,7 +5,7 @@ import { startServer, stopServer } from "../server/index.js";
 import { serverConfig } from "../server/config.js";
 import { onShutdownRequested } from "../server/routes/api.js";
 import { registerWindowControlHandler } from "../server/services/windowControlBridge.js";
-import { isHandTrackerRunning, launchHandExplorer, stopHandTracker } from "../server/services/handTrackerService.js";
+import { isFileSystemRunning, launchFileExplorer, stopFileSystem } from "../server/services/fileSystemService.js";
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
@@ -29,14 +29,14 @@ const APP_WINDOW_CONFIGS = {
   "wikipedia-app": { title: "Wikipedia App", backgroundColor: "#04060d" },
   // Native Python/Tkinter window, not a BrowserWindow: "open" launches the
   // process and "close" stops it (see NATIVE_APP_HANDLERS).
-  "hand-tracker-app": { title: "Hand Tracker App", backgroundColor: "#081114" }
+  "file-system-app": { title: "File System App", backgroundColor: "#081114" }
 };
 
 const NATIVE_APP_HANDLERS = {
-  "hand-tracker-app": {
-    open: () => launchHandExplorer(),
-    close: () => stopHandTracker("all"),
-    isOpen: () => isHandTrackerRunning()
+  "file-system-app": {
+    open: () => launchFileExplorer(),
+    close: () => stopFileSystem("all"),
+    isOpen: () => isFileSystemRunning()
   }
 };
 
@@ -118,7 +118,7 @@ function openAppWindow(appId) {
 function closeAppWindow(appId) {
   if (NATIVE_APP_HANDLERS[appId]) {
     // Fire-and-forget like BrowserWindow.close(); shutdown still awaits the
-    // same stop through stopServer() -> shutdownHandTracker().
+    // same stop through stopServer() -> shutdownFileSystem().
     const wasOpen = NATIVE_APP_HANDLERS[appId].isOpen();
     NATIVE_APP_HANDLERS[appId].close().catch(() => {});
     return wasOpen;
@@ -363,7 +363,7 @@ app.on("before-quit", (event) => {
 
   isShuttingDown = true;
   event.preventDefault();
-  // Child-process cleanup normally takes a few seconds (the Hand Tracker's
+  // Child-process cleanup normally takes a few seconds (the File System's
   // graceful-then-forced stop is the slowest); if anything ever hangs, exit
   // anyway rather than leave a windowless Control Center running.
   setTimeout(() => app.exit(0), SHUTDOWN_TIMEOUT_MS).unref();

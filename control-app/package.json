@@ -111,8 +111,8 @@
         ]
       },
       {
-        "from": "../hand-tracker-app",
-        "to": "apps/hand-tracker-app",
+        "from": "../file-system-app",
+        "to": "apps/file-system-app",
         "filter": [
           "**/*",
           "!dataset/**",

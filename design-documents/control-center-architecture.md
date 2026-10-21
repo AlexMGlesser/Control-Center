@@ -34,7 +34,7 @@ Express backend (control-app/server, localhost:3100)
         |
    wikipedia-app only: a Python child process (librarian.py, 127.0.0.1:8766)
    started on demand by wikipediaService.js
-   hand-tracker-app/ — native Python child processes (+ a static panel/)
+   file-system-app/ — native Python child processes (+ a static panel/)
 ```
 
 ## Backend services (`control-app/server/services/`)
@@ -45,14 +45,14 @@ Express backend (control-app/server, localhost:3100)
 | `queueManager.js` / `queueWorker.js` | Priority queue where every step of a request's lifecycle — not just the initial message — is its own entry (`user`, `system`, `returned`, `reply`). `queueWorker.js` dispatches each dequeued entry by type, driving multi-step tool-call chains one queue cycle at a time; voice gets high priority on every entry of its turn. |
 | `agentRuntime.js` | Builds the agent's system prompt (role doc + tool catalog description + static docs + chat history + app messages + current date/time) and seeds each new turn's message history. No fast path — every request reaches Ollama. |
 | `envelopeProtocol.js` | The `{type \| message}` envelope grammar: a brace/quote-aware parser for the model's raw text output, renderers for the system-authored `user`/`returned` envelopes, and the tool-catalog-to-text renderer used in the system prompt. |
-| `agentTools.js` | The tool catalog (JSON-schema-shaped function defs, now rendered as prompt text rather than passed to Ollama's structured tool-calling API) and the dispatcher that executes them — calendar CRUD, app open/close (including bulk `target: "all"`), music control, project create/open, settings, mode switch, news summary, event publish, and `start_gesture_recorder`. `hand-tracker-app` is a regular `WINDOW_APPS` member (including `"all"` / `"all-apps"`); for it, `open_app` also launches its native process server-side (so it works with no UI connected, e.g. voice) and `close_app` stops it. This is the actual permission boundary: if a tool isn't defined here, the agent cannot do it. |
+| `agentTools.js` | The tool catalog (JSON-schema-shaped function defs, now rendered as prompt text rather than passed to Ollama's structured tool-calling API) and the dispatcher that executes them — calendar CRUD, app open/close (including bulk `target: "all"`), music control, project create/open, settings, mode switch, news summary, event publish, and `start_gesture_recorder`. `file-system-app` is a regular `WINDOW_APPS` member (including `"all"` / `"all-apps"`); for it, `open_app` also launches its native process server-side (so it works with no UI connected, e.g. voice) and `close_app` stops it. This is the actual permission boundary: if a tool isn't defined here, the agent cannot do it. |
 | `agentContextLoader.js` | Ranks and trims excerpts from this design-documents folder into a small context bundle for the system prompt (capped ~2200 chars). |
 | `ollamaService.js` | Talks to a local Ollama daemon (`OLLAMA_BASE_URL`, default `http://127.0.0.1:11434`) — status probing, start/stop lifecycle, and plain chat completions (no `tools` parameter — tool-call intent is expressed in the model's text via the envelope grammar). Default model `qwen3.5:9b` (configurable via `OLLAMA_MODEL`). |
 | `wikipediaService.js` | Lifecycle + HTTP client for the Wikipedia App's librarian server (`wikipedia-app/librarian/librarian.py`, stdlib Python). Starts it on demand as a child process (`WIKIPEDIA_PYTHON`, port `WIKIPEDIA_LIBRARIAN_PORT` = 8766), reuses one already answering on that port, and on shutdown kills it only if it spawned it — same rules as `ollamaService.js`. Points it at `WIKIPEDIA_DATA_DIR` (the archive's `organized` folder, read in place). The agent has no wiki lookup tools; the archive is used directly in the app window. |
 | `voiceService.js` | WebSocket at `/voice`. Wake word ("Jarvis") gates commands; transcribed speech is enqueued through the same task queue as chat, then spoken back via Piper. |
 | `whisperService.js` / `piperService.js` | Local STT/TTS binaries under `control-app/voice/`. |
 | `chatService.js` | In-memory chat history. |
-| `handTrackerService.js` | Launches/stops the Hand Tracker app's Python programs (`file_explorer.py`, `gesture_recorder.py`) as managed child processes — interpreter from `HAND_TRACKER_PYTHON` (default `pythonw`), user data dir passed as `HAND_TRACKER_DATA_DIR`. Waits ~2.5 s after spawn so a startup crash is reported as a failure with the output tail. Only one runs at a time (shared webcam). Stop = `taskkill /t` (WM_CLOSE, so the app releases the camera) then `/t /f` after 3 s; only PIDs it spawned are ever signalled. `shutdownAgentSystem()` stops them on Control Center exit, with a synchronous `process.on("exit")` fallback. |
+| `fileSystemService.js` | Launches/stops the File System app's Python programs (`file_explorer.py`, `gesture_recorder.py`) as managed child processes — interpreter chosen by `resolvePython()` (`FILE_SYSTEM_PYTHON`, else the first of the app's `.venv`, the `py` launcher's Python, or PATH `python` that has cv2/mediapipe/numpy/PIL; its `pythonw.exe` is launched), user data dir passed as `FILE_SYSTEM_DATA_DIR`. Waits ~2.5 s after spawn so a startup crash is reported as a failure with the output tail. Only one runs at a time (shared webcam). Stop = `taskkill /t` (WM_CLOSE, so the app releases the camera) then `/t /f` after 3 s; only PIDs it spawned are ever signalled. `shutdownAgentSystem()` stops them on Control Center exit, with a synchronous `process.on("exit")` fallback. |
 | `appMessageService.js` | Background app-to-agent message inbox, formatted as `{App}[message]` and folded into the agent's context. |
 | `runtimePersistenceService.js` | Reads/writes `logs/control-center-runtime.json` (chat, app messages, mode, session state) — the one mutable runtime state file, gitignored. |
 | `calendarService.js`, `projectService.js`, `musicLibraryService.js`, `drawingFileService.js`, `newsService.js`, `skillsService.js`, `settingsService.js`, `modeStateMachine.js`, `appRegistry.js`, `orchestrator.js`, `windowControlBridge.js` | One service per app/concern, each owning its own data access. All entirely local — no external accounts or APIs required for any of them. |
@@ -110,11 +110,11 @@ required for core functionality.
   `en/enwiki.sqlite` + `en/search_index.sqlite` + article files, tens of GB).
   Never copied into the repo; the SQLite files are opened `mode=ro&immutable=1`
   so nothing in that folder is written (see `wikipedia-app/README.md`).
-- `hand-tracker-app/gesture_profiles/` (calibration recordings + derived
-  `profiles.json`) and `hand-tracker-app/dataset/` (gesture training
+- `file-system-app/gesture_profiles/` (calibration recordings + derived
+  `profiles.json`) and `file-system-app/dataset/` (gesture training
   samples + `manifest.json`) — both gitignored; in the packaged app they
-  live under `%APPDATA%/Control Center/hand-tracker-app/` instead
-  (`HAND_TRACKER_DATA_DIR` overrides either)
+  live under `%APPDATA%/Control Center/file-system-app/` instead
+  (`FILE_SYSTEM_DATA_DIR` overrides either)
 
 ## Security model
 
@@ -128,12 +128,12 @@ tradeoff for a single-user local desktop tool, not a multi-tenant system.
 ## Current status
 
 All 9 web apps (including `wikipedia-app`) are implemented and wired into the app registry, plus
-`hand-tracker-app` (v0.1), a native Python app integrated as managed child
+`file-system-app` (v0.1), a native Python app integrated as managed child
 processes. It opens/closes through the same card/tab/IPC/agent paths as
-the others; in Electron its `hand-tracker-app:open`/`:close` IPC launch/stop
+the others; in Electron its `file-system-app:open`/`:close` IPC launch/stop
 the process instead of creating a BrowserWindow, and its tab shows a small
 web status panel. It requires a local Python with
-`hand-tracker-app/requirements.txt` installed. Voice
+`file-system-app/requirements.txt` installed. Voice
 (Whisper STT + Piper TTS) is functional end-to-end through the task queue.
 The agent runs on Ollama via the raw-text envelope protocol described above.
 
@@ -159,7 +159,7 @@ The agent runs on Ollama via the raw-text envelope protocol described above.
 - The librarian's plain-text conversion drops wikitext templates, so figures
   written as `{{convert|...}}` (heights, distances) are missing from article
   text.
-- Hand Tracker gestures are rule-based heuristics and only control the
+- File System gestures are rule-based heuristics and only control the
   explorer's own window. The recorder collects data for a learned
   classifier, but no training script or model exists yet. Python
   dependencies aren't bundled in the packaged app.
@@ -176,9 +176,10 @@ From `control-app/`:
 - Desktop app: `.\start-control-center.ps1`, or `npm start`
 - Backend only (web dev fallback): `npm run start:web`
 
-Hand Tracker additionally needs Python 3.12 with
-`pip install -r hand-tracker-app/requirements.txt`; set `HAND_TRACKER_PYTHON`
-in `control-app/.env` if `pythonw` on PATH isn't that interpreter.
+File System additionally needs Python 3.12 with
+`pip install -r file-system-app/requirements.txt`. Control Center finds an
+interpreter that has those packages by itself; set `FILE_SYSTEM_PYTHON` in
+`control-app/.env` to force a specific one.
 
 Requires a local Ollama daemon with the configured model pulled
 (`ollama pull qwen3.5:9b`, or whatever `OLLAMA_MODEL` is set to) — Control

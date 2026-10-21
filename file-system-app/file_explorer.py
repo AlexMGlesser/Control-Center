@@ -1,5 +1,5 @@
 """
-Hand-Tracker File Explorer
+File System App: gesture-controlled file explorer
 Navigate files using hand gestures:
   Index fingertip              -> move cursor / hover over items
   Other hand pointing (index)  -> enter folders / preview files
@@ -33,10 +33,10 @@ __version__ = "0.1.0"
 # ── Paths ──────────────────────────────────────────────────────────────────
 # Code and the model live beside this file. User data (calibration profiles,
 # recorded datasets) lives under DATA_DIR, which defaults to this folder but
-# can be redirected with HAND_TRACKER_DATA_DIR (Control Center does this in
+# can be redirected with FILE_SYSTEM_DATA_DIR (Control Center does this in
 # packaged builds, where the app folder is read-only).
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.abspath(os.environ.get("HAND_TRACKER_DATA_DIR") or APP_DIR)
+DATA_DIR = os.path.abspath(os.environ.get("FILE_SYSTEM_DATA_DIR") or APP_DIR)
 
 # ── Model ──────────────────────────────────────────────────────────────────
 MODEL_PATH = os.path.join(APP_DIR, "hand_landmarker.task")
@@ -627,7 +627,7 @@ class GestureProfiler:
 class FileExplorerApp:
     def __init__(self, root, start_path):
         self.root = root
-        root.title(f"Hand Explorer v{__version__}")
+        root.title(f"File System v{__version__}")
         root.geometry(f"{WIN_W}x{WIN_H}")
         root.configure(bg=BG)
         root.minsize(960, 640)

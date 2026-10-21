@@ -39,7 +39,7 @@ import { getNewsBriefing, formatNewsSummary } from "./newsService.js";
 import { closeAppWindow } from "./windowControlBridge.js";
 import { createAlarm, listAlarms, cancelAlarm, stopAlarm } from "./alarmService.js";
 import { startWikipedia } from "./wikipediaService.js";
-import { launchGestureRecorder, launchHandExplorer, stopHandTracker } from "./handTrackerService.js";
+import { launchGestureRecorder, launchFileExplorer, stopFileSystem } from "./fileSystemService.js";
 
 const CALENDAR_TIMEZONE = getCalendarTimeZone();
 
@@ -53,7 +53,7 @@ const WINDOW_APPS = [
   "movie-app",
   "server-manager-app",
   "wikipedia-app",
-  "hand-tracker-app"
+  "file-system-app"
 ];
 // Window apps whose "window" is a native process rather than an Electron
 // BrowserWindow. They go through exactly the same open/close paths as the
@@ -61,9 +61,9 @@ const WINDOW_APPS = [
 // the server, so it works with no UI client connected (voice), and closing
 // stops it. The client/Electron open path is idempotent (alreadyRunning).
 const NATIVE_PROCESS_APPS = {
-  "hand-tracker-app": {
-    launch: () => launchHandExplorer(),
-    stop: () => stopHandTracker("all")
+  "file-system-app": {
+    launch: () => launchFileExplorer(),
+    stop: () => stopFileSystem("all")
   }
 };
 const SYSTEM_TABS = ["overview", "settings", "chatbot", "event-bus", "agent-core", "integration-hub"];
@@ -76,19 +76,19 @@ export const TOOL_DEFINITIONS = [
   tool(
     "open_app",
     `Open an app tab or system tab in the Control Center UI. This opens exactly ONE target per call. If the user names two or more SPECIFIC apps ("open calendar and music"), call this once per named app — do NOT use target "all" for that, it is not a shortcut for "several." Only use target "all" when the user asks for literally every app / everything, with no specific apps named.`,
-    { target: { type: "string", description: `One of: ${[...SYSTEM_TABS, ...WINDOW_APPS].join(", ")}, or "all" — but ONLY "all" when the user did not name specific apps. hand-tracker-app is the gesture-controlled "file explorer" / "hand tracker" (it turns on the webcam).` } },
+    { target: { type: "string", description: `One of: ${[...SYSTEM_TABS, ...WINDOW_APPS].join(", ")}, or "all" — but ONLY "all" when the user did not name specific apps. file-system-app is the gesture-controlled "file system" / "file explorer" (formerly called the "hand tracker"; it turns on the webcam).` } },
     ["target"]
   ),
   tool(
     "close_app",
-    "Close an open app window. For hand-tracker-app this stops its running file explorer and gesture recorder.",
+    "Close an open app window. For file-system-app this stops its running file explorer and gesture recorder.",
     { target: { type: "string", description: `One of: ${WINDOW_APPS.join(", ")}, or 'all-apps'.` } },
     ["target"]
   ),
   tool("connect_app", "Run the connector handshake for one app.", { appId: { type: "string" } }, ["appId"]),
   tool(
     "start_gesture_recorder",
-    `Launch the Hand Tracker gesture recorder, which records labeled training clips of the user's own hand gestures. Stops the hand-tracker file explorer if it is running (they share the webcam). Use label "none" for background/negative examples.`,
+    `Launch the File System gesture recorder, which records labeled training clips of the user's own hand gestures. Stops the File System app's file explorer if it is running (they share the webcam). Use label "none" for background/negative examples.`,
     {
       label: { type: "string", description: `Gesture label, e.g. "swipe_left". Lowercase letters, digits, '_' or '-'.` },
       reps: { type: "integer", description: "Number of repetitions to record (1-500). Omit for the recorder's default (10)." },

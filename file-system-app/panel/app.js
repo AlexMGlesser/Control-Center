@@ -1,8 +1,8 @@
-// Hand Tracker control panel. The app itself is a native Python window run
-// by Control Center (handTrackerService.js); this page only launches/stops it
+// File System control panel. The app itself is a native Python window run
+// by Control Center (fileSystemService.js); this page only launches/stops it
 // and shows status.
 
-const API = "/api/apps/hand-tracker-app";
+const API = "/api/apps/file-system-app";
 const POLL_MS = 2000;
 const SUGGESTED_LABELS = ["select", "back_swipe", "reset_pointer", "scroll_up", "scroll_down", "none"];
 

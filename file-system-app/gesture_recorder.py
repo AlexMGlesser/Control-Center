@@ -49,7 +49,7 @@ def default_dataset_dir():
     # Same DATA_DIR rule as file_explorer.py, without importing it (and so
     # without importing OpenCV/MediaPipe) just to compute a path.
     app_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.abspath(os.environ.get("HAND_TRACKER_DATA_DIR") or app_dir)
+    data_dir = os.path.abspath(os.environ.get("FILE_SYSTEM_DATA_DIR") or app_dir)
     return os.path.join(data_dir, "dataset")
 
 

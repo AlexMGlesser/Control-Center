@@ -96,7 +96,7 @@ control-app/
 
 ### Core Config
 - **Port:** localhost:3000 (configurable via `server/config.js`)
-- **Static Routes:** `/calendar-app`, `/news-app`, `/work-app`, `/project-app`, `/music-app`, `/drawing-app`, `/movie-app`, `/server-manager-app`, `/wikipedia-app`, `/hand-tracker-app` (panel only)
+- **Static Routes:** `/calendar-app`, `/news-app`, `/work-app`, `/project-app`, `/music-app`, `/drawing-app`, `/movie-app`, `/server-manager-app`, `/wikipedia-app`, `/file-system-app` (panel only)
 - **API Route:** `/api/*` (main orchestration endpoint)
 
 ### Service Modules (`server/services/`)
@@ -147,7 +147,7 @@ All apps follow a dark-mode visual style and can run either:
 | **News** | `news-app/` | Feed aggregation | External news APIs |
 | **Server Manager** | `server-manager-app/` | SSH config, server inventory, PowerShell launch | Browser storage, SSH bridge |
 | **Wikipedia** | `wikipedia-app/` | Offline Wikipedia search/reader (Python librarian server on 127.0.0.1:8766, started when the app opens) | Read-only archive at `WIKIPEDIA_DATA_DIR` |
-| **Hand Tracker** (v0.1) | `hand-tracker-app/` | Native Python gesture file explorer + gesture training-data recorder | Python child processes (`handTrackerService.js`), webcam |
+| **File System** (v0.1) | `file-system-app/` | Native Python gesture file explorer + gesture training-data recorder | Python child processes (`fileSystemService.js`), webcam |
 
 ### App Lifecycle
 - Each app is a standalone HTML/JS/CSS bundle

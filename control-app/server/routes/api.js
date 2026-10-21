@@ -74,12 +74,12 @@ import {
 } from "../services/drawingFileService.js";
 import { getAllSkills, getSkillById, createSkill, updateSkill, deleteSkill } from "../services/skillsService.js";
 import {
-  getHandTrackerStatus,
+  getFileSystemStatus,
   launchGestureRecorder,
-  launchHandExplorer,
-  shutdownHandTracker,
-  stopHandTracker
-} from "../services/handTrackerService.js";
+  launchFileExplorer,
+  shutdownFileSystem,
+  stopFileSystem
+} from "../services/fileSystemService.js";
 
 const router = Router();
 let shutdownCallback = null;
@@ -105,9 +105,9 @@ export async function shutdownAgentSystem() {
   // Same rule for the Wikipedia App's librarian server: only killed if this
   // process spawned it (it's started lazily, when the app is opened).
   await stopWikipedia();
-  // Hand Tracker's Python processes are plain (non-detached) children, but a
+  // File System's Python processes are plain (non-detached) children, but a
   // GUI window keeps them alive after we exit unless they're closed here.
-  await shutdownHandTracker();
+  await shutdownFileSystem();
   return { ok: true, message: "Agent system shut down" };
 }
 
@@ -712,16 +712,16 @@ router.post("/apps/project-app/launch-tool", (req, res) => {
   res.json(launchApp(String(req.body?.tool || "").trim()));
 });
 
-router.get("/apps/hand-tracker-app/status", (req, res) => {
-  res.json(getHandTrackerStatus());
+router.get("/apps/file-system-app/status", (req, res) => {
+  res.json(getFileSystemStatus());
 });
 
-router.post("/apps/hand-tracker-app/launch", async (req, res) => {
-  const result = await launchHandExplorer();
+router.post("/apps/file-system-app/launch", async (req, res) => {
+  const result = await launchFileExplorer();
   res.status(result.ok ? 200 : 500).json(result);
 });
 
-router.post("/apps/hand-tracker-app/recorder/launch", async (req, res) => {
+router.post("/apps/file-system-app/recorder/launch", async (req, res) => {
   const result = await launchGestureRecorder({
     label: req.body?.label,
     reps: req.body?.reps,
@@ -729,12 +729,12 @@ router.post("/apps/hand-tracker-app/recorder/launch", async (req, res) => {
     saveVideo: req.body?.saveVideo === true,
     autostart: req.body?.autostart === true
   });
-  const isLaunchFailure = ["HAND_TRACKER_START_FAILED", "HAND_TRACKER_SPAWN_FAILED", "HAND_TRACKER_SCRIPT_MISSING"].includes(result.code);
+  const isLaunchFailure = ["FILE_SYSTEM_START_FAILED", "FILE_SYSTEM_SPAWN_FAILED", "FILE_SYSTEM_SCRIPT_MISSING"].includes(result.code);
   res.status(result.ok ? 200 : isLaunchFailure ? 500 : 400).json(result);
 });
 
-router.post("/apps/hand-tracker-app/stop", async (req, res) => {
-  const result = await stopHandTracker(String(req.body?.process || "all").trim().toLowerCase());
+router.post("/apps/file-system-app/stop", async (req, res) => {
+  const result = await stopFileSystem(String(req.body?.process || "all").trim().toLowerCase());
   res.status(result.ok ? 200 : 400).json(result);
 });
 

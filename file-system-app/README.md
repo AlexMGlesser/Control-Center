@@ -1,4 +1,4 @@
-# Hand Tracker App (v0.1)
+# File System App (v0.1)
 
 A gesture-controlled file explorer plus a gesture training-data recorder,
 built on OpenCV + MediaPipe hand landmarks + Tkinter. It's ported from the
@@ -13,7 +13,7 @@ as a child process instead of serving it as a web page.
 | `gesture_dataset.py` | **New.** Dataset format: writer, manifest builder, loader helpers (stdlib; numpy only for `load_sample_arrays`). |
 | `hand_tracker.py` | Minimal camera + skeleton demo / smoke test. |
 | `hand_landmarker.task` | MediaPipe hand landmarker model (7.8 MB, loaded offline). |
-| `panel/` | **New.** Small web status panel, served by Control Center at `/hand-tracker-app/` and shown as the app's tab content. |
+| `panel/` | **New.** Small web status panel, served by Control Center at `/file-system-app/` and shown as the app's tab content. |
 | `requirements.txt` | Third-party packages actually imported. |
 | `gesture_profiles/` | Your calibration recordings + `profiles.json` (gitignored, see below). |
 | `dataset/` | Recorder output (gitignored, created on first recording). |
@@ -25,9 +25,9 @@ The port only changes integration points, plus one deliberate behavior change
 is identical to `D:\Code\Hand_Tracker\file_explorer.py`.
 
 `file_explorer.py`
-1. `__version__ = "0.1.0"`; the window title is now `Hand Explorer v0.1.0`.
+1. `__version__ = "0.1.0"`; the window title is now `File System v0.1.0`.
 2. Paths: new `APP_DIR` (folder of this file) and `DATA_DIR` (env
-   `HAND_TRACKER_DATA_DIR`, default `APP_DIR`). `MODEL_PATH` uses `APP_DIR`;
+   `FILE_SYSTEM_DATA_DIR`, default `APP_DIR`). `MODEL_PATH` uses `APP_DIR`;
    `PROFILE_DIR` is now `DATA_DIR/gesture_profiles` (was "next to the script").
    Nothing refers to `D:\Code\Hand_Tracker`.
 3. `HandTracker` additions, all additive, nothing existing changes:
@@ -72,7 +72,7 @@ is identical to `D:\Code\Hand_Tracker\file_explorer.py`.
 Requires Python 3.12 (python.org build, which includes Tkinter) and a webcam:
 
 ```powershell
-cd hand-tracker-app
+cd file-system-app
 python -m pip install -r requirements.txt
 python file_explorer.py                 # gesture file explorer
 python gesture_recorder.py              # recorder, pick a label in the window
@@ -85,16 +85,16 @@ clip (2.0), `--countdown` (3), `--rest` (1.5), `--dataset-dir`,
 `--save-video` (also write each rep as `.mp4`), `--autostart` (start the
 loop once the camera is ready; requires `--label`), `--version`.
 
-Set `HAND_TRACKER_DATA_DIR` to keep profiles and datasets somewhere other
+Set `FILE_SYSTEM_DATA_DIR` to keep profiles and datasets somewhere other
 than this folder.
 
 ## In Control Center
 
 - **Opens like every other app:** clicking its card or tab, the
-  "Open Hand Tracker App" button, the agent's `open_app` (e.g. "Jarvis, open
+  "Open File System App" button, the agent's `open_app` (e.g. "Jarvis, open
   the file explorer"), `open_app "all"` and the Electron
-  `hand-tracker-app:open` IPC all launch the native explorer window
-  directly. Closing through `close_app`, the `hand-tracker-app:close` IPC,
+  `file-system-app:open` IPC all launch the native explorer window
+  directly. Closing through `close_app`, the `file-system-app:close` IPC,
   "close all apps" and Control Center shutdown stops it. The tab's content
   is the status panel (`panel/`), which has:
   - Launch/Stop for the explorer
@@ -102,22 +102,25 @@ than this folder.
   - running status and the version
   - recorded-sample counts per label
 - **API:**
-  - `GET /api/apps/hand-tracker-app/status`
-  - `POST /api/apps/hand-tracker-app/launch`
-  - `POST /api/apps/hand-tracker-app/recorder/launch` with
+  - `GET /api/apps/file-system-app/status`
+  - `POST /api/apps/file-system-app/launch`
+  - `POST /api/apps/file-system-app/recorder/launch` with
     `{label, reps, duration, saveVideo, autostart}`
-  - `POST /api/apps/hand-tracker-app/stop` with
+  - `POST /api/apps/file-system-app/stop` with
     `{process: "explorer"|"recorder"|"all"}`
 - **Agent:**
-  - `open_app` / `close_app` with `target: "hand-tracker-app"` launch/stop the
+  - `open_app` / `close_app` with `target: "file-system-app"` launch/stop the
     explorer (close stops the recorder too).
   - `start_gesture_recorder {label, reps, autostart}` launches the recorder.
   - It is a regular member of `open_app "all"` and `close_app "all-apps"`.
     Opening everything therefore also turns the webcam on, which is
     deliberate, for parity with the other apps.
-- **Process management** (`control-app/server/services/handTrackerService.js`):
-  - Interpreter: `HAND_TRACKER_PYTHON`, default `pythonw`, so no console
-    window appears.
+- **Process management** (`control-app/server/services/fileSystemService.js`):
+  - Interpreter: `FILE_SYSTEM_PYTHON` if set, otherwise the first of
+    `.venv` in this folder, the `py` launcher's Python, or `python` on PATH
+    that has the required packages, checked before launch. Its `pythonw.exe`
+    is used, so no console window appears. If none has them, the launch
+    error names each interpreter tried and the `pip install` command.
   - Only one of the two programs runs at a time, since they share the camera.
   - A crash in the first ~2.5 s is reported as a launch failure, with the
     tail of the program's output.
@@ -126,9 +129,9 @@ than this folder.
   - Control Center stops both on shutdown. It only ever signals processes it
     started itself.
 - **Packaged build:**
-  - `electron-builder` copies this folder to `resources/apps/hand-tracker-app`,
+  - `electron-builder` copies this folder to `resources/apps/file-system-app`,
     excluding `dataset/`, `gesture_profiles/` and bytecode.
-  - The data dir becomes `%APPDATA%\Control Center\hand-tracker-app`.
+  - The data dir becomes `%APPDATA%\Control Center\file-system-app`.
   - Python and its packages are **not** bundled; the machine needs them
     installed.
 

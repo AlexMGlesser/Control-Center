@@ -283,7 +283,7 @@ async function openMusicAppWindow() {
   await openWindowApp("music-app");
 }
 
-const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app", "wikipedia-app", "hand-tracker-app"];
+const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app", "wikipedia-app", "file-system-app"];
 
 const WINDOW_APP_BRIDGE_NAMES = {
   "calendar-app": "CalendarApp",
@@ -295,14 +295,14 @@ const WINDOW_APP_BRIDGE_NAMES = {
   "movie-app": "MovieApp",
   "server-manager-app": "ServerManagerApp",
   "wikipedia-app": "WikipediaApp",
-  "hand-tracker-app": "HandTrackerApp"
+  "file-system-app": "FileSystemApp"
 };
 
 // Window apps whose window is a native process launched by the backend
-// (handTrackerService.js) instead of a web page. In Electron the regular
+// (fileSystemService.js) instead of a web page. In Electron the regular
 // <appId>:open/close IPC already launches/stops it; in a plain browser the
 // equivalent is the app's launch/stop endpoint rather than window.open().
-const NATIVE_WINDOW_APP_IDS = ["hand-tracker-app"];
+const NATIVE_WINDOW_APP_IDS = ["file-system-app"];
 
 function getDesktopWindowMethod(appId, action) {
   const bridgeName = WINDOW_APP_BRIDGE_NAMES[appId];
@@ -396,12 +396,12 @@ async function closeWikipediaAppWindow() {
   await closeWindowApp("wikipedia-app");
 }
 
-async function openHandTrackerAppWindow() {
-  await openWindowApp("hand-tracker-app");
+async function openFileSystemAppWindow() {
+  await openWindowApp("file-system-app");
 }
 
-async function closeHandTrackerAppWindow() {
-  await closeWindowApp("hand-tracker-app");
+async function closeFileSystemAppWindow() {
+  await closeWindowApp("file-system-app");
 }
 
 async function closeKnownAppWindow(appId) {
@@ -435,8 +435,8 @@ async function closeKnownAppWindow(appId) {
     await closeServerManagerAppWindow();
   } else if (appId === "wikipedia-app") {
     await closeWikipediaAppWindow();
-  } else if (appId === "hand-tracker-app") {
-    await closeHandTrackerAppWindow();
+  } else if (appId === "file-system-app") {
+    await closeFileSystemAppWindow();
   } else {
     return false;
   }
@@ -1866,8 +1866,8 @@ function startEventStream() {
             openWikipediaAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
-          } else if (targetTab === "app:hand-tracker-app") {
-            openHandTrackerAppWindow().catch(() => {
+          } else if (targetTab === "app:file-system-app") {
+            openFileSystemAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
           } else {

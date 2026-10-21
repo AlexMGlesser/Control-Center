@@ -72,14 +72,14 @@ const appRegistry = [
     capabilities: ["offline-wikipedia", "search", "article-reader", "librarian-chat"]
   },
   {
-    id: "hand-tracker-app",
-    name: "Hand Tracker App",
+    id: "file-system-app",
+    name: "File System App",
     description: "Gesture-controlled file explorer and gesture training-data recorder (native Python window, uses the webcam).",
     status: "online",
     version: "0.1",
-    routeKey: "hand-tracker-app",
+    routeKey: "file-system-app",
     // Native Tkinter app launched as a managed child process
-    // (handTrackerService.js); its route only serves the small control panel.
+    // (fileSystemService.js); its route only serves the small control panel.
     launchType: "native-process",
     capabilities: ["hand-tracking", "gesture-file-explorer", "gesture-recorder", "webcam"]
   }

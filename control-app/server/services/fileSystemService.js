@@ -1,23 +1,23 @@
-import { spawn, spawnSync } from "child_process";
+import { execFile, spawn, spawnSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { getBundledAppDirectory, getRuntimeDataRoot, isPackagedElectronRuntime } from "../appPaths.js";
 import { publishEvent } from "./eventBus.js";
 
-// Hand Tracker is a native Python/Tkinter app, not a web bundle, so instead
+// File System is a native Python/Tkinter app, not a web bundle, so instead
 // of a static route it runs as managed child processes: the gesture file
 // explorer and the gesture recorder. Both open the webcam, so only one runs at
 // a time. This service only ever signals PIDs it spawned itself.
 
-const APP_ID = "hand-tracker-app";
-export const HAND_TRACKER_VERSION = "0.1.0";
+const APP_ID = "file-system-app";
+export const FILE_SYSTEM_VERSION = "0.1.0";
 
 const PROCESS_SCRIPTS = {
   explorer: "file_explorer.py",
   recorder: "gesture_recorder.py"
 };
 const PROCESS_LABELS = {
-  explorer: "Hand Explorer",
+  explorer: "File System",
   recorder: "Gesture Recorder"
 };
 
@@ -25,6 +25,10 @@ const PROCESS_LABELS = {
 // within a second or two — waiting this long before reporting "launched"
 // turns those into a real failure result instead of a false success.
 const STARTUP_GRACE_MS = 2500;
+// Third-party modules the explorer and recorder import (requirements.txt);
+// "PIL" is Pillow's import name.
+const REQUIRED_MODULES = ["cv2", "mediapipe", "numpy", "PIL"];
+const PROBE_TIMEOUT_MS = 15000;
 // Window close (WM_CLOSE) lets the app release the camera cleanly before we
 // fall back to a forced tree kill.
 const GRACEFUL_STOP_MS = 3000;
@@ -38,8 +42,9 @@ const managed = { explorer: null, recorder: null };
 const pendingLaunch = { explorer: null, recorder: null };
 const lastExit = { explorer: null, recorder: null };
 let exitHookInstalled = false;
+let resolvedPython = null;
 
-export function getHandTrackerAppDirectory() {
+export function getFileSystemAppDirectory() {
   return getBundledAppDirectory(APP_ID);
 }
 
@@ -48,36 +53,132 @@ export function getHandTrackerAppDirectory() {
  * the app folder, matching standalone use; packaged builds can't write into
  * resources/, so they use the per-user runtime data root instead.
  */
-export function getHandTrackerDataDirectory() {
-  const configured = String(process.env.HAND_TRACKER_DATA_DIR || "").trim();
+export function getFileSystemDataDirectory() {
+  const configured = String(process.env.FILE_SYSTEM_DATA_DIR || "").trim();
   if (configured) {
     return path.resolve(configured);
   }
   if (isPackagedElectronRuntime()) {
     return path.join(getRuntimeDataRoot(), APP_ID);
   }
-  return getHandTrackerAppDirectory();
+  return getFileSystemAppDirectory();
 }
 
 /**
- * pythonw on Windows: no console window flashes up when launched from the
- * Electron (GUI) process, and the Tk window itself is unaffected.
+ * Picks the interpreter to run the app with. Whatever "pythonw" is first on
+ * PATH isn't reliable: Control Center inherits the PATH of wherever it was
+ * started from, and an activated venv there (e.g. a VS Code terminal) puts
+ * a Python without OpenCV/MediaPipe first. So candidates are probed for the
+ * modules the app imports, and the first one that has them all wins:
+ *   1. FILE_SYSTEM_PYTHON, if set (then it is the only candidate)
+ *   2. a venv inside the app folder (.venv)
+ *   3. Windows: the registered Python, via the py launcher (PATH-independent)
+ *   4. python / python3 from PATH
+ * On Windows the winner's pythonw.exe is launched when it has one, so no
+ * console window appears. The result is cached until a launch fails.
  */
-export function getPythonCommand() {
-  const configured = String(process.env.HAND_TRACKER_PYTHON || "").trim();
-  if (configured) {
-    return configured;
+export async function resolvePython() {
+  if (resolvedPython) {
+    return resolvedPython;
   }
-  return process.platform === "win32" ? "pythonw" : "python3";
+
+  const tried = [];
+  for (const candidate of pythonCandidates()) {
+    const probe = await probePython(candidate);
+    if (!probe) {
+      continue;
+    }
+    if (tried.some((entry) => entry.executable === probe.executable)) {
+      continue;
+    }
+    tried.push(probe);
+    if (!probe.missing.length) {
+      resolvedPython = ok({ executable: probe.executable, command: windowlessVariant(probe.executable) });
+      return resolvedPython;
+    }
+  }
+
+  const requirements = path.join(getFileSystemAppDirectory(), "requirements.txt");
+  const detail = tried.length
+    ? tried.map((entry) => `${entry.executable} (missing: ${entry.missing.join(", ")})`).join("; ")
+    : "no Python interpreter was found";
+  const fix = tried.length
+    ? ` Install them with: "${tried[0].executable}" -m pip install -r "${requirements}"`
+    : " Install Python 3.12, or set FILE_SYSTEM_PYTHON in control-app/.env.";
+  return fail(
+    "FILE_SYSTEM_PYTHON_DEPS_MISSING",
+    `No Python with the File System app's packages (${REQUIRED_MODULES.join(", ")}) was found. Tried: ${detail}.${fix}`
+  );
 }
 
-export function getHandTrackerStatus() {
+function pythonCandidates() {
+  const candidates = [];
+  const configured = String(process.env.FILE_SYSTEM_PYTHON || "").trim();
+  if (configured) {
+    // An explicit choice is honored, not silently swapped for another one.
+    return [{ command: configured, args: [] }];
+  }
+  const venvPython =
+    process.platform === "win32"
+      ? path.join(getFileSystemAppDirectory(), ".venv", "Scripts", "python.exe")
+      : path.join(getFileSystemAppDirectory(), ".venv", "bin", "python");
+  if (existsSync(venvPython)) {
+    candidates.push({ command: venvPython, args: [] });
+  }
+  if (process.platform === "win32") {
+    candidates.push({ command: "py", args: ["-3"] });
+    candidates.push({ command: "python", args: [] });
+  } else {
+    candidates.push({ command: "python3", args: [] });
+  }
+  return candidates;
+}
+
+// find_spec only locates each module — no import — so the probe is fast even
+// though mediapipe itself takes seconds to import.
+const PROBE_SCRIPT =
+  "import importlib.util as u, sys\n" +
+  `missing = [m for m in ${JSON.stringify(REQUIRED_MODULES)} if u.find_spec(m) is None]\n` +
+  "print(sys.executable)\n" +
+  "print(','.join(missing))\n";
+
+function probePython({ command, args }) {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      [...args, "-c", PROBE_SCRIPT],
+      { windowsHide: true, timeout: PROBE_TIMEOUT_MS },
+      (error, stdout) => {
+        if (error) {
+          resolve(null);
+          return;
+        }
+        const [executable, missingLine = ""] = String(stdout).trim().split(/\r?\n/);
+        if (!executable) {
+          resolve(null);
+          return;
+        }
+        resolve({ executable: executable.trim(), missing: missingLine.split(",").map((m) => m.trim()).filter(Boolean) });
+      }
+    );
+  });
+}
+
+function windowlessVariant(executable) {
+  if (process.platform !== "win32") {
+    return executable;
+  }
+  const pythonw = path.join(path.dirname(executable), "pythonw.exe");
+  return existsSync(pythonw) ? pythonw : executable;
+}
+
+export function getFileSystemStatus() {
   return ok({
     appId: APP_ID,
-    version: HAND_TRACKER_VERSION,
-    python: getPythonCommand(),
-    appDir: getHandTrackerAppDirectory(),
-    dataDir: getHandTrackerDataDirectory(),
+    version: FILE_SYSTEM_VERSION,
+    python: resolvedPython?.command || "(chosen at first launch)",
+    appDir: getFileSystemAppDirectory(),
+    dataDir: getFileSystemDataDirectory(),
     processes: {
       explorer: describeProcess("explorer"),
       recorder: describeProcess("recorder")
@@ -86,13 +187,13 @@ export function getHandTrackerStatus() {
   });
 }
 
-export function isHandTrackerRunning(kind) {
+export function isFileSystemRunning(kind) {
   const kinds = kind ? [kind] : Object.keys(managed);
   return kinds.some((entry) => Boolean(managed[entry]));
 }
 
 /** Launch the gesture file explorer. */
-export function launchHandExplorer() {
+export function launchFileExplorer() {
   return launchProcess("explorer", []);
 }
 
@@ -109,10 +210,10 @@ export function launchGestureRecorder(options = {}) {
 }
 
 /** Stop one process kind, or both with "all". Resolves once they're gone. */
-export async function stopHandTracker(kind = "all") {
+export async function stopFileSystem(kind = "all") {
   const kinds = kind === "all" ? Object.keys(managed) : [kind];
   if (!kinds.every((entry) => PROCESS_SCRIPTS[entry])) {
-    return fail("INVALID_HAND_TRACKER_PROCESS", "process must be one of explorer, recorder, or all.");
+    return fail("INVALID_FILE_SYSTEM_PROCESS", "process must be one of explorer, recorder, or all.");
   }
 
   const stopped = [];
@@ -124,15 +225,15 @@ export async function stopHandTracker(kind = "all") {
     stopped.push({ process: entry, wasRunning, running: Boolean(managed[entry]) });
   }
 
-  return ok({ stopped, status: getHandTrackerStatus() });
+  return ok({ stopped, status: getFileSystemStatus() });
 }
 
 /** Called from Control Center shutdown. */
-export async function shutdownHandTracker() {
-  if (!isHandTrackerRunning()) {
+export async function shutdownFileSystem() {
+  if (!isFileSystemRunning()) {
     return;
   }
-  await stopHandTracker("all");
+  await stopFileSystem("all");
 }
 
 function launchProcess(kind, extraArgs, options = {}) {
@@ -154,10 +255,10 @@ async function spawnManaged(kind, extraArgs, options = {}) {
     return ok({ process: kind, alreadyRunning: true, ...describeProcess(kind) });
   }
 
-  const appDir = getHandTrackerAppDirectory();
+  const appDir = getFileSystemAppDirectory();
   const scriptPath = path.join(appDir, PROCESS_SCRIPTS[kind]);
   if (!existsSync(scriptPath)) {
-    return fail("HAND_TRACKER_SCRIPT_MISSING", `Hand Tracker script not found: ${scriptPath}`);
+    return fail("FILE_SYSTEM_SCRIPT_MISSING", `File System script not found: ${scriptPath}`);
   }
 
   // Webcam is exclusive — stop the other process first.
@@ -167,8 +268,12 @@ async function spawnManaged(kind, extraArgs, options = {}) {
     await stopProcess(other);
   }
 
-  const python = getPythonCommand();
-  const dataDir = getHandTrackerDataDirectory();
+  const resolved = await resolvePython();
+  if (!resolved.ok) {
+    return resolved;
+  }
+  const python = resolved.command;
+  const dataDir = getFileSystemDataDirectory();
   const args = ["-u", scriptPath, ...extraArgs];
   let child;
   try {
@@ -176,7 +281,7 @@ async function spawnManaged(kind, extraArgs, options = {}) {
       cwd: appDir,
       env: {
         ...process.env,
-        HAND_TRACKER_DATA_DIR: dataDir,
+        FILE_SYSTEM_DATA_DIR: dataDir,
         PYTHONUNBUFFERED: "1",
         PYTHONDONTWRITEBYTECODE: "1"
       },
@@ -187,7 +292,7 @@ async function spawnManaged(kind, extraArgs, options = {}) {
       shell: false
     });
   } catch (error) {
-    return fail("HAND_TRACKER_SPAWN_FAILED", `Could not start ${python}: ${error?.message || error}`);
+    return fail("FILE_SYSTEM_SPAWN_FAILED", `Could not start ${python}: ${error?.message || error}`);
   }
 
   const entry = {
@@ -235,9 +340,9 @@ async function spawnManaged(kind, extraArgs, options = {}) {
       }
       if (!entry.stopping) {
         publishEvent({
-          source: "hand-tracker",
+          source: "file-system",
           appId: APP_ID,
-          type: "hand-tracker-exit",
+          type: "file-system-exit",
           message: `${PROCESS_LABELS[kind]} exited (code ${code ?? signal}).`,
           meta: { process: kind, code, signal }
         });
@@ -256,17 +361,19 @@ async function spawnManaged(kind, extraArgs, options = {}) {
     if (managed[kind] === entry) {
       managed[kind] = null;
     }
+    // Re-pick the interpreter next time rather than retrying a bad one.
+    resolvedPython = null;
     const tail = entry.output.slice(-8).join("\n");
     const reason = entry.spawnError
-      ? `Could not start '${python}': ${entry.spawnError}. Set HAND_TRACKER_PYTHON to your Python interpreter.`
+      ? `Could not start '${python}': ${entry.spawnError}. Set FILE_SYSTEM_PYTHON to your Python interpreter.`
       : `${PROCESS_LABELS[kind]} exited during startup (code ${lastExit[kind]?.code}).`;
-    return fail("HAND_TRACKER_START_FAILED", tail ? `${reason}\n${tail}` : reason);
+    return fail("FILE_SYSTEM_START_FAILED", tail ? `${reason}\n${tail}` : reason);
   }
 
   publishEvent({
-    source: "hand-tracker",
+    source: "file-system",
     appId: APP_ID,
-    type: "hand-tracker-launch",
+    type: "file-system-launch",
     message: `${PROCESS_LABELS[kind]} launched.`,
     meta: { process: kind, pid: entry.pid, args: extraArgs }
   });
@@ -320,9 +427,9 @@ async function terminateEntry(kind, entry) {
   }
 
   publishEvent({
-    source: "hand-tracker",
+    source: "file-system",
     appId: APP_ID,
-    type: "hand-tracker-stop",
+    type: "file-system-stop",
     message: `${PROCESS_LABELS[kind]} stopped.`,
     meta: { process: kind, pid }
   });
@@ -346,7 +453,7 @@ function runTaskkill(args) {
   });
 }
 
-// Last-resort cleanup if Node exits without going through shutdownHandTracker
+// Last-resort cleanup if Node exits without going through shutdownFileSystem
 // (crash, process.exit). Only synchronous work is possible here.
 function installExitHook() {
   if (exitHookInstalled) {
@@ -384,7 +491,7 @@ function describeProcess(kind) {
 }
 
 function readDatasetSummary() {
-  const manifestPath = path.join(getHandTrackerDataDirectory(), "dataset", "manifest.json");
+  const manifestPath = path.join(getFileSystemDataDirectory(), "dataset", "manifest.json");
   if (!existsSync(manifestPath)) {
     return { totalSamples: 0, labels: {}, updatedAt: null };
   }
