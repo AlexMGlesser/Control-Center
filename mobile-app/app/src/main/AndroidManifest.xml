@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- File System lock: fingerprint, face or screen lock. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
@@ -69,6 +71,21 @@
         <receiver
             android:name=".alarm.AlarmFireReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".notify.CalendarReminderReceiver"
+            android:exported="false" />
+
+        <!-- Share sheet access to copies of PC files (res/xml/file_paths.xml). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <service
             android:name=".alarm.AlarmRingService"

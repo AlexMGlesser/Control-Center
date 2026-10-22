@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alexmglesser.controlcenter.mobile.alarm.PhoneAlarms
+import com.alexmglesser.controlcenter.mobile.notify.CalendarReminders
 import com.alexmglesser.controlcenter.mobile.appContainer
 import com.alexmglesser.controlcenter.mobile.data.AppSettings
 import com.alexmglesser.controlcenter.mobile.data.Session
@@ -246,6 +247,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         viewModelScope.launch {
             container.sessionStore.updateSettings(transform)
+            // Reminder on/off or lead time changed: reschedule from the saved events.
+            CalendarReminders.reschedule(getApplication(), container.sessionStore.currentSettings())
             if (!container.inForeground.value && !container.sessionStore.currentSettings().stayConnected) {
                 ConnectionServiceController.stop(getApplication())
             }
@@ -268,6 +271,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             ConnectionServiceController.stop(getApplication())
             container.connection.stop()
             PhoneAlarms.cancelAll(getApplication())
+            CalendarReminders.cancelAll(getApplication())
             container.sessionStore.clear()
             _apps.value = emptyList()
             _chat.value = ChatUiState()

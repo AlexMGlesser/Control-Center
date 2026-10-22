@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
         when (intent?.getStringExtra(Notifications.EXTRA_NAVIGATE)) {
             Notifications.NAVIGATE_CHAT -> viewModel.selectTab(Tab.JARVIS)
             Notifications.NAVIGATE_SETTINGS -> viewModel.selectTab(Tab.SETTINGS)
+            Notifications.NAVIGATE_CALENDAR -> viewModel.openApp("calendar-app")
         }
     }
 }

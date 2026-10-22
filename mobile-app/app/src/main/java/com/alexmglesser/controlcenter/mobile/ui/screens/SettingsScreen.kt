@@ -57,6 +57,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
+    var pickRemind by rememberSaveable { mutableStateOf(false) }
     var batteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { batteryExempt = isIgnoringBatteryOptimizations(context) }
 
@@ -91,6 +92,20 @@ fun SettingsScreen(
             InfoRow("Paired", DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(session.pairedAt)))
 
             SectionLabel("Notifications")
+            ToggleRow("Calendar reminders", "A notification when an event is about to start.", settings.calendarReminders) { checked ->
+                onUpdate { it.copy(calendarReminders = checked) }
+            }
+            if (settings.calendarReminders) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Remind me", color = CC.textPrimary, modifier = Modifier.weight(1f))
+                    NeonButton(remindLabel(settings.remindMinutes), onClick = { pickRemind = true })
+                }
+            }
             ToggleRow("Connection alerts", "When the connection to the PC is lost or comes back.", settings.connectionAlerts) { checked ->
                 onUpdate { it.copy(connectionAlerts = checked) }
             }
@@ -116,6 +131,13 @@ fun SettingsScreen(
                 }
             }
 
+            SectionLabel("Security")
+            ToggleRow(
+                "Lock File System",
+                "Ask for your fingerprint or screen lock before showing the PC's files.",
+                settings.lockFileSystem
+            ) { checked -> onUpdate { it.copy(lockFileSystem = checked) } }
+
             SectionLabel("About")
             InfoRow("App", BuildConfigInfo.versionName(context))
 
@@ -123,6 +145,31 @@ fun SettingsScreen(
             NeonButton("Sign out of this device", accent = CC.red, modifier = Modifier.fillMaxWidth(), onClick = { confirmSignOut = true })
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (pickRemind) {
+        AlertDialog(
+            onDismissRequest = { pickRemind = false },
+            title = { Text("Remind me") },
+            text = {
+                Column {
+                    REMIND_OPTIONS.forEach { minutes ->
+                        TextButton(onClick = {
+                            pickRemind = false
+                            onUpdate { it.copy(remindMinutes = minutes) }
+                        }) {
+                            Text(
+                                remindLabel(minutes),
+                                color = if (minutes == settings.remindMinutes) CC.cyan else CC.textPrimary,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { pickRemind = false }) { Text("Cancel") } },
+            containerColor = CC.bgPanel
+        )
     }
 
     if (confirmSignOut) {
@@ -186,3 +233,7 @@ fun requestBatteryExemption(context: Context) {
     runCatching { context.startActivity(intent) }
         .onFailure { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
 }
+
+private val REMIND_OPTIONS = listOf(0, 5, 10, 15, 30)
+
+private fun remindLabel(minutes: Int): String = if (minutes == 0) "At start" else "$minutes min before"

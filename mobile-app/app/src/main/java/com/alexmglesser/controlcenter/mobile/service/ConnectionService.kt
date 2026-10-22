@@ -15,11 +15,13 @@ import com.alexmglesser.controlcenter.mobile.alarm.PhoneAlarms
 import com.alexmglesser.controlcenter.mobile.data.events.ConnectionState
 import com.alexmglesser.controlcenter.mobile.data.events.OutageNotifier
 import java.time.Instant
+import com.alexmglesser.controlcenter.mobile.notify.CalendarReminders
 import com.alexmglesser.controlcenter.mobile.notify.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -71,8 +73,18 @@ class ConnectionService : Service() {
             var wasConnected = false
             container.connection.state.collect { state ->
                 val connected = state is ConnectionState.Connected
-                if (connected && !wasConnected) syncAlarms()
+                if (connected && !wasConnected) {
+                    syncAlarms()
+                    CalendarReminders.refresh(this@ConnectionService)
+                }
                 wasConnected = connected
+            }
+        }
+        // Catch calendar changes missed while offline (architecture 7.3).
+        scope.launch {
+            while (true) {
+                delay(REMINDER_REFRESH_MS)
+                CalendarReminders.refresh(this@ConnectionService)
             }
         }
 
@@ -87,6 +99,10 @@ class ConnectionService : Service() {
         super.onDestroy()
     }
 
+    private companion object {
+        const val REMINDER_REFRESH_MS = 6 * 60 * 60 * 1000L
+    }
+
     private fun serverName(): String = appContainer.sessionStore.currentSession()?.serverName ?: "your PC"
 
     /** Mirror this phone's alarms into Android's alarm clock (PhoneAlarms). */
@@ -98,7 +114,10 @@ class ConnectionService : Service() {
     private suspend fun handleEvent(event: ServerEvent) {
         val myDeviceId = appContainer.sessionStore.currentSession()?.deviceId ?: return
         when (event.type) {
-            "data-changed" -> if (event.appId == "alarms") syncAlarms()
+            "data-changed" -> when (event.appId) {
+                "alarms" -> syncAlarms()
+                "calendar-app" -> CalendarReminders.refresh(this)
+            }
             // Backup path: the PC fired this phone's alarm. Rings only if the
             // local alarm clock hasn't already rung this occurrence.
             "alarm-fired" -> if (event.metaString("targetDeviceId") == myDeviceId) {

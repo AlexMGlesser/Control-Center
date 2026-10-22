@@ -1,5 +1,6 @@
 package com.alexmglesser.controlcenter.mobile.data.api
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -80,6 +81,153 @@ data class AlarmInfo(
 
 @Serializable
 data class AlarmsResponse(val alarms: List<AlarmInfo> = emptyList())
+
+/* Calendar (control-app/server/services/calendarService.js) */
+
+@Serializable
+data class CalendarEvent(
+    val id: String,
+    val title: String,
+    /** ISO instants. */
+    val startAt: String,
+    val endAt: String,
+    val location: String = "",
+    val notes: String = "",
+    /** The local (PC time zone) date, yyyy-MM-dd. */
+    val startDateKey: String = "",
+    val startLabel: String = "",
+    val endLabel: String = ""
+)
+
+@Serializable
+data class CalendarEventsResponse(val events: List<CalendarEvent> = emptyList())
+
+@Serializable
+data class CalendarDay(
+    val date: String,
+    val dayNumber: Int = 0,
+    val inMonth: Boolean = true,
+    val isToday: Boolean = false,
+    val events: List<CalendarEvent> = emptyList(),
+    val eventCount: Int = 0
+)
+
+@Serializable
+data class CalendarMonth(
+    val year: Int,
+    val month: Int,
+    val monthLabel: String = "",
+    val today: String = "",
+    val days: List<CalendarDay> = emptyList()
+)
+
+@Serializable
+data class CreateEventRequest(val title: String, val startsAt: String, val endsAt: String? = null)
+
+@Serializable
+data class CreateEventResponse(val event: CalendarEvent? = null)
+
+/* News (control-app/server/services/newsService.js) */
+
+@Serializable
+data class WeatherNow(
+    val temperatureC: Double? = null,
+    val apparentTemperatureC: Double? = null,
+    val windSpeedKph: Double? = null,
+    val label: String = ""
+)
+
+@Serializable
+data class WeatherDay(
+    val day: String = "",
+    val maxC: Double? = null,
+    val minC: Double? = null,
+    val precipitationChance: Double? = null,
+    val label: String = ""
+)
+
+@Serializable
+data class Weather(
+    val ok: Boolean = false,
+    val location: String = "",
+    val current: WeatherNow? = null,
+    val forecast: List<WeatherDay> = emptyList()
+)
+
+@Serializable
+data class NewsStory(
+    val title: String = "",
+    val link: String = "",
+    val summary: String = "",
+    val publishedAt: String = "",
+    val source: String = ""
+)
+
+@Serializable
+data class NewsBriefing(
+    val fetchedAt: String = "",
+    val weather: Weather? = null,
+    val headlines: List<NewsStory> = emptyList(),
+    val moreStories: List<NewsStory> = emptyList(),
+    val technology: List<NewsStory> = emptyList(),
+    val stemFeature: NewsStory? = null
+)
+
+/* Wikipedia (the librarian's /api/v1, through the PC's proxy) */
+
+@Serializable
+data class WikiSearchResult(val title: String, val snippet: String = "")
+
+@Serializable
+data class WikiSearchResponse(
+    @SerialName("total_matches") val totalMatches: Int = 0,
+    val results: List<WikiSearchResult> = emptyList(),
+    val error: String? = null
+)
+
+@Serializable
+data class WikiArticle(
+    val title: String = "",
+    val sections: List<String> = emptyList(),
+    val text: String = "",
+    val truncated: Boolean = false,
+    @SerialName("links_to") val linksTo: List<String> = emptyList(),
+    val error: String? = null
+)
+
+@Serializable
+data class WikiRandom(val title: String = "")
+
+/* File System: the whole PC, read-only (control-app/server/services/remoteFilesService.js) */
+
+@Serializable
+data class FileRoot(
+    val name: String,
+    val path: String,
+    val type: String = "folder",
+    val freeBytes: Long? = null,
+    val totalBytes: Long? = null
+)
+
+@Serializable
+data class FileRoots(val quick: List<FileRoot> = emptyList(), val drives: List<FileRoot> = emptyList())
+
+@Serializable
+data class PcFile(
+    val name: String,
+    val path: String,
+    val type: String = "file",
+    /** folder, text, image, pdf, audio, video or other. */
+    val kind: String = "other",
+    val size: Long? = null,
+    val created: String? = null,
+    val modified: String? = null,
+    val hidden: Boolean = false,
+    val noAccess: Boolean = false
+)
+
+@Serializable
+data class PcFolder(val path: String, val parent: String? = null, val entries: List<PcFile> = emptyList())
 
 /* Projects (control-app/server/services/projectService.js) */
 

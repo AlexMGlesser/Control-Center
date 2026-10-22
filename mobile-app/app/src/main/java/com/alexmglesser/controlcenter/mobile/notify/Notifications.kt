@@ -27,6 +27,7 @@ object Notifications {
     const val CHANNEL_CALENDAR = "calendar"
     const val CHANNEL_JARVIS = "jarvis"
     const val CHANNEL_ALARMS = "alarms"
+    const val CHANNEL_DOWNLOADS = "downloads"
 
     const val STATUS_ID = 1
     const val CONNECTION_ALERT_ID = 2
@@ -35,6 +36,7 @@ object Notifications {
     const val EXTRA_NAVIGATE = "navigate"
     const val NAVIGATE_CHAT = "chat"
     const val NAVIGATE_SETTINGS = "settings"
+    const val NAVIGATE_CALENDAR = "app:calendar-app"
     const val REPLY_KEY = "jarvis_reply"
 
     private val ACCENT = 0xFF00F0FF.toInt()
@@ -52,6 +54,9 @@ object Notifications {
                 },
                 NotificationChannel(CHANNEL_CALENDAR, "Calendar", NotificationManager.IMPORTANCE_HIGH).apply {
                     description = "Reminders when calendar events start."
+                },
+                NotificationChannel(CHANNEL_DOWNLOADS, "Downloads", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Files downloaded from your PC."
                 },
                 NotificationChannel(CHANNEL_JARVIS, "Jarvis", NotificationManager.IMPORTANCE_DEFAULT).apply {
                     description = "Jarvis's replies when you've left the app."
@@ -172,6 +177,10 @@ object Notifications {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun cancel(context: Context, id: Int) {
+        NotificationManagerCompat.from(context).cancel(id)
     }
 
     /** The one place notifications are posted, always behind [canPost]. */

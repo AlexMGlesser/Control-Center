@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -30,7 +31,12 @@ data class AppSettings(
     val stayConnected: Boolean = true,
     val connectionAlerts: Boolean = true,
     val jarvisReplies: Boolean = true,
-    val firstRunDone: Boolean = false
+    val firstRunDone: Boolean = false,
+    val calendarReminders: Boolean = true,
+    /** Minutes before an event starts: 0 (at start), 5, 10, 15 or 30. */
+    val remindMinutes: Int = 0,
+    /** Ask for fingerprint or screen lock before showing the PC's files. */
+    val lockFileSystem: Boolean = true
 )
 
 sealed interface SessionState {
@@ -56,7 +62,10 @@ class SessionStore(private val context: Context) {
             stayConnected = prefs[STAY_CONNECTED] ?: true,
             connectionAlerts = prefs[CONNECTION_ALERTS] ?: true,
             jarvisReplies = prefs[JARVIS_REPLIES] ?: true,
-            firstRunDone = prefs[FIRST_RUN_DONE] ?: false
+            firstRunDone = prefs[FIRST_RUN_DONE] ?: false,
+            calendarReminders = prefs[CALENDAR_REMINDERS] ?: true,
+            remindMinutes = prefs[REMIND_MINUTES] ?: 0,
+            lockFileSystem = prefs[LOCK_FILE_SYSTEM] ?: true
         )
     }
 
@@ -103,6 +112,9 @@ class SessionStore(private val context: Context) {
             prefs[CONNECTION_ALERTS] = updated.connectionAlerts
             prefs[JARVIS_REPLIES] = updated.jarvisReplies
             prefs[FIRST_RUN_DONE] = updated.firstRunDone
+            prefs[CALENDAR_REMINDERS] = updated.calendarReminders
+            prefs[REMIND_MINUTES] = updated.remindMinutes
+            prefs[LOCK_FILE_SYSTEM] = updated.lockFileSystem
         }
     }
 
@@ -131,5 +143,8 @@ class SessionStore(private val context: Context) {
         val CONNECTION_ALERTS = booleanPreferencesKey("connection_alerts")
         val JARVIS_REPLIES = booleanPreferencesKey("jarvis_replies")
         val FIRST_RUN_DONE = booleanPreferencesKey("first_run_done")
+        val CALENDAR_REMINDERS = booleanPreferencesKey("calendar_reminders")
+        val REMIND_MINUTES = intPreferencesKey("remind_minutes")
+        val LOCK_FILE_SYSTEM = booleanPreferencesKey("lock_file_system")
     }
 }

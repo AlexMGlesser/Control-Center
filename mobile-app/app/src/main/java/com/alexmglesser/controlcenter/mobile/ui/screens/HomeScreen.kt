@@ -44,6 +44,10 @@ import com.alexmglesser.controlcenter.mobile.R
 import com.alexmglesser.controlcenter.mobile.data.api.AppInfo
 import com.alexmglesser.controlcenter.mobile.ui.components.appIconRes
 import com.alexmglesser.controlcenter.mobile.ui.components.shortAppName
+import com.alexmglesser.controlcenter.mobile.ui.apps.CalendarScreen
+import com.alexmglesser.controlcenter.mobile.ui.apps.NewsScreen
+import com.alexmglesser.controlcenter.mobile.ui.apps.WikipediaScreen
+import com.alexmglesser.controlcenter.mobile.ui.apps.files.FilesScreen
 import com.alexmglesser.controlcenter.mobile.ui.projects.ProjectsScreen
 import com.alexmglesser.controlcenter.mobile.ui.theme.CC
 import com.alexmglesser.controlcenter.mobile.ui.theme.TileShape
@@ -146,6 +150,10 @@ fun AppScreen(app: AppInfo?, onBack: () -> Unit, sharedScope: SharedTransitionSc
         ) {
             when (app.id) {
                 "project-app" -> ProjectsScreen(onExit = onBack)
+                "calendar-app" -> CalendarScreen(onExit = onBack)
+                "news-app" -> NewsScreen(onExit = onBack)
+                "wikipedia-app" -> WikipediaScreen(onExit = onBack)
+                "file-system-app" -> FilesScreen(onExit = onBack)
                 else -> GenericAppBody(app, onBack)
             }
         }

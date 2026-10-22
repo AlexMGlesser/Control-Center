@@ -6,6 +6,7 @@ import android.content.Intent
 import androidx.core.app.RemoteInput
 import com.alexmglesser.controlcenter.mobile.alarm.PhoneAlarms
 import com.alexmglesser.controlcenter.mobile.appContainer
+import com.alexmglesser.controlcenter.mobile.notify.CalendarReminders
 import com.alexmglesser.controlcenter.mobile.notify.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,8 @@ class BootReceiver : BroadcastReceiver() {
                 PhoneAlarms.restore(context)
                 val store = context.appContainer.sessionStore
                 store.load()
+                // Reboots clear scheduled alarms: put the saved reminders back.
+                CalendarReminders.reschedule(context, store.currentSettings())
                 if (store.currentSession() != null && store.currentSettings().stayConnected) {
                     ConnectionServiceController.start(context)
                 }
