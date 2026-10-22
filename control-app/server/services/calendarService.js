@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { readRuntimeSection, writeRuntimeSection } from "./runtimePersistenceService.js";
+import { publishEvent } from "./eventBus.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -302,6 +303,14 @@ function loadCalendarState() {
 function persistCalendarState() {
   calendarState.updatedAt = new Date().toISOString();
   writeRuntimeSection("calendar", calendarState);
+  // Open calendar screens on any device refresh, and phones reschedule reminders.
+  publishEvent({
+    source: "calendar",
+    appId: "calendar-app",
+    type: "data-changed",
+    message: "Calendar changed.",
+    meta: { entity: "event" }
+  });
 }
 
 function normalizeEvent(event) {

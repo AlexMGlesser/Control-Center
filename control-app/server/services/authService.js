@@ -47,7 +47,10 @@ const REMOTE_ALLOWLIST = [
   ["POST", /^\/apps\/music-app\/playlists\/[^/]+\/tracks$/],
   ["GET", /^\/apps\/drawing-app\/files(\/[^/]+)?$/],
   ["GET", /^\/apps\/(project-app|work-app)\/projects$/],
-  ["GET", /^\/apps\/(project-app|work-app)\/projects\/[^/]+\/tree$/]
+  ["GET", /^\/apps\/(project-app|work-app)\/projects\/[^/]+\/tree$/],
+  ["GET", /^\/apps\/(project-app|work-app)\/projects\/[^/]+\/(list|file)$/],
+  ["GET", /^\/apps\/wikipedia-app\/proxy\/[^/]+$/],
+  ["GET", /^\/files\/(roots|list|info|content)$/]
 ];
 
 // Reachable without credentials: the health probe (no data, and a second

@@ -33,7 +33,7 @@ import {
 import { addUserMessage, getChatMessages } from "../services/chatService.js";
 import { getAgentContextText, getAgentRuntimeStatus, getAgentToolCatalog } from "../services/agentRuntime.js";
 import { startOllama, stopOllama, startOllamaProbe, stopOllamaProbe } from "../services/ollamaService.js";
-import { getWikipediaStatus, startWikipedia, stopWikipedia } from "../services/wikipediaService.js";
+import { getWikipediaConfig, getWikipediaStatus, probeLibrarian, startWikipedia, stopWikipedia } from "../services/wikipediaService.js";
 import { getVoiceStatus } from "../services/voiceService.js";
 import { enqueueUserTurn, getQueueStatus, onReplyDelivered } from "../services/queueWorker.js";
 import {
@@ -58,8 +58,18 @@ import {
   copyProjectNode,
   moveProjectNode,
   openProjectNode,
-  launchApp
+  launchApp,
+  listProjectFolder,
+  readProjectFile
 } from "../services/projectService.js";
+import {
+  fileInfo,
+  isPhoneFileAccessEnabled,
+  listFolder,
+  listRoots,
+  resolveReadableFile,
+  setPhoneFileAccessEnabled
+} from "../services/remoteFilesService.js";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
@@ -717,6 +727,132 @@ router.post("/apps/project-app/projects", (req, res) => {
 
 router.delete("/apps/project-app/projects/:projectId", (req, res) => {
   handleProjectAction(res, () => removeProject("project-app", req.params.projectId));
+});
+
+/* Read-only project browsing for the phone (mobile architecture 5.5). */
+
+function sendProjectError(res, error) {
+  res.status(error.status || 500).json({ ok: false, code: error.code || "PROJECT_ERROR", message: error.message, ...(error.details || {}) });
+}
+
+router.get("/apps/:appType(project-app|work-app)/projects/:projectId/list", (req, res) => {
+  try {
+    res.json({ ok: true, ...listProjectFolder(req.params.appType, req.params.projectId, req.query.path) });
+  } catch (error) {
+    sendProjectError(res, error);
+  }
+});
+
+router.get("/apps/:appType(project-app|work-app)/projects/:projectId/file", (req, res) => {
+  try {
+    res.json({ ok: true, ...readProjectFile(req.params.appType, req.params.projectId, req.query.path) });
+  } catch (error) {
+    sendProjectError(res, error);
+  }
+});
+
+/* The phone's Wikipedia view: read-only proxy to the librarian, which only
+   listens on 127.0.0.1 (mobile architecture 5.4). */
+const WIKI_PROXY_ENDPOINTS = new Set(["search", "article", "related", "random", "suggest"]);
+
+router.get("/apps/wikipedia-app/proxy/:endpoint", async (req, res) => {
+  const endpoint = String(req.params.endpoint || "");
+  if (!WIKI_PROXY_ENDPOINTS.has(endpoint)) {
+    res.status(404).json({ ok: false, code: "UNKNOWN_ENDPOINT", message: "Not a librarian read endpoint." });
+    return;
+  }
+  if (!(await probeLibrarian())) {
+    const started = await startWikipedia();
+    if (!started.ok) {
+      res.status(503).json(started);
+      return;
+    }
+  }
+  const query = new URLSearchParams(req.query).toString();
+  try {
+    // Cold searches on the hard drive can take over a minute.
+    const upstream = await fetch(`${getWikipediaConfig().baseUrl}/api/v1/${endpoint}${query ? `?${query}` : ""}`, {
+      signal: AbortSignal.timeout(150_000)
+    });
+    res.status(upstream.status).type("application/json").send(await upstream.text());
+  } catch (error) {
+    res.status(504).json({ ok: false, code: "WIKIPEDIA_TIMEOUT", message: error?.message || "The archive didn't answer." });
+  }
+});
+
+/* The phone's File System app: read-only, whole PC (mobile architecture 5.10).
+   There are no write routes here by design. */
+
+function requirePhoneFileAccess(req, res) {
+  if (req.auth?.scope === "remote" && !isPhoneFileAccessEnabled()) {
+    res.status(403).json({ ok: false, code: "PHONE_FILE_ACCESS_OFF", message: "File access from the phone is switched off on the PC." });
+    return false;
+  }
+  return true;
+}
+
+function sendFilesError(res, error) {
+  res.status(error.status || 500).json({ ok: false, code: error.code || "FILES_ERROR", message: error.message });
+}
+
+router.get("/files/roots", (req, res) => {
+  if (!requirePhoneFileAccess(req, res)) return;
+  res.json({ ok: true, ...listRoots() });
+});
+
+router.get("/files/list", async (req, res) => {
+  if (!requirePhoneFileAccess(req, res)) return;
+  try {
+    res.json({ ok: true, ...(await listFolder(req.query.path, { showHidden: req.query.hidden === "1" })) });
+  } catch (error) {
+    sendFilesError(res, error);
+  }
+});
+
+router.get("/files/info", (req, res) => {
+  if (!requirePhoneFileAccess(req, res)) return;
+  try {
+    res.json({ ok: true, ...fileInfo(req.query.path) });
+  } catch (error) {
+    sendFilesError(res, error);
+  }
+});
+
+router.get("/files/content", (req, res) => {
+  if (!requirePhoneFileAccess(req, res)) return;
+  let file;
+  try {
+    file = resolveReadableFile(req.query.path);
+  } catch (error) {
+    sendFilesError(res, error);
+    return;
+  }
+  if (req.query.download === "1") {
+    res.attachment(file.name);
+    // Audit trail for whole-file downloads (5.10).
+    console.log(`[Files] ${req.auth?.device?.name || "PC"} downloaded ${file.path} (${file.size} bytes)`);
+    publishEvent({
+      source: "files",
+      appId: "file-system-app",
+      type: "file-download",
+      message: `${req.auth?.device?.name || "PC"} downloaded ${file.name}.`,
+      meta: { path: file.path, size: file.size, deviceId: req.auth?.device?.id || null }
+    });
+  }
+  // sendFile handles Range requests, so previews and video can seek.
+  res.sendFile(file.path, { dotfiles: "allow" }, (error) => {
+    if (error && !res.headersSent) {
+      sendFilesError(res, { status: 500, code: "STREAM_FAILED", message: "Couldn't read that file." });
+    }
+  });
+});
+
+router.get("/devices/phone-file-access", (req, res) => {
+  res.json({ ok: true, enabled: isPhoneFileAccessEnabled() });
+});
+
+router.put("/devices/phone-file-access", (req, res) => {
+  res.json({ ok: true, enabled: setPhoneFileAccessEnabled(req.body?.enabled !== false) });
 });
 
 router.get("/apps/project-app/projects/:projectId/tree", (req, res) => {

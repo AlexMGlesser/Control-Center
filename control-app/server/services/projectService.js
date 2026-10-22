@@ -3,6 +3,8 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -489,6 +491,82 @@ function normalizeNewNodeName(name) {
   }
 
   return normalizedName;
+}
+
+/* Read-only access for the phone's Projects/Work views (mobile architecture 5.5). */
+
+const READ_LIMIT_BYTES = 512 * 1024;
+
+/** A path inside the project, checked again after following symlinks/junctions. */
+function resolveReadablePath(project, targetPath) {
+  const resolved = resolveProjectPath(project.path, targetPath || project.path);
+  let realRoot;
+  let realTarget;
+  try {
+    realRoot = realpathSync.native(path.resolve(project.path));
+    realTarget = realpathSync.native(resolved);
+  } catch {
+    throw createProjectError("PATH_NOT_FOUND", "That file or folder doesn't exist.", 404);
+  }
+  if (!isPathInsideProject(realRoot, realTarget)) {
+    throw createProjectError("INVALID_PATH", "Path is outside the selected project.", 400);
+  }
+  return realTarget;
+}
+
+/** One folder of a project (the phone browses folder by folder). */
+export function listProjectFolder(appType, projectId, folderPath) {
+  const project = requireProject(appType, projectId);
+  const folder = resolveReadablePath(project, folderPath);
+  if (!statSync(folder).isDirectory()) {
+    throw createProjectError("NOT_A_FOLDER", "That's a file, not a folder.", 400);
+  }
+  const entries = readdirSync(folder, { withFileTypes: true })
+    .filter((entry) => !entry.name.startsWith("."))
+    .map((entry) => {
+      const fullPath = path.join(folder, entry.name);
+      let stats = null;
+      try {
+        stats = statSync(fullPath);
+      } catch {
+        // listed without size
+      }
+      const isFolder = stats ? stats.isDirectory() : entry.isDirectory();
+      return { name: entry.name, path: fullPath, type: isFolder ? "folder" : "file", size: isFolder || !stats ? null : stats.size };
+    })
+    .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "folder" ? -1 : 1));
+  const realRoot = realpathSync.native(path.resolve(project.path));
+  return {
+    project: { id: project.id, name: project.name },
+    path: folder,
+    relativePath: path.relative(realRoot, folder),
+    parent: folder === realRoot ? null : path.dirname(folder),
+    entries
+  };
+}
+
+/** A text file from a project, up to 512 KB. Binary files are refused (415). */
+export function readProjectFile(appType, projectId, filePath) {
+  const project = requireProject(appType, projectId);
+  const target = resolveReadablePath(project, filePath);
+  const stats = statSync(target);
+  if (!stats.isFile()) {
+    throw createProjectError("NOT_A_FILE", "That's a folder, not a file.", 400);
+  }
+  const buffer = readFileSync(target).subarray(0, READ_LIMIT_BYTES);
+  // A NUL byte in the first 8 KB means it isn't text.
+  if (buffer.subarray(0, 8192).includes(0)) {
+    const error = createProjectError("BINARY_FILE", "Can't preview this file on the phone.", 415);
+    error.details = { size: stats.size, type: path.extname(target).slice(1) || "file" };
+    throw error;
+  }
+  return {
+    name: path.basename(target),
+    path: target,
+    size: stats.size,
+    truncated: stats.size > READ_LIMIT_BYTES,
+    text: buffer.toString("utf-8")
+  };
 }
 
 function resolveProjectPath(projectPath, targetPath, expectExisting = true) {
