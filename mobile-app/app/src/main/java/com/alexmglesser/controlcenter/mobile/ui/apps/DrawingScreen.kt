@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -61,10 +62,16 @@ class DrawingViewModel(application: Application) : AndroidViewModel(application)
         private set
     var open by mutableStateOf<DrawingSummary?>(null)
 
-    init {
+    /** Called each time the screen opens: drawings are made on the PC. */
+    fun refresh() {
         viewModelScope.launch {
             loading = true
-            runCatching { container.api.drawings() }.onSuccess { drawings = it }.onFailure { message = it.message }
+            runCatching { container.api.drawings() }
+                .onSuccess {
+                    drawings = it
+                    message = null
+                }
+                .onFailure { message = it.message }
             loading = false
         }
     }
@@ -84,6 +91,7 @@ class DrawingViewModel(application: Application) : AndroidViewModel(application)
 fun DrawingScreen(onExit: () -> Unit, vm: DrawingViewModel = viewModel()) {
     val goBack = { if (vm.open != null) vm.open = null else onExit() }
     BackHandler { goBack() }
+    LaunchedEffect(Unit) { vm.refresh() }
 
     val open = vm.open
     Column(Modifier.fillMaxSize()) {

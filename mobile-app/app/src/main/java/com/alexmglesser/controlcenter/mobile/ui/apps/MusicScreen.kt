@@ -11,13 +11,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,7 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -37,6 +40,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.alexmglesser.controlcenter.mobile.R
 import com.alexmglesser.controlcenter.mobile.appContainer
 import com.alexmglesser.controlcenter.mobile.data.api.MusicPlaylist
 import com.alexmglesser.controlcenter.mobile.data.api.MusicTrack
@@ -57,7 +61,10 @@ private fun MusicTrack.extension(): String = (sourcePath ?: name).substringAfter
 
 private fun MusicTrack.playable(): Boolean = sourcePath != null && extension() !in UNPLAYABLE
 
-private fun MusicTrack.title(): String = name.substringBeforeLast('.').replace('_', ' ')
+/** The tag's title, or a tidied file name ("[SITE.COM] Song.mp3" -> "Song"). */
+private fun MusicTrack.displayTitle(): String =
+    title?.takeIf { it.isNotBlank() }
+        ?: name.substringBeforeLast('.').replace(Regex("^\\[[^\\]]*\\]\\s*"), "").replace('_', ' ')
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val container = application.appContainer
@@ -83,7 +90,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     init {
-        refresh()
         val token = SessionToken(application, ComponentName(application, MusicService::class.java))
         val future = MediaController.Builder(application, token).buildAsync()
         future.addListener({
@@ -138,7 +144,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             MediaItem.Builder()
                 .setUri(url)
                 .setMediaId(track.sourcePath)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(track.title()).setArtist(playlist.name).build())
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(track.displayTitle())
+                        .setArtist(track.artist ?: playlist.name)
+                        .setAlbumTitle(track.album)
+                        .build()
+                )
                 .build()
         }
         if (items.isEmpty()) {
@@ -188,6 +200,8 @@ fun MusicScreen(onExit: () -> Unit, vm: MusicViewModel = viewModel()) {
     val onPc = settings?.musicOnPc ?: false
     val goBack = { if (vm.open != null) vm.open = null else onExit() }
     BackHandler { goBack() }
+    // Playlists are edited on the PC: pick up changes each time the screen opens.
+    LaunchedEffect(Unit) { vm.refresh() }
 
     Column(Modifier.fillMaxSize()) {
         AppTopBar(vm.open?.name ?: "Music", onBack = goBack)
@@ -248,7 +262,11 @@ private fun TrackList(playlist: MusicPlaylist, onPc: Boolean, onPlay: (Int) -> U
             ) {
                 Text("${index + 1}", color = CC.textSecondary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(32.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(track.title(), color = if (playable) CC.textPrimary else CC.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(track.displayTitle(), color = if (playable) CC.textPrimary else CC.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val byline = listOfNotNull(track.artist, track.album).joinToString(" · ")
+                    if (playable && byline.isNotEmpty()) {
+                        Text(byline, color = CC.textSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                     if (!playable) {
                         Text(
                             "${track.extension().uppercase()} files don't play on Android. Play it on the PC instead.",
@@ -266,30 +284,42 @@ private fun TrackList(playlist: MusicPlaylist, onPc: Boolean, onPlay: (Int) -> U
 @Composable
 private fun MiniPlayer(vm: MusicViewModel, onPc: Boolean) {
     val title = if (onPc) vm.pcPlaylist?.let { "Playlist: $it" } ?: "Controlling the PC's player" else vm.nowTitle ?: "Nothing playing"
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .background(CC.bgPanel)
-            .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 4.dp)
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = CC.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (!onPc) vm.nowSubtitle?.let { Text(it, color = CC.textSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = CC.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!onPc) vm.nowSubtitle?.let { Text(it, color = CC.textSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+            Text(
+                if (onPc) "♪ on PC" else "♪ on Phone",
+                color = CC.magenta,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .neonClickable(ButtonShape, accent = CC.magenta, restBorder = CC.magenta.copy(alpha = 0.5f), onClick = { vm.setOnPc(!onPc) })
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
         }
-        TextButton(onClick = { vm.previous(onPc) }) { Text("⏮", color = CC.textPrimary) }
-        TextButton(onClick = { vm.playPause(onPc) }) {
-            Text(if (!onPc && vm.isPlaying) "⏸" else "▶", color = CC.cyan, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { vm.previous(onPc) }) {
+                Icon(painterResource(R.drawable.ic_skip_back), contentDescription = "Previous", tint = CC.textPrimary)
+            }
+            IconButton(onClick = { vm.playPause(onPc) }, modifier = Modifier.padding(horizontal = 20.dp)) {
+                Icon(
+                    painterResource(if (!onPc && vm.isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
+                    contentDescription = if (!onPc && vm.isPlaying) "Pause" else "Play",
+                    tint = CC.cyan,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            IconButton(onClick = { vm.next(onPc) }) {
+                Icon(painterResource(R.drawable.ic_skip_forward), contentDescription = "Next", tint = CC.textPrimary)
+            }
         }
-        TextButton(onClick = { vm.next(onPc) }) { Text("⏭", color = CC.textPrimary) }
-        Text(
-            if (onPc) "♪ on PC" else "♪ on Phone",
-            color = CC.magenta,
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier
-                .padding(start = 4.dp)
-                .neonClickable(ButtonShape, accent = CC.magenta, restBorder = CC.magenta.copy(alpha = 0.5f), onClick = { vm.setOnPc(!onPc) })
-                .padding(horizontal = 10.dp, vertical = 8.dp)
-        )
     }
 }

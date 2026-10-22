@@ -25,6 +25,7 @@ import {
   rescanMovies
 } from "../services/movieLibraryService.js";
 import { listServers, saveServers } from "../services/serverListService.js";
+import { withTrackTags } from "../services/musicTagsService.js";
 import { getAllApps, getAppById } from "../services/appRegistry.js";
 import { addAppMessage } from "../services/appMessageService.js";
 import { connectApp, getOrchestratorStatus } from "../services/orchestrator.js";
@@ -566,7 +567,9 @@ router.get("/apps/music-app/local-file", (req, res) => {
 });
 
 router.get("/apps/music-app/playlists", (req, res) => {
-  res.json(listMusicPlaylists());
+  const result = listMusicPlaylists();
+  // Real titles from the files' tags (cached), for screens that show them.
+  res.json({ ...result, playlists: withTrackTags(result.playlists) });
 });
 
 router.post("/apps/music-app/local-playlists/sync", (req, res) => {

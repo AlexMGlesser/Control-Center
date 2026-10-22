@@ -232,7 +232,14 @@ data class PcFolder(val path: String, val parent: String? = null, val entries: L
 /* Music: saved playlists of files on the PC (control-app/server/services/musicLibraryService.js) */
 
 @Serializable
-data class MusicTrack(val name: String = "", val sourcePath: String? = null)
+data class MusicTrack(
+    val name: String = "",
+    val sourcePath: String? = null,
+    /** From the file's own tags, read on the PC. */
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null
+)
 
 @Serializable
 data class MusicPlaylist(val name: String, val count: Int = 0, val source: String = "", val tracks: List<MusicTrack> = emptyList())
