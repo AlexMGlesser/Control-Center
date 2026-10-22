@@ -70,7 +70,7 @@ happens on the home PC, with the phone acting as a remote.
 | Calendar | Phone view: agenda and month, add and delete events; reminder notifications | Edit events |
 | News | Phone view: the briefing (weather, headlines, tech, daily STEM) | Background refresh |
 | Wikipedia | Phone view: search and read articles from the offline archive | The archive's own Agent chat page |
-| Projects / Work | Phone view: browse project folders, read text files (read-only) | Create, rename, move and delete files; "open on PC" |
+| Projects (personal and work in one app) | Phone view: browse project folders, edit and save text files, create files and folders | Add or remove projects; rename, move and delete files; "open on PC" |
 | Music | Phone view: browse library and playlists; play on the PC (remote control) or on the phone (stream from the PC) | Downloads for offline listening |
 | Server Manager | Phone view: server list, open an SSH session in an Android SSH app | Status checks, power actions |
 | File System | Phone view: browse every file on the PC that you'd see in Windows Explorer. View and download only; no changes or deletes. No hand tracking. | Search across the PC |
@@ -125,7 +125,7 @@ happens on the home PC, with the phone acting as a remote.
 - R15. Desktop-only actions cannot be triggered remotely. That covers opening
   file pickers on the PC, launching PowerShell or an IDE on the PC, and
   shutting Control Center down.
-- R16. Music, Projects/Work and Movie read files only inside their own
+- R16. Music, Projects and Movie read files only inside their own
   configured folders. The File System app can read any file the PC's Windows
   account can read, but can never change or delete anything (section 7.8).
 
@@ -196,8 +196,9 @@ happens on the home PC, with the phone acting as a remote.
    (remote control) or on the phone?
 4. **What should the phone be allowed to change?** Proposed for v1: calendar
    add and delete, music playlists, and Jarvis commands (which already only
-   go through Jarvis's tools). Project file changes and shutting down the PC
-   are left out.
+   go through Jarvis's tools). Decided: the phone can also edit and create
+   project files; rename, move and delete stay on the PC, and so does
+   shutting down the PC.
 5. **One shared Jarvis conversation for all devices** (proposed), or a
    separate thread per device?
 6. **App name and icon on the phone:** "Control Center" with the same icon

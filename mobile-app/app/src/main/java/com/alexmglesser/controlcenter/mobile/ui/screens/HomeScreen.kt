@@ -44,6 +44,7 @@ import com.alexmglesser.controlcenter.mobile.R
 import com.alexmglesser.controlcenter.mobile.data.api.AppInfo
 import com.alexmglesser.controlcenter.mobile.ui.components.appIconRes
 import com.alexmglesser.controlcenter.mobile.ui.components.shortAppName
+import com.alexmglesser.controlcenter.mobile.ui.projects.ProjectsScreen
 import com.alexmglesser.controlcenter.mobile.ui.theme.CC
 import com.alexmglesser.controlcenter.mobile.ui.theme.TileShape
 import com.alexmglesser.controlcenter.mobile.ui.theme.neonClickable
@@ -127,8 +128,8 @@ private fun AppTile(app: AppInfo, onClick: () -> Unit, modifier: Modifier = Modi
 }
 
 /**
- * An app's screen. Phone views for each app arrive in later phases; until
- * then this is the generic card (design 3.6), which also covers new apps.
+ * An app's screen: the app's phone view where there is one, otherwise the
+ * generic card (design 3.6), which also covers new apps.
  */
 @Composable
 fun AppScreen(app: AppInfo?, onBack: () -> Unit, sharedScope: SharedTransitionScope, animatedScope: AnimatedVisibilityScope) {
@@ -143,46 +144,57 @@ fun AppScreen(app: AppInfo?, onBack: () -> Unit, sharedScope: SharedTransitionSc
                 .sharedBounds(rememberSharedContentState(key = "app-${app.id}"), animatedVisibilityScope = animatedScope)
                 .background(CC.bgPrimary)
         ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(painterResource(R.drawable.ic_arrow_left), contentDescription = "Back", tint = CC.textPrimary)
-                }
-                Text(shortAppName(app.name), style = MaterialTheme.typography.titleMedium, color = CC.textPrimary)
+            when (app.id) {
+                "project-app" -> ProjectsScreen(onExit = onBack)
+                else -> GenericAppBody(app, onBack)
             }
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Box(
-                    Modifier
-                        .size(96.dp)
-                        .background(CC.bgPanel, TileShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(painterResource(appIconRes(app.id, app.icon)), contentDescription = null, tint = CC.cyan, modifier = Modifier.size(44.dp))
-                }
-                Text(app.name, style = MaterialTheme.typography.titleLarge, color = CC.textPrimary)
-                if (app.description.isNotBlank()) {
-                    Text(app.description, color = CC.textSecondary, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 520.dp))
-                }
-                Text(
-                    "The phone view for this app is coming in a later update. Open it on the PC to use it for now.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CC.textSecondary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.widthIn(max = 520.dp)
-                )
+        }
+    }
+}
+
+/** The generic card (design 3.6) for apps without a phone view yet. */
+@Composable
+private fun GenericAppBody(app: AppInfo, onBack: () -> Unit) {
+    Column {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(painterResource(R.drawable.ic_arrow_left), contentDescription = "Back", tint = CC.textPrimary)
             }
+            Text(shortAppName(app.name), style = MaterialTheme.typography.titleMedium, color = CC.textPrimary)
+        }
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(96.dp)
+                    .background(CC.bgPanel, TileShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(painterResource(appIconRes(app.id, app.icon)), contentDescription = null, tint = CC.cyan, modifier = Modifier.size(44.dp))
+            }
+            Text(app.name, style = MaterialTheme.typography.titleLarge, color = CC.textPrimary)
+            if (app.description.isNotBlank()) {
+                Text(app.description, color = CC.textSecondary, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 520.dp))
+            }
+            Text(
+                "The phone view for this app is coming in a later update. Open it on the PC to use it for now.",
+                style = MaterialTheme.typography.bodySmall,
+                color = CC.textSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 520.dp)
+            )
         }
     }
 }

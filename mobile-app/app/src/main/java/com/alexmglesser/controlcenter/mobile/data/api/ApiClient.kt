@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 class ApiException(val status: Int, val code: String?, message: String) : Exception(message)
@@ -71,6 +72,33 @@ class ApiClient(private val sessionStore: SessionStore) {
         send("POST", "/api/alarms/$alarmId/stop", "{}") { }
     }
 
+    /* Projects: browse, read, save and create. Rename, move and delete stay on the PC. */
+
+    suspend fun projects(): List<ProjectInfo> =
+        get("/api/apps/project-app/projects") { json.decodeFromString(ProjectsResponse.serializer(), it).projects }
+
+    suspend fun projectFolder(projectId: String, folderPath: String?): FolderListing {
+        val query = folderPath?.let { "?path=${encode(it)}" }.orEmpty()
+        return get("/api/apps/project-app/projects/${encode(projectId)}/list$query") { json.decodeFromString(FolderListing.serializer(), it) }
+    }
+
+    /** Throws ApiException with code BINARY_FILE (415) for files that aren't text. */
+    suspend fun projectFile(projectId: String, filePath: String): ProjectFile =
+        get("/api/apps/project-app/projects/${encode(projectId)}/file?path=${encode(filePath)}") {
+            json.decodeFromString(ProjectFile.serializer(), it)
+        }
+
+    /** Throws ApiException with code FILE_CHANGED (409) if the file changed since [expectedModified]. */
+    suspend fun saveProjectFile(projectId: String, filePath: String, content: String, expectedModified: Double?): SavedFile {
+        val body = json.encodeToString(SaveFileRequest.serializer(), SaveFileRequest(filePath, content, expectedModified))
+        return send("PUT", "/api/apps/project-app/projects/${encode(projectId)}/file", body) { json.decodeFromString(SavedFile.serializer(), it) }
+    }
+
+    suspend fun createProjectEntry(projectId: String, parentPath: String, name: String, type: String): CreatedEntry {
+        val body = json.encodeToString(CreateEntryRequest.serializer(), CreateEntryRequest(parentPath, name, type))
+        return send("POST", "/api/apps/project-app/projects/${encode(projectId)}/entries", body) { json.decodeFromString(CreatedEntry.serializer(), it) }
+    }
+
     /** Unpairs this device on the PC (Settings > Sign out). */
     suspend fun signOutDevice() {
         send("DELETE", "/api/devices/self", null) { }
@@ -92,6 +120,8 @@ class ApiClient(private val sessionStore: SessionStore) {
         val request = authorizedRequest(session, path).method(method, if (method == "DELETE" && body == null) null else requestBody).build()
         return execute(request, authenticated = true, parse)
     }
+
+    private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
     private fun requireSession(): Session =
         sessionStore.currentSession() ?: throw ApiException(401, "NOT_PAIRED", "This phone isn't paired.")

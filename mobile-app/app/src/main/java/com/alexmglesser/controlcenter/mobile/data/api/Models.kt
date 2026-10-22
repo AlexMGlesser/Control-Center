@@ -81,6 +81,65 @@ data class AlarmInfo(
 @Serializable
 data class AlarmsResponse(val alarms: List<AlarmInfo> = emptyList())
 
+/* Projects (control-app/server/services/projectService.js) */
+
+@Serializable
+data class ProjectInfo(
+    val id: String,
+    val name: String,
+    val path: String = "",
+    /** "personal" or "work". */
+    val category: String = "personal",
+    val missing: Boolean = false
+)
+
+@Serializable
+data class ProjectsResponse(val projects: List<ProjectInfo> = emptyList())
+
+@Serializable
+data class FolderEntry(
+    val name: String,
+    val path: String,
+    /** "folder" or "file". */
+    val type: String = "file",
+    val size: Long? = null,
+    val hidden: Boolean = false
+)
+
+@Serializable
+data class FolderListing(
+    val project: ProjectInfo,
+    val path: String,
+    val relativePath: String = "",
+    /** Null at the project's root folder. */
+    val parent: String? = null,
+    val entries: List<FolderEntry> = emptyList()
+)
+
+@Serializable
+data class ProjectFile(
+    val name: String,
+    val path: String,
+    val size: Long = 0,
+    /** The file's mtime in ms; sent back on save so edits made elsewhere aren't overwritten. */
+    val modified: Double = 0.0,
+    /** Over 512 KB: only the start was sent, so it can't be saved from the phone. */
+    val truncated: Boolean = false,
+    val text: String = ""
+)
+
+@Serializable
+data class SaveFileRequest(val path: String, val content: String, val expectedModified: Double? = null)
+
+@Serializable
+data class SavedFile(val name: String, val path: String, val size: Long = 0, val modified: Double = 0.0)
+
+@Serializable
+data class CreateEntryRequest(val parentPath: String, val name: String, val type: String)
+
+@Serializable
+data class CreatedEntry(val name: String, val path: String, val type: String = "file")
+
 @Serializable
 data class SystemInfo(val name: String = "", val version: String = "")
 

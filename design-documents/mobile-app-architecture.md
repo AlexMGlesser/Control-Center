@@ -135,7 +135,7 @@ listed returns `403` for the phone:
 | Calendar: read, create, delete | `/shutdown`, `/ollama/start`, `/ollama/stop`, `/mode/switch` |
 | News: briefing | `PUT /settings/desktop`, `/settings/desktop/test-voice` |
 | Wikipedia: proxy search/article (5.4) | `/devices/*` management, pairing codes |
-| Projects/Work: list, tree, read file (5.5) | Project file create/delete/copy/move (v1) |
+| Projects: list, browse, read, save and create files (5.5) | Project add/remove; rename, copy, move, delete; open on the PC |
 | Music: library, playlists, streaming (5.8), PC playback commands | `POST /api/events` (arbitrary event publishing) |
 | Movie: library, streaming (5.6) | Movie folder setup |
 | Drawing: list, read | Drawing write/delete (v1) |
@@ -223,11 +223,24 @@ librarian if needed (`startWikipedia()`), forwards the request, and returns
 its JSON. Only the `/api/v1` read endpoints are proxied. The phone draws its
 own search and article screens.
 
-### 5.5 Project file reader
-`GET /api/apps/{project-app|work-app}/projects/:id/file?path=<relative>`
-- Resolves under the project root and rejects anything outside it.
-- Returns `{text, size, truncated}` for text files up to 512 KB, and `415` with
-  size and type for binary files.
+### 5.5 Projects: browsing and the text editor
+Projects and Work are one app ("Projects"); each project is tagged personal or
+work. Every path resolves under the project root (after realpath) and anything
+outside it is refused.
+- `GET /api/apps/project-app/projects`: the list.
+- `GET .../projects/:id/list?path=<absolute>`: one folder level.
+- `GET .../projects/:id/file?path=<absolute>`: `{text, size, modified,
+  truncated}` for text files up to 512 KB; `415 BINARY_FILE` otherwise.
+- `PUT .../projects/:id/file` `{path, content, expectedModified}`: saves
+  (up to 2 MB, via a temp file and rename). If the file's mtime no longer
+  matches `expectedModified`, nothing is written and it answers
+  `409 FILE_CHANGED`; the phone then offers Reload or Save anyway (which
+  resends without `expectedModified`).
+- `POST .../projects/:id/entries` `{parentPath, name, type}`: new empty file
+  or folder.
+- Saves and creates publish `data-changed` (`appId: project-app`,
+  `meta.entity: file`, `meta.path`), so an open, unedited copy on the other
+  device reloads.
 
 ### 5.6 Movie library (prerequisite for Movie on the phone)
 The desktop Movie app keeps its library only inside the browser (object URLs
@@ -521,7 +534,7 @@ reachable from outside the PC.
    Jarvis, with history shared with the desktop. Turning the PC off gives
    exactly one alert, and turning it on gives "Reconnected".
 4. **App views, part A.** Calendar with reminders, News, Wikipedia (proxy),
-   Projects/Work (reader), File System (browse, preview, download, lock),
+   Projects (browser and text editor), File System (browse, preview, download, lock),
    the generic card, and `data-changed` events.
 5. **App views, part B.** Music (Media3 background playback, both targets),
    Server Manager (storage migration), Drawing viewer, Movie (server library

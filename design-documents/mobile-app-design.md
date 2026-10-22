@@ -192,7 +192,7 @@ choose their own.
 |---|---|---|---|---|
 | Calendar | `calendar-days` | | Drawing | `pen-tool` |
 | News | `newspaper` | | Movies | `clapperboard` |
-| Work | `briefcase` | | Server Manager | `server` |
+| | | | Server Manager | `server` |
 | Projects | `folder-git-2` | | Wikipedia | `book-open-text` |
 | Music | `music` | | File System | `folder-tree` |
 | Jarvis tab | `message-circle` | | Unknown/new app | `app-window` |
@@ -323,12 +323,19 @@ section 4 covers what each screen does in landscape.
 - Searches can be slow while the PC's hard drive warms up, so a "Searching
   the archive… (this can take up to a minute)" note appears after 3 seconds.
 
-**Projects / Work** (the same screen, two different project lists)
-- A project list leads to a folder tree. Tap a folder to go into it; a path
-  breadcrumb sits at the top.
-- Tapping a text or code file opens a read-only viewer with monospace text,
-  line numbers and horizontal scroll. Binary or very large files show
-  "Can't preview on the phone" with size and type.
+**Projects** (personal and work projects in one list, with All / Personal /
+Work filter chips)
+- A project list leads to a folder. Tap a folder to go into it; Back goes up
+  a level; a path breadcrumb sits at the top. New file, New folder and a
+  Hidden toggle sit above the list.
+- Tapping a text or code file opens the editor: monospace, soft-wrapped, with
+  line numbers on each real line, auto-indent on Enter, and a symbol row above
+  the keyboard (Tab, brackets, quotes, `:`, `=`, `#`…). Save is in the top
+  bar; a dot next to the name means unsaved changes. Leaving with unsaved
+  changes asks "Discard changes?".
+- If the file changed on the PC since it was opened, Save shows a banner with
+  Reload and Save anyway. Files over 512 KB open read-only; binary files show
+  their size and point to the File System app.
 
 **Music**
 - Tabs: Playlists, Tracks.
@@ -376,7 +383,7 @@ recorder stay on the PC.
 - **Tap a folder** to go in. The breadcrumb shows the path, and back goes up
   one level.
 - **Tap a file** to preview it:
-  - Text and code: a read-only viewer, the same one Projects uses.
+  - Text and code: a read-only monospace viewer.
   - Images: pinch to zoom.
   - PDFs: Android's built-in PDF rendering.
   - Audio and video: stream and play with the player Music and Movies use.
@@ -462,7 +469,7 @@ Phone in landscape: app grid
 | Calendar | Month grid on the left, the selected day's agenda on the right |
 | News | Cards in two columns |
 | Wikipedia | Section list on the left, article on the right |
-| Projects / Work | Folder tree on the left, file viewer on the right. Code is easier to read wide. |
+| Projects | Single pane for now; the editor gets the full width. |
 | Music | Playlist or track list on the left, now-playing panel on the right |
 | Server Manager | Server list on the left, details and Open SSH on the right |
 | File System | Folder list on the left, file preview on the right |
