@@ -1,0 +1,86 @@
+# Control Center
+
+A personal hub that runs on a home PC: a desktop app with its own apps
+(calendar, music, movies, projects and more) and a local AI assistant,
+Jarvis. The phone app reaches all of it from anywhere, over a private
+Tailscale network.
+
+```
+ Phone (Android app) ──┐
+                       │  Tailscale (private network, HTTPS)
+ Laptop (coming next) ─┤
+                       ▼
+ Home PC: Control Center (Electron + Express on 127.0.0.1:3100)
+   ├─ Jarvis: local AI agent on Ollama (qwen3.5:9b), with tools for the apps
+   ├─ Apps: Projects, Calendar, News, Music, Movies, Drawing,
+   │        Server Manager, Wikipedia (offline), File System
+   └─ Data stays on the PC: nothing is synced to a cloud service
+```
+
+## What's in this repo
+
+| Folder | What it is |
+|---|---|
+| [`control-app/`](control-app/) | The desktop app: Electron window, Express server, Jarvis, tests |
+| [`mobile-app/`](mobile-app/) | Control Center Mobile, the native Android app (Kotlin, Jetpack Compose) |
+| `project-app/`, `calendar-app/`, `news-app/`, `music-app/`, `movie-app/`, `drawing-app/`, `server-manager-app/` | The desktop apps' windows |
+| [`wikipedia-app/`](wikipedia-app/) | Offline Wikipedia: a Python "librarian" server over a local archive (the archive itself stays where it is) |
+| [`file-system-app/`](file-system-app/) | Hand-tracking file explorer and gesture recorder (Python, PC only) |
+| [`design-documents/`](design-documents/) | PRDs, designs and architecture, including the mobile app's |
+
+## The apps
+
+| App | On the PC | On the phone |
+|---|---|---|
+| Jarvis | Chat and voice | Chat; replies arrive as notifications |
+| Projects | Personal and work project folders: browse, edit text files, rename, copy, move, Recycle Bin, open in VS Code | Browse, edit and save text files, new files and folders |
+| Calendar | Month view and agenda | Agenda, month grid, add and delete; reminders scheduled on the phone |
+| Alarms | Ring on the PC | "Set an alarm in 30 seconds" rings on the device that asked |
+| News | Weather and headlines | Same, with pull to refresh |
+| Music | Player and playlists | Streams to the phone with lock-screen controls, or acts as a remote for the PC |
+| Movies | Saved library from your movie folders | Streams with subtitles; warns before using mobile data |
+| Drawing | 2D and 3D editor | View 2D drawings |
+| Server Manager | Server list, SSH from the PC | List and Open SSH in an Android SSH app |
+| Wikipedia | Offline search and articles | Same, through the PC |
+| File System | Hand-tracking file explorer | Read-only browsing of the whole PC: previews, download, share; behind a fingerprint lock |
+
+## Running it
+
+On the home PC (Windows), from `control-app/`:
+
+```
+npm install
+npm start
+```
+
+Needs [Node.js](https://nodejs.org) and [Ollama](https://ollama.com) with
+`ollama pull qwen3.5:9b`. Optional settings are in
+`control-app/.env.example`. See [`control-app/README.md`](control-app/README.md)
+for the details and the Windows build.
+
+Tests: `npm test` in `control-app/`.
+
+## Using it away from home
+
+1. Install [Tailscale](https://tailscale.com) on the PC and the phone, signed
+   in to the same account.
+2. On the PC: `tailscale serve --bg 3100`. This publishes Control Center at
+   `https://<pc-name>.<tailnet>.ts.net`, reachable only by your own devices.
+3. In Control Center: Settings > Devices > **Pair a device**, then scan the QR
+   code with the phone app.
+
+Build and install the phone app from `mobile-app/` with Android Studio, or
+`gradlew assembleDebug` and `adb install`.
+
+## Security in short
+
+- The server listens on `127.0.0.1` only. Remote devices come in through
+  Tailscale.
+- Every API call needs credentials: the desktop window uses a local session
+  cookie; each paired device gets its own token, stored hashed on the PC and
+  encrypted on the phone. Pairing codes last 5 minutes and work once.
+- Paired devices only get an allowlist of endpoints. Opening dialogs or
+  programs on the PC, shutting down, settings, and file changes outside
+  Projects stay desktop-only. File System on the phone is read-only and can
+  be switched off on the PC.
+- Remove a device any time from Settings > Devices.
