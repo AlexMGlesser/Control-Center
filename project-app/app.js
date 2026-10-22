@@ -1,1025 +1,678 @@
+// Projects: one list of personal and work project folders, browsed one folder
+// at a time, with a built-in text editor. Server: control-app/server/services/projectService.js.
+
+const API = "/api/apps/project-app";
+
 const state = {
-  appType: "project-app",
   projects: [],
-  selectedProject: null,
-  treeData: [],
-  selectedNode: null,
-  clipboard: null,
-  graphZoom: 1,
-  status: { tone: "info", text: "Select a project to load its structure." }
+  filter: "all",
+  projectId: null,
+  folder: null, // current folder listing { path, parent, entries, project }
+  selectedPath: null,
+  clipboard: null, // { mode: "copy" | "cut", path, projectId }
+  showHidden: false,
+  file: null, // open file { path, name, modified, text }
+  dirty: false
 };
 
-const projectsGrid = document.getElementById("projects-grid");
-const projectsContainer = document.querySelector(".projects-container");
-const treeTitle = document.getElementById("tree-title");
-const treeContent = document.getElementById("tree-content");
-const closeTreeBtn = document.getElementById("close-tree-btn");
-const toolButtons = document.querySelectorAll(".tool-btn[data-tool]");
-const createProjectBtn = document.getElementById("create-project-btn");
-const deleteProjectBtn = document.getElementById("delete-project-btn");
+const $ = (id) => document.getElementById(id);
+const els = {
+  list: $("project-list"),
+  projectEmpty: $("project-empty"),
+  tools: $("tools"),
+  breadcrumb: $("breadcrumb"),
+  entries: $("entries"),
+  browserEmpty: $("browser-empty"),
+  newFile: $("new-file"),
+  newFolder: $("new-folder"),
+  paste: $("paste"),
+  showHidden: $("show-hidden"),
+  editor: $("editor"),
+  editorName: $("editor-name"),
+  editorDirty: $("editor-dirty"),
+  editorBanner: $("editor-banner"),
+  editorBody: $("editor-body"),
+  fileInfo: $("file-info"),
+  gutter: $("gutter"),
+  text: $("text"),
+  save: $("save"),
+  status: $("status")
+};
 
-async function loadProjects() {
-  try {
-    const response = await fetch(`/api/apps/${state.appType}/projects`);
-    const data = await response.json();
+/* ------------------------------------------------------------------ */
+/* Server calls                                                        */
+/* ------------------------------------------------------------------ */
 
-    if (data.ok) {
-      state.projects = data.projects || [];
-      renderProjects();
-      return;
-    }
-
-    setStatus(data.message || "Failed to load projects.", "error");
-  } catch (error) {
-    setStatus(`Failed to load projects: ${error.message}`, "error");
-  }
-}
-
-function renderProjects() {
-  projectsGrid.innerHTML = state.projects
-    .map(
-      (project) => `
-        <article class="project-card ${state.selectedProject?.id === project.id ? "selected" : ""}" data-project-id="${escapeAttribute(project.id)}">
-          <h3 class="project-name">${escapeHtml(project.name)}</h3>
-          <p class="project-path">${escapeHtml(project.path)}</p>
-        </article>
-      `
-    )
-    .join("");
-
-  syncProjectActionButtons();
-
-  projectsGrid.querySelectorAll(".project-card").forEach((card) => {
-    card.addEventListener("click", () => {
-      openProjectTree(card.dataset.projectId).catch((error) => {
-        setStatus(error.message, "error");
-      });
-    });
+async function api(path, { method = "GET", body } = {}) {
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined
   });
-}
-
-async function openProjectTree(projectId) {
-  const project = state.projects.find((item) => item.id === projectId);
-  if (!project) {
-    return;
+  const data = await res.json().catch(() => ({ ok: false, message: `Request failed (${res.status}).` }));
+  if (!res.ok || data.ok === false) {
+    const error = new Error(data.message || `Request failed (${res.status}).`);
+    error.code = data.code;
+    error.status = res.status;
+    error.data = data;
+    throw error;
   }
-
-  state.selectedProject = project;
-  state.selectedNode = null;
-  renderProjects();
-  treeTitle.textContent = project.name;
-  treeContent.innerHTML = '<p class="muted">Loading file structure...</p>';
-  projectsContainer.classList.add("tree-open");
-
-  await refreshProjectTree();
-}
-
-async function handleCreateProject() {
-  const dialogResult = await openFormDialog({
-    title: "Create Project",
-    description: "Add a project folder to this list.",
-    confirmLabel: "Create Project",
-    fields: [
-      {
-        name: "name",
-        label: "Project name",
-        type: "text",
-        placeholder: "My Project",
-        required: true
-      },
-      {
-        name: "path",
-        label: "Project folder",
-        type: "directory",
-        value: state.selectedProject?.path || "",
-        required: true,
-        restrictToProject: false,
-        allowManual: true
-      }
-    ]
-  });
-
-  if (!dialogResult.confirmed) {
-    return;
-  }
-
-  const name = String(dialogResult.values.name || "").trim();
-  const projectPath = String(dialogResult.values.path || "").trim();
-
-  if (!name || !projectPath) {
-    setStatus("Project name and folder are required.", "error");
-    updateStatusView();
-    return;
-  }
-
-  const response = await fetch(`/api/apps/${state.appType}/projects`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ name, path: projectPath })
-  });
-
-  const data = await response.json();
-  if (!data.ok) {
-    setStatus(data.message || "Failed to create project.", "error");
-    updateStatusView();
-    return;
-  }
-
-  setStatus(`Created project ${data.project.name}.`, "success");
-  await loadProjects();
-  await openProjectTree(data.project.id);
-}
-
-async function handleDeleteProject() {
-  if (!state.selectedProject) {
-    setStatus("Select a project before deleting.", "info");
-    updateStatusView();
-    return;
-  }
-
-  const dialogResult = await openConfirmDialog({
-    title: "Delete Project",
-    description: `Remove ${state.selectedProject.name} from this app? Files on disk will not be deleted.`,
-    confirmLabel: "Remove",
-    tone: "danger"
-  });
-
-  if (!dialogResult.confirmed) {
-    return;
-  }
-
-  const response = await fetch(`/api/apps/${state.appType}/projects/${encodeURIComponent(state.selectedProject.id)}`, {
-    method: "DELETE"
-  });
-
-  const data = await response.json();
-  if (!data.ok) {
-    setStatus(data.message || "Failed to delete project.", "error");
-    updateStatusView();
-    return;
-  }
-
-  const removedName = data.project?.name || state.selectedProject.name;
-  state.selectedProject = null;
-  state.selectedNode = null;
-  projectsContainer.classList.remove("tree-open");
-  treeTitle.textContent = "Select a project";
-  treeContent.innerHTML = '<p class="muted">Select a project to load its structure.</p>';
-  setStatus(`Removed project ${removedName}.`, "success");
-  await loadProjects();
-}
-
-function syncProjectActionButtons() {
-  if (deleteProjectBtn) {
-    deleteProjectBtn.disabled = !state.selectedProject;
-  }
-}
-
-async function refreshProjectTree(preferredPath = state.selectedNode?.path || null) {
-  if (!state.selectedProject) {
-    return;
-  }
-
-  const response = await fetch(`/api/apps/${state.appType}/projects/${state.selectedProject.id}/tree`);
-  const data = await response.json();
-
-  if (!data.ok) {
-    throw new Error(data.message || "Failed to load file structure.");
-  }
-
-  state.treeData = data.tree || [];
-  const nextSelectedNode = findNodeByPath(preferredPath) || createRootNode();
-  state.selectedNode = preferredPath ? nextSelectedNode : null;
-  renderFileTree();
-}
-
-function renderFileTree() {
-  if (!state.selectedProject) {
-    treeContent.innerHTML = '<p class="muted">Select a project to load its structure.</p>';
-    return;
-  }
-
-  const rootNode = createRootNode();
-  const graphNodes = [];
-  let visualIndex = 0;
-
-  function visit(node, depth = 0, parentPath = null) {
-    graphNodes.push({
-      ...node,
-      depth,
-      parentPath,
-      visualIndex: visualIndex++
-    });
-
-    (node.children || []).forEach((child) => visit(child, depth + 1, node.path));
-  }
-
-  visit(rootNode);
-
-  const toolbarHtml = `
-    <div class="file-tree-toolbar">
-      <button class="file-op-btn" data-op="create">+ Create</button>
-      <button class="file-op-btn" data-op="cut" ${state.selectedNode ? "" : "disabled"}>Cut</button>
-      <button class="file-op-btn" data-op="copy" ${state.selectedNode ? "" : "disabled"}>Copy</button>
-      <button class="file-op-btn" data-op="paste" ${state.clipboard ? "" : "disabled"}>Paste</button>
-      <button class="file-op-btn" data-op="delete" ${canDeleteSelectedNode() ? "" : "disabled"}>Delete</button>
-      <span class="tree-toolbar-separator"></span>
-      <button class="file-op-btn" data-op="zoom-out">-</button>
-      <button class="file-op-btn file-op-btn-static" data-op="zoom-reset">${Math.round(state.graphZoom * 100)}%</button>
-      <button class="file-op-btn" data-op="zoom-in">+</button>
-    </div>
-    <div class="tree-status tree-status-${escapeAttribute(state.status.tone)}">${escapeHtml(state.status.text)}</div>
-    <div class="file-tree-graph" style="--graph-scale:${state.graphZoom};">
-      <div class="graph-canvas">
-        <svg class="connection-lines"></svg>
-        <div class="graph-nodes"></div>
-      </div>
-    </div>
-  `;
-
-  treeContent.innerHTML = toolbarHtml;
-
-  const graphElement = treeContent.querySelector(".file-tree-graph");
-  const svgElement = treeContent.querySelector(".connection-lines");
-  const nodesElement = treeContent.querySelector(".graph-nodes");
-  const elementByPath = new Map();
-
-  const updateSelectionStyles = (selectedPath) => {
-    nodesElement.querySelectorAll(".graph-node.selected").forEach((element) => {
-      element.classList.remove("selected");
-    });
-
-    if (!selectedPath) {
-      return;
-    }
-
-    const selectedElement = elementByPath.get(selectedPath);
-    if (selectedElement) {
-      selectedElement.classList.add("selected");
-    }
-  };
-
-  graphNodes.forEach((node) => {
-    const nodeElement = document.createElement("button");
-    nodeElement.type = "button";
-    nodeElement.className = `graph-node ${node.type === "folder" ? "folder-node" : "file-node"}${
-      state.selectedNode?.path === node.path ? " selected" : ""
-    }`;
-    nodeElement.style.left = `${node.depth * 220 + 24}px`;
-    nodeElement.style.top = `${node.visualIndex * 96 + 24}px`;
-    nodeElement.innerHTML = `
-      <span class="node-icon">${getNodeIcon(node)}</span>
-      <span class="node-name">${escapeHtml(node.name)}</span>
-    `;
-
-    nodeElement.addEventListener("click", (event) => {
-      event.stopPropagation();
-      state.selectedNode = node;
-      setStatus(getSelectionHint(node), "info");
-      updateSelectionStyles(node.path);
-    });
-
-    nodeElement.addEventListener("dblclick", async (event) => {
-      event.stopPropagation();
-      try {
-        await openNode(node.path);
-      } catch (error) {
-        setStatus(`Could not open ${node.name}: ${error.message}`, "error");
-      }
-    });
-
-    nodesElement.appendChild(nodeElement);
-    elementByPath.set(node.path, nodeElement);
-  });
-
-  drawConnections(graphNodes, svgElement, elementByPath);
-  wireTreeToolbar();
-
-  graphElement.addEventListener("click", () => {
-    state.selectedNode = null;
-    setStatus("Select a file or folder to enable actions.", "info");
-    updateSelectionStyles(null);
-  });
-}
-
-function wireTreeToolbar() {
-  treeContent.querySelectorAll(".file-op-btn").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      const operation = button.dataset.op;
-
-      if (operation === "create") {
-        await handleCreate();
-        return;
-      }
-
-      if (operation === "cut") {
-        handleClipboard("move");
-        return;
-      }
-
-      if (operation === "copy") {
-        handleClipboard("copy");
-        return;
-      }
-
-      if (operation === "paste") {
-        await handlePaste();
-        return;
-      }
-
-      if (operation === "delete") {
-        await handleDelete();
-        return;
-      }
-
-      if (operation === "zoom-in") {
-        adjustGraphZoom(0.1);
-        return;
-      }
-
-      if (operation === "zoom-out") {
-        adjustGraphZoom(-0.1);
-        return;
-      }
-
-      if (operation === "zoom-reset") {
-        state.graphZoom = 1;
-        renderFileTree();
-      }
-    });
-  });
-}
-
-function adjustGraphZoom(delta) {
-  const nextZoom = Math.max(0.4, Math.min(2.2, Number((state.graphZoom + delta).toFixed(2))));
-
-  if (nextZoom === state.graphZoom) {
-    return;
-  }
-
-  state.graphZoom = nextZoom;
-  renderFileTree();
-}
-
-async function handleCreate() {
-  if (!state.selectedProject) {
-    return;
-  }
-
-  const dialogResult = await openFormDialog({
-    title: "Create Item",
-    description: `Create inside ${pathLabel(getCurrentTargetDirectory())}.`,
-    confirmLabel: "Create",
-    fields: [
-      {
-        name: "name",
-        label: "Name",
-        type: "text",
-        placeholder: "notes.txt",
-        required: true
-      },
-      {
-        name: "nodeType",
-        label: "Type",
-        type: "select",
-        value: state.selectedNode?.type === "folder" ? "folder" : "file",
-        options: [
-          { value: "file", label: "File" },
-          { value: "folder", label: "Folder" }
-        ]
-      },
-      {
-        name: "parentPath",
-        label: "Destination folder",
-        type: "directory",
-        value: getCurrentTargetDirectory(),
-        required: true,
-        allowManual: true
-      }
-    ]
-  });
-
-  if (!dialogResult.confirmed) {
-    return;
-  }
-
-  const name = String(dialogResult.values.name || "").trim();
-  const nodeType = String(dialogResult.values.nodeType || "file") === "folder" ? "folder" : "file";
-  const parentPath = String(dialogResult.values.parentPath || "").trim() || getCurrentTargetDirectory();
-
-  if (!name) {
-    setStatus("Create cancelled. Name is required.", "error");
-    renderFileTree();
-    return;
-  }
-
-  if (!isPathInsideSelectedProject(parentPath)) {
-    setStatus("Create destination must be inside the selected project.", "error");
-    renderFileTree();
-    return;
-  }
-
-  const result = await postProjectAction("create", {
-    parentPath,
-    name,
-    nodeType
-  });
-
-  state.selectedNode = result.node;
-  setStatus(`${nodeType === "folder" ? "Folder" : "File"} created: ${result.node.name}`, "success");
-  await refreshProjectTree(result.path);
-}
-
-function handleClipboard(mode) {
-  if (!state.selectedNode) {
-    return;
-  }
-
-  state.clipboard = {
-    mode,
-    path: state.selectedNode.path,
-    sourceProjectId: state.selectedProject.id
-  };
-
-  setStatus(`${mode === "move" ? "Cut" : "Copied"} ${state.selectedNode.name}.`, "success");
-  renderFileTree();
-}
-
-async function handlePaste() {
-  if (!state.clipboard || !state.selectedProject) {
-    return;
-  }
-
-  if (state.clipboard.sourceProjectId !== state.selectedProject.id) {
-    setStatus("Paste is limited to the currently open project.", "error");
-    renderFileTree();
-    return;
-  }
-
-  const action = state.clipboard.mode === "move" ? "move" : "copy";
-  const result = await postProjectAction(action, {
-    sourcePath: state.clipboard.path,
-    destinationPath: getCurrentTargetDirectory()
-  });
-
-  if (action === "move") {
-    state.clipboard = null;
-  }
-
-  state.selectedNode = result.node;
-  setStatus(`${action === "move" ? "Moved" : "Copied"} ${result.node.name}.`, "success");
-  await refreshProjectTree(result.path);
-}
-
-async function handleDelete() {
-  if (!state.selectedNode || !canDeleteSelectedNode()) {
-    return;
-  }
-
-  const dialogResult = await openConfirmDialog({
-    title: "Delete Item",
-    description: `Delete ${state.selectedNode.name}? This action cannot be undone.`,
-    confirmLabel: "Delete",
-    tone: "danger"
-  });
-
-  if (!dialogResult.confirmed) {
-    return;
-  }
-
-  const targetPath = state.selectedNode.path;
-  await postProjectAction("delete", { targetPath });
-  state.selectedNode = null;
-  setStatus(`Deleted ${pathLabel(targetPath)}.`, "success");
-  await refreshProjectTree();
-}
-
-async function openNode(targetPath) {
-  const result = await postProjectAction("open", { targetPath });
-  setStatus(result.message || `Opened ${pathLabel(targetPath)}.`, "success");
-  renderFileTree();
-}
-
-async function postProjectAction(action, payload) {
-  const response = await fetch(`/api/apps/${state.appType}/projects/${state.selectedProject.id}/files/${action}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  const data = await response.json();
-  if (!data.ok) {
-    setStatus(data.message || `Project action '${action}' failed.`, "error");
-    renderFileTree();
-    throw new Error(data.message || `Project action '${action}' failed.`);
-  }
-
   return data;
 }
 
-async function launchTool(toolName) {
-  try {
-    const response = await fetch(`/api/apps/${state.appType}/launch-tool`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ tool: toolName })
-    });
-    const data = await response.json();
-    setStatus(data.message || `Tool action for ${toolName} completed.`, data.ok ? "success" : "error");
-    if (state.selectedProject) {
-      renderFileTree();
-    }
-  } catch (error) {
-    setStatus(`Failed to launch ${toolName}: ${error.message}`, "error");
-    if (state.selectedProject) {
-      renderFileTree();
-    }
-  }
+const q = (value) => encodeURIComponent(value);
+
+function setStatus(text, tone = "") {
+  els.status.textContent = text || "";
+  els.status.className = `status ${tone}`;
 }
 
-function drawConnections(graphNodes, svgElement, elementByPath) {
-  const width = Math.max(...graphNodes.map((node) => node.depth * 220 + 200), 280);
-  const height = Math.max(...graphNodes.map((node) => node.visualIndex * 96 + 120), 220);
-  const graphElement = svgElement.closest(".file-tree-graph");
-  if (graphElement) {
-    graphElement.style.setProperty("--graph-width", `${width}px`);
-    graphElement.style.setProperty("--graph-height", `${height}px`);
+function report(error) {
+  setStatus(error?.message || String(error), "error");
+}
+
+/* ------------------------------------------------------------------ */
+/* Projects                                                            */
+/* ------------------------------------------------------------------ */
+
+async function loadProjects() {
+  const { projects } = await api("/projects");
+  state.projects = projects;
+  if (state.projectId && !projects.some((project) => project.id === state.projectId)) {
+    state.projectId = null;
+    state.folder = null;
   }
+  renderProjects();
+  renderBrowser();
+}
 
-  svgElement.setAttribute("width", String(width));
-  svgElement.setAttribute("height", String(height));
-  svgElement.innerHTML = `
-    <defs>
-      <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
-        <path d="M0,0 L0,6 L9,3 z" fill="var(--accent)"></path>
-      </marker>
-    </defs>
-  `;
+function renderProjects() {
+  const visible = state.projects.filter((project) => state.filter === "all" || project.category === state.filter);
+  els.projectEmpty.hidden = visible.length > 0;
+  els.list.replaceChildren(
+    ...visible.map((project) => {
+      const item = document.createElement("li");
+      item.className = `project${project.id === state.projectId ? " is-active" : ""}`;
+      item.tabIndex = 0;
+      item.innerHTML = `
+        <span class="project-name"></span>
+        <span class="badge ${project.category}">${project.category === "work" ? "Work" : "Personal"}</span>
+        <span class="project-path"></span>
+        ${project.missing ? '<span class="project-missing">Folder is missing</span>' : ""}
+        <div class="project-actions">
+          <button class="btn" data-action="edit">Edit</button>
+          <button class="btn" data-action="vscode">VS Code</button>
+          <button class="btn danger" data-action="remove">Remove</button>
+        </div>`;
+      item.querySelector(".project-name").textContent = project.name;
+      item.querySelector(".project-path").textContent = project.path;
+      item.querySelector(".project-path").title = project.path;
+      item.addEventListener("click", (event) => {
+        const action = event.target.closest("[data-action]")?.dataset.action;
+        if (action === "edit") return editProject(project);
+        if (action === "remove") return removeProject(project);
+        if (action === "vscode") return openInVsCode(project.path, project.id);
+        if (project.id !== state.projectId) selectProject(project.id);
+      });
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") selectProject(project.id);
+      });
+      return item;
+    })
+  );
+}
 
-  graphNodes.forEach((node) => {
-    if (!node.parentPath) {
-      return;
-    }
+async function selectProject(projectId) {
+  if (!(await confirmDiscard())) return;
+  state.projectId = projectId;
+  closeEditor(true);
+  renderProjects();
+  await openFolder(null);
+}
 
-    const parentElement = elementByPath.get(node.parentPath);
-    const childElement = elementByPath.get(node.path);
-    if (!parentElement || !childElement) {
-      return;
-    }
-
-    const startX = parseFloat(parentElement.style.left) + 168;
-    const startY = parseFloat(parentElement.style.top) + 36;
-    const endX = parseFloat(childElement.style.left);
-    const endY = parseFloat(childElement.style.top) + 36;
-    const midX = (startX + endX) / 2;
-
-    const pathElement = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    pathElement.setAttribute("d", `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`);
-    pathElement.setAttribute("fill", "none");
-    pathElement.setAttribute("stroke", "var(--accent)");
-    pathElement.setAttribute("stroke-width", "1.5");
-    pathElement.setAttribute("marker-end", "url(#arrowhead)");
-    svgElement.appendChild(pathElement);
+async function addProject() {
+  const values = await askForm({
+    title: "Add a project",
+    text: "Choose an existing folder. It isn't moved or copied.",
+    ok: "Add project",
+    fields: [
+      { name: "path", label: "Folder", browse: true, required: true },
+      { name: "name", label: "Name", placeholder: "Defaults to the folder name" },
+      { name: "category", label: "Category", type: "select", options: [["personal", "Personal"], ["work", "Work"]], value: state.filter === "work" ? "work" : "personal" }
+    ]
   });
+  if (!values) return;
+  try {
+    const { project } = await api("/projects", { method: "POST", body: values });
+    state.projectId = project.id;
+    await loadProjects();
+    await openFolder(null);
+    setStatus(`Added ${project.name}.`, "ok");
+  } catch (error) {
+    report(error);
+  }
 }
 
-function createRootNode() {
-  return {
-    name: state.selectedProject.name,
-    path: state.selectedProject.path,
-    type: "folder",
-    children: state.treeData,
-    isRoot: true
-  };
+async function editProject(project) {
+  const values = await askForm({
+    title: "Edit project",
+    ok: "Save",
+    fields: [
+      { name: "name", label: "Name", value: project.name, required: true },
+      { name: "category", label: "Category", type: "select", options: [["personal", "Personal"], ["work", "Work"]], value: project.category }
+    ]
+  });
+  if (!values) return;
+  try {
+    await api(`/projects/${q(project.id)}`, { method: "PATCH", body: values });
+    await loadProjects();
+  } catch (error) {
+    report(error);
+  }
 }
 
-function findNodeByPath(targetPath, nodes = state.treeData) {
-  if (!targetPath || !state.selectedProject) {
-    return null;
-  }
-
-  if (targetPath === state.selectedProject.path) {
-    return createRootNode();
-  }
-
-  for (const node of nodes) {
-    if (node.path === targetPath) {
-      return node;
+async function removeProject(project) {
+  const yes = await askConfirm(`Remove ${project.name}?`, "It's removed from this list only. The folder and its files stay where they are.", "Remove");
+  if (!yes) return;
+  try {
+    await api(`/projects/${q(project.id)}`, { method: "DELETE" });
+    if (state.projectId === project.id) {
+      state.projectId = null;
+      state.folder = null;
+      closeEditor(true);
     }
-
-    const childMatch = findNodeByPath(targetPath, node.children || []);
-    if (childMatch) {
-      return childMatch;
-    }
+    await loadProjects();
+    setStatus(`Removed ${project.name} from the list.`, "ok");
+  } catch (error) {
+    report(error);
   }
-
-  return null;
 }
 
-function getCurrentTargetDirectory() {
-  if (!state.selectedProject) {
-    return null;
-  }
+/* ------------------------------------------------------------------ */
+/* Folder browser                                                      */
+/* ------------------------------------------------------------------ */
 
-  if (!state.selectedNode) {
-    return state.selectedProject.path;
+async function openFolder(folderPath) {
+  if (!state.projectId) return;
+  try {
+    const listing = await api(`/projects/${q(state.projectId)}/list${folderPath ? `?path=${q(folderPath)}` : ""}`);
+    state.folder = listing;
+    state.selectedPath = null;
+    renderBrowser();
+  } catch (error) {
+    report(error);
   }
-
-  if (state.selectedNode.type === "folder") {
-    return state.selectedNode.path;
-  }
-
-  return getParentPath(state.selectedNode.path);
 }
 
-function getParentPath(targetPath) {
-  return String(targetPath || "").replace(/[\\/][^\\/]+$/, "") || state.selectedProject.path;
-}
-
-function normalizePathForCompare(targetPath) {
-  return String(targetPath || "")
-    .replace(/[\\/]+/g, "/")
-    .replace(/\/+$/, "")
-    .toLowerCase();
-}
-
-function isPathInsideSelectedProject(targetPath) {
-  if (!state.selectedProject?.path || !targetPath) {
-    return false;
-  }
-
-  const rootPath = normalizePathForCompare(state.selectedProject.path);
-  const candidatePath = normalizePathForCompare(targetPath);
-
-  return candidatePath === rootPath || candidatePath.startsWith(`${rootPath}/`);
-}
-
-function canDeleteSelectedNode() {
-  return Boolean(state.selectedNode && state.selectedNode.path !== state.selectedProject?.path);
-}
-
-function getSelectionHint(node) {
-  if (!node) {
-    return "Select a file or folder to enable actions.";
-  }
-
-  if (node.path === state.selectedProject?.path) {
-    return "Project root selected. Create and paste will target the project root.";
-  }
-
-  if (node.type === "folder") {
-    return `${node.name} selected. Create and paste will target this folder.`;
-  }
-
-  return `${node.name} selected. Double-click to open it.`;
-}
-
-function setStatus(text, tone = "info") {
-  state.status = { tone, text };
-  updateStatusView();
-}
-
-function updateStatusView() {
-  const statusElement = treeContent.querySelector(".tree-status");
-  if (!statusElement) {
+function renderBrowser() {
+  const listing = state.folder;
+  const hasFolder = Boolean(listing && state.projectId);
+  els.browserEmpty.hidden = hasFolder;
+  els.newFile.disabled = !hasFolder;
+  els.newFolder.disabled = !hasFolder;
+  els.paste.hidden = !(hasFolder && state.clipboard && state.clipboard.projectId === state.projectId);
+  if (!hasFolder) {
+    els.breadcrumb.replaceChildren();
+    els.entries.replaceChildren();
     return;
   }
 
-  statusElement.className = `tree-status tree-status-${escapeAttribute(state.status.tone)}`;
-  statusElement.textContent = state.status.text;
+  // Breadcrumb: project name, then each folder below the project root.
+  const root = listing.project;
+  const parts = listing.relativePath ? listing.relativePath.split(/[\\/]/) : [];
+  const crumbs = [{ label: root.name, path: null }];
+  let walk = root.path;
+  for (const part of parts) {
+    walk = `${walk.replace(/[\\/]+$/, "")}\\${part}`;
+    crumbs.push({ label: part, path: walk });
+  }
+  els.breadcrumb.replaceChildren(
+    ...crumbs.flatMap((crumb, index) => {
+      const button = document.createElement("button");
+      button.className = `crumb${index === crumbs.length - 1 ? " current" : ""}`;
+      button.textContent = crumb.label;
+      if (index < crumbs.length - 1) button.addEventListener("click", () => openFolder(crumb.path));
+      return index === 0 ? [button] : [Object.assign(document.createElement("span"), { className: "crumb-sep", textContent: "›" }), button];
+    })
+  );
+
+  const entries = listing.entries.filter((entry) => state.showHidden || !entry.hidden);
+  const rows = [];
+  if (listing.parent) {
+    rows.push(entryRow({ name: "..", type: "folder", path: listing.parent, isUp: true }));
+  }
+  rows.push(...entries.map((entry) => entryRow(entry)));
+  if (!entries.length) {
+    rows.push(Object.assign(document.createElement("p"), { className: "empty", textContent: "This folder is empty." }));
+  }
+  els.entries.replaceChildren(...rows);
 }
 
-async function pickDirectory(defaultPath = "") {
-  const desktopBridge = getDesktopBridge();
-  const chooseDirectory = desktopBridge?.chooseDirectory;
+function entryRow(entry) {
+  const row = document.createElement("div");
+  row.className = "entry";
+  row.role = "listitem";
+  row.tabIndex = 0;
+  if (entry.hidden) row.classList.add("is-hidden");
+  if (entry.path === state.selectedPath) row.classList.add("is-selected");
+  if (state.clipboard?.mode === "cut" && state.clipboard.path === entry.path) row.classList.add("is-cut");
+  row.innerHTML = `
+    <span class="entry-icon">${entry.type === "folder" ? "▸" : "◇"}</span>
+    <span class="entry-name"></span>
+    <span class="entry-size">${entry.type === "file" ? formatSize(entry.size) : ""}</span>
+    <span class="entry-actions">
+      ${entry.isUp ? "" : `
+        <button class="btn" data-action="rename">Rename</button>
+        <button class="btn" data-action="copy">Copy</button>
+        <button class="btn" data-action="cut">Cut</button>
+        <button class="btn" data-action="open">${entry.type === "folder" ? "Explorer" : "Open"}</button>
+        <button class="btn danger" data-action="delete">Delete</button>`}
+    </span>`;
+  row.querySelector(".entry-name").textContent = entry.name;
+  row.title = entry.isUp ? "Up one folder" : entry.path;
 
-  if (typeof chooseDirectory === "function") {
-    try {
-      const result = await chooseDirectory(defaultPath);
-      if (!result?.ok) {
-        setStatus(result?.message || "Could not open folder picker.", "error");
-        updateStatusView();
-        return null;
-      }
-
-      if (result.canceled) {
-        return null;
-      }
-
-      return typeof result.path === "string" ? result.path : null;
-    } catch (error) {
-      setStatus(`Could not open folder picker: ${error.message}`, "error");
-      updateStatusView();
-    }
-  }
-
-  const apiResult = await chooseDirectoryViaApi(defaultPath);
-  if (apiResult) {
-    return apiResult;
-  }
-
-  setStatus("Desktop folder picker is unavailable here. Type the folder path manually.", "info");
-  updateStatusView();
-  return null;
+  const activate = () => (entry.type === "folder" ? openFolder(entry.path) : openFile(entry));
+  row.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-action]")?.dataset.action;
+    if (action) return entryAction(action, entry);
+    if (entry.isUp || entry.type === "folder") return activate();
+    state.selectedPath = entry.path;
+    for (const other of els.entries.querySelectorAll(".entry.is-selected")) other.classList.remove("is-selected");
+    row.classList.add("is-selected");
+    activate();
+  });
+  row.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") activate();
+  });
+  return row;
 }
 
-async function chooseDirectoryViaApi(defaultPath = "") {
+async function entryAction(action, entry) {
+  const projectId = state.projectId;
   try {
-    const response = await fetch("/api/system/choose-directory", {
+    if (action === "rename") {
+      const values = await askForm({ title: `Rename ${entry.name}`, ok: "Rename", fields: [{ name: "newName", label: "New name", value: entry.name, required: true }] });
+      if (!values || values.newName === entry.name) return;
+      await api(`/projects/${q(projectId)}/rename`, { method: "POST", body: { path: entry.path, newName: values.newName } });
+      if (state.file?.path === entry.path) closeEditor(true);
+      setStatus(`Renamed to ${values.newName}.`, "ok");
+    } else if (action === "copy" || action === "cut") {
+      state.clipboard = { mode: action, path: entry.path, projectId, name: entry.name };
+      setStatus(`${action === "copy" ? "Copied" : "Cut"} ${entry.name}. Open a folder and press Paste.`);
+      renderBrowser();
+      return;
+    } else if (action === "open") {
+      await api(`/projects/${q(projectId)}/open`, { method: "POST", body: { path: entry.path, with: "default" } });
+      return;
+    } else if (action === "delete") {
+      const yes = await askConfirm(`Delete ${entry.name}?`, "It goes to the Recycle Bin, so you can restore it from there.", "Delete");
+      if (!yes) return;
+      await api(`/projects/${q(projectId)}/trash`, { method: "POST", body: { path: entry.path } });
+      if (state.file?.path === entry.path) closeEditor(true);
+      setStatus(`Moved ${entry.name} to the Recycle Bin.`, "ok");
+    }
+    await openFolder(state.folder?.path);
+  } catch (error) {
+    report(error);
+  }
+}
+
+async function paste() {
+  const clip = state.clipboard;
+  if (!clip || !state.folder) return;
+  try {
+    await api(`/projects/${q(state.projectId)}/${clip.mode === "cut" ? "move" : "copy"}`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ defaultPath })
+      body: { path: clip.path, destination: state.folder.path }
     });
-
-    const data = await response.json();
-    if (!data.ok) {
-      return null;
-    }
-
-    if (data.canceled) {
-      return null;
-    }
-
-    return typeof data.path === "string" ? data.path : null;
-  } catch {
-    return null;
+    if (clip.mode === "cut") state.clipboard = null;
+    setStatus(`Pasted ${clip.name}.`, "ok");
+    await openFolder(state.folder.path);
+  } catch (error) {
+    report(error);
   }
 }
 
-function hasDesktopDirectoryPicker() {
-  return typeof getDesktopBridge()?.chooseDirectory === "function";
-}
-
-function getDesktopBridge() {
-  if (window.controlCenterDesktop) {
-    return window.controlCenterDesktop;
-  }
-
+async function createEntry(type) {
+  if (!state.folder) return;
+  const values = await askForm({
+    title: type === "folder" ? "New folder" : "New file",
+    ok: "Create",
+    fields: [{ name: "name", label: "Name", placeholder: type === "folder" ? "assets" : "script.py", required: true }]
+  });
+  if (!values) return;
   try {
-    if (window.parent && window.parent !== window && window.parent.controlCenterDesktop) {
-      return window.parent.controlCenterDesktop;
-    }
+    const created = await api(`/projects/${q(state.projectId)}/entries`, {
+      method: "POST",
+      body: { parentPath: state.folder.path, name: values.name, type }
+    });
+    await openFolder(state.folder.path);
+    if (type === "file") await openFile({ path: created.path, name: created.name, type: "file" });
+  } catch (error) {
+    report(error);
+  }
+}
 
-    if (window.top && window.top !== window && window.top.controlCenterDesktop) {
-      return window.top.controlCenterDesktop;
+/* ------------------------------------------------------------------ */
+/* Editor                                                              */
+/* ------------------------------------------------------------------ */
+
+async function openFile(entry) {
+  if (state.file?.path === entry.path) return;
+  if (!(await confirmDiscard())) return;
+  try {
+    const file = await api(`/projects/${q(state.projectId)}/file?path=${q(entry.path)}`);
+    state.file = file;
+    showEditor({ text: file.text, readOnly: file.truncated });
+    if (file.truncated) showBanner("Only the first 512 KB of this file is shown, so it can't be saved here. Use VS Code for big files.");
+  } catch (error) {
+    if (error.code === "BINARY_FILE") {
+      state.file = { path: entry.path, name: entry.name, binary: true };
+      showFileInfo(entry, error.data);
+    } else {
+      report(error);
     }
+  }
+}
+
+function showEditor({ text, readOnly }) {
+  els.editor.hidden = false;
+  els.editorBody.hidden = false;
+  els.fileInfo.hidden = true;
+  els.editorBanner.hidden = true;
+  els.editorName.textContent = state.file.name;
+  els.editorName.title = state.file.path;
+  els.text.value = text;
+  els.text.readOnly = Boolean(readOnly);
+  setDirty(false);
+  updateGutter();
+  els.text.scrollTop = 0;
+}
+
+function showFileInfo(entry, data) {
+  els.editor.hidden = false;
+  els.editorBody.hidden = true;
+  els.editorBanner.hidden = true;
+  els.fileInfo.hidden = false;
+  els.editorName.textContent = entry.name;
+  setDirty(false);
+  els.save.disabled = true;
+  els.fileInfo.innerHTML = `<p class="muted">This isn't a text file (${formatSize(data?.size)}).</p>`;
+  const open = Object.assign(document.createElement("button"), { className: "btn primary", textContent: "Open with its default app" });
+  open.addEventListener("click", () => entryAction("open", entry));
+  els.fileInfo.append(open);
+}
+
+function closeEditor(force = false) {
+  if (!force && state.dirty) return;
+  state.file = null;
+  setDirty(false);
+  els.editor.hidden = true;
+}
+
+function setDirty(dirty) {
+  state.dirty = dirty;
+  els.editorDirty.hidden = !dirty;
+  els.save.disabled = !dirty || els.text.readOnly;
+}
+
+function updateGutter() {
+  const lines = els.text.value.split("\n").length;
+  let out = "";
+  for (let n = 1; n <= lines; n += 1) out += `${n}\n`;
+  els.gutter.textContent = out;
+  els.gutter.scrollTop = els.text.scrollTop;
+}
+
+async function save({ force = false } = {}) {
+  if (!state.file || state.file.binary || !state.dirty) return;
+  try {
+    const saved = await api(`/projects/${q(state.projectId)}/file`, {
+      method: "PUT",
+      body: { path: state.file.path, content: els.text.value, expectedModified: force ? null : state.file.modified }
+    });
+    state.file.modified = saved.modified;
+    setDirty(false);
+    els.editorBanner.hidden = true;
+    setStatus(`Saved ${saved.name}.`, "ok");
+  } catch (error) {
+    if (error.code === "FILE_CHANGED") {
+      showBanner("This file changed on disk since you opened it.", [
+        ["Reload", () => reloadFile()],
+        ["Save anyway", () => save({ force: true })]
+      ]);
+    } else {
+      report(error);
+    }
+  }
+}
+
+async function reloadFile() {
+  if (!state.file) return;
+  const path = state.file.path;
+  state.file = null;
+  setDirty(false);
+  await openFile({ path, name: path.split(/[\\/]/).pop(), type: "file" });
+}
+
+function showBanner(text, actions = []) {
+  els.editorBanner.hidden = false;
+  els.editorBanner.replaceChildren(Object.assign(document.createElement("span"), { textContent: text }));
+  const group = document.createElement("span");
+  for (const [label, run] of actions) {
+    const button = Object.assign(document.createElement("button"), { className: "btn", textContent: label });
+    button.addEventListener("click", run);
+    group.append(button, " ");
+  }
+  els.editorBanner.append(group);
+}
+
+async function confirmDiscard() {
+  if (!state.dirty) return true;
+  return askConfirm(`Discard changes to ${state.file?.name}?`, "You have unsaved changes.", "Discard");
+}
+
+async function openInVsCode(targetPath, projectId = state.projectId) {
+  try {
+    const result = await api(`/projects/${q(projectId)}/open`, { method: "POST", body: { path: targetPath } });
+    setStatus(result.message, "ok");
+  } catch (error) {
+    report(error);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Tools                                                               */
+/* ------------------------------------------------------------------ */
+
+async function loadTools() {
+  try {
+    const { tools } = await api("/tools");
+    els.tools.replaceChildren(
+      ...tools
+        .filter((tool) => tool.id !== "vscode")
+        .map((tool) => {
+          const button = Object.assign(document.createElement("button"), { className: "btn", textContent: tool.name });
+          button.title = `Open ${tool.name}${tool.id === "terminal" || tool.id === "explorer" ? " in the selected project" : ""}`;
+          button.addEventListener("click", async () => {
+            try {
+              const result = await api("/launch-tool", { method: "POST", body: { tool: tool.id, projectId: state.projectId } });
+              setStatus(result.message, "ok");
+            } catch (error) {
+              report(error);
+            }
+          });
+          return button;
+        })
+    );
   } catch {
-    return null;
+    // The toolbar is optional.
   }
-
-  return null;
 }
 
-function ensureDialogRoot() {
-  let dialogRoot = document.getElementById("dialog-root");
-  if (dialogRoot) {
-    return dialogRoot;
-  }
+/* ------------------------------------------------------------------ */
+/* Dialogs                                                             */
+/* ------------------------------------------------------------------ */
 
-  dialogRoot = document.createElement("div");
-  dialogRoot.id = "dialog-root";
-  document.body.appendChild(dialogRoot);
-  return dialogRoot;
+const dialog = $("dialog");
+
+function askConfirm(title, text, ok = "OK") {
+  return askForm({ title, text, ok, fields: [] }).then((values) => values !== null);
 }
 
-function openConfirmDialog({ title, description, confirmLabel = "Confirm", tone = "default" }) {
-  return openDialog({
-    title,
-    description,
-    confirmLabel,
-    tone,
-    fields: []
-  });
-}
-
-function openFormDialog({ title, description, confirmLabel = "Save", fields = [], tone = "default" }) {
-  return openDialog({
-    title,
-    description,
-    confirmLabel,
-    tone,
-    fields
-  });
-}
-
-function openDialog({ title, description, confirmLabel, fields, tone }) {
-  const dialogRoot = ensureDialogRoot();
+/** A small modal form. Resolves to the field values, or null if cancelled. */
+function askForm({ title, text = "", ok = "OK", fields = [] }) {
+  $("dialog-title").textContent = title;
+  $("dialog-text").textContent = text;
+  $("dialog-text").hidden = !text;
+  $("dialog-ok").textContent = ok;
+  const container = $("dialog-fields");
+  container.replaceChildren(
+    ...fields.map((field) => {
+      const wrap = Object.assign(document.createElement("label"), { className: "field" });
+      wrap.append(Object.assign(document.createElement("span"), { textContent: field.label }));
+      let input;
+      if (field.type === "select") {
+        input = document.createElement("select");
+        for (const [value, label] of field.options) input.append(new Option(label, value, false, value === field.value));
+      } else {
+        input = Object.assign(document.createElement("input"), { type: "text", value: field.value || "", placeholder: field.placeholder || "" });
+      }
+      input.name = field.name;
+      input.required = Boolean(field.required);
+      if (field.browse) {
+        const row = Object.assign(document.createElement("div"), { className: "field-row" });
+        const browse = Object.assign(document.createElement("button"), { type: "button", className: "btn", textContent: "Browse…" });
+        browse.addEventListener("click", async () => {
+          const chosen = await pickFolder(input.value);
+          if (chosen) input.value = chosen;
+        });
+        row.append(input, browse);
+        wrap.append(row);
+      } else {
+        wrap.append(input);
+      }
+      return wrap;
+    })
+  );
 
   return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = "dialog-overlay";
-    overlay.innerHTML = `
-      <div class="dialog-backdrop"></div>
-      <div class="dialog-panel dialog-panel-${escapeAttribute(tone)}" role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabindex="-1">
-        <div class="dialog-header">
-          <h3 id="dialog-title">${escapeHtml(title)}</h3>
-          <button type="button" class="dialog-close-btn" aria-label="Close dialog">×</button>
-        </div>
-        <p class="dialog-description">${escapeHtml(description || "")}</p>
-        <form class="dialog-form">
-          ${fields.map(renderDialogField).join("")}
-          <div class="dialog-actions">
-            <button type="button" class="dialog-btn dialog-btn-secondary" data-action="cancel">Cancel</button>
-            <button type="submit" class="dialog-btn dialog-btn-primary dialog-btn-${escapeAttribute(tone)}">${escapeHtml(confirmLabel)}</button>
-          </div>
-        </form>
-      </div>
-    `;
-
-    dialogRoot.replaceChildren(overlay);
-
-    const form = overlay.querySelector(".dialog-form");
-    const panel = overlay.querySelector(".dialog-panel");
-    const closeButton = overlay.querySelector(".dialog-close-btn");
-    const cancelButton = overlay.querySelector('[data-action="cancel"]');
-    const browseButtons = overlay.querySelectorAll(".dialog-browse-btn");
-    const firstInput = overlay.querySelector("input, select, textarea, button");
-
-    const cleanup = (result) => {
-      document.removeEventListener("keydown", onKeyDown);
-      overlay.remove();
-      resolve(result);
+    dialog.onclose = () => {
+      if (dialog.returnValue !== "ok") return resolve(null);
+      const values = {};
+      for (const input of container.querySelectorAll("input, select")) values[input.name] = input.value.trim();
+      resolve(values);
     };
+    dialog.returnValue = "";
+    dialog.showModal();
+    container.querySelector("input, select")?.focus();
+  });
+}
 
-    const onCancel = () => cleanup({ confirmed: false, values: {} });
+async function pickFolder(defaultPath) {
+  const bridge = window.controlCenterDesktop;
+  try {
+    const result = bridge?.chooseDirectory
+      ? await bridge.chooseDirectory(defaultPath)
+      : await (await fetch("/api/system/choose-directory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ defaultPath })
+        })).json();
+    return result?.ok && !result.canceled ? result.path : null;
+  } catch {
+    setStatus("The folder picker isn't available here. Type the folder path instead.", "error");
+    return null;
+  }
+}
 
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        onCancel();
-      }
-    };
+/* ------------------------------------------------------------------ */
+/* Live updates and wiring                                             */
+/* ------------------------------------------------------------------ */
 
-    overlay.querySelector(".dialog-backdrop").addEventListener("click", onCancel);
-    closeButton.addEventListener("click", onCancel);
-    cancelButton.addEventListener("click", onCancel);
-    document.addEventListener("keydown", onKeyDown);
+function formatSize(bytes) {
+  if (bytes === null || bytes === undefined) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const values = Object.fromEntries(new FormData(form).entries());
-      cleanup({ confirmed: true, values });
-    });
+let refreshTimer = null;
 
-    browseButtons.forEach((button) => {
-      button.addEventListener("click", async (event) => {
-        event.preventDefault();
-        const targetName = button.dataset.target;
-        const targetField = targetName ? form.elements.namedItem(targetName) : null;
-        if (!targetField || typeof targetField.value !== "string") {
-          return;
-        }
-
-        const selectedPath = await pickDirectory(targetField.value);
-        if (!selectedPath) {
-          if (!hasDesktopDirectoryPicker()) {
-            targetField.removeAttribute("readonly");
-            targetField.focus();
-            if (typeof targetField.select === "function") {
-              targetField.select();
-            }
-            setStatus("Type or paste a folder path, then confirm.", "info");
-            updateStatusView();
+function listenForChanges() {
+  const stream = new EventSource("/api/events/stream");
+  stream.onmessage = (message) => {
+    const payload = JSON.parse(message.data);
+    const event = payload.event;
+    if (payload.type !== "event" || event?.appId !== "project-app" || event.type !== "data-changed") return;
+    // Saved from the phone (or elsewhere) while open here and unchanged: reload it.
+    if (event.meta?.entity === "file" && state.file && event.meta.path === state.file.path && !state.dirty) {
+      api(`/projects/${q(state.projectId)}/file?path=${q(state.file.path)}`)
+        .then((file) => {
+          if (file.modified !== state.file?.modified && !state.dirty) {
+            state.file = file;
+            showEditor({ text: file.text, readOnly: file.truncated });
+            setStatus(`${file.name} was updated elsewhere and reloaded.`);
           }
-          return;
-        }
+        })
+        .catch(() => {});
+    }
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      loadProjects().catch(() => {});
+      if (state.folder) openFolder(state.folder.path);
+    }, 250);
+  };
+}
 
-        const restrictToProject = button.dataset.restrictProject !== "false";
-        if (restrictToProject && !isPathInsideSelectedProject(selectedPath)) {
-          setStatus("Selected folder must be inside the active project.", "error");
-          return;
-        }
-
-        targetField.value = selectedPath;
-      });
-    });
-
-    window.requestAnimationFrame(() => {
-      overlay.classList.add("is-visible");
-      panel.focus();
-      firstInput?.focus();
-    });
+for (const chip of document.querySelectorAll(".chip")) {
+  chip.addEventListener("click", () => {
+    state.filter = chip.dataset.filter;
+    for (const other of document.querySelectorAll(".chip")) other.classList.toggle("is-active", other === chip);
+    renderProjects();
   });
 }
 
-function renderDialogField(field) {
-  const name = escapeAttribute(field.name);
-  const label = escapeHtml(field.label || field.name);
-  const required = field.required ? "required" : "";
-  const value = escapeAttribute(field.value || "");
-
-  if (field.type === "select") {
-    return `
-      <label class="dialog-field">
-        <span>${label}</span>
-        <select name="${name}" ${required}>
-          ${(field.options || [])
-            .map((option) => {
-              const optionValue = escapeAttribute(option.value);
-              const selected = option.value === field.value ? "selected" : "";
-              return `<option value="${optionValue}" ${selected}>${escapeHtml(option.label)}</option>`;
-            })
-            .join("")}
-        </select>
-      </label>
-    `;
+$("add-project").addEventListener("click", addProject);
+els.newFile.addEventListener("click", () => createEntry("file"));
+els.newFolder.addEventListener("click", () => createEntry("folder"));
+els.paste.addEventListener("click", paste);
+els.showHidden.addEventListener("change", () => {
+  state.showHidden = els.showHidden.checked;
+  renderBrowser();
+});
+els.save.addEventListener("click", () => save());
+$("open-vscode").addEventListener("click", () => state.file && openInVsCode(state.file.path));
+$("close-editor").addEventListener("click", async () => {
+  if (await confirmDiscard()) closeEditor(true);
+});
+els.text.addEventListener("input", () => {
+  if (!state.dirty) setDirty(true);
+  updateGutter();
+});
+els.text.addEventListener("scroll", () => {
+  els.gutter.scrollTop = els.text.scrollTop;
+});
+els.text.addEventListener("keydown", (event) => {
+  // Tab inserts spaces instead of leaving the editor.
+  if (event.key === "Tab" && !event.ctrlKey && !els.text.readOnly) {
+    event.preventDefault();
+    const { selectionStart: start, selectionEnd: end, value } = els.text;
+    els.text.value = `${value.slice(0, start)}    ${value.slice(end)}`;
+    els.text.selectionStart = els.text.selectionEnd = start + 4;
+    els.text.dispatchEvent(new Event("input"));
   }
-
-  if (field.type === "directory") {
-    const restrictToProject = field.restrictToProject !== false;
-    const readOnly = field.allowManual ? "" : "readonly";
-    return `
-      <label class="dialog-field">
-        <span>${label}</span>
-        <div class="dialog-directory-row">
-          <input type="text" name="${name}" value="${value}" placeholder="Choose a folder" ${required} ${readOnly} />
-          <button type="button" class="dialog-btn dialog-btn-secondary dialog-browse-btn" data-target="${name}" data-restrict-project="${restrictToProject}">Choose Folder</button>
-        </div>
-      </label>
-    `;
+});
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    save();
   }
-
-  return `
-    <label class="dialog-field">
-      <span>${label}</span>
-      <input type="${escapeAttribute(field.type || "text")}" name="${name}" value="${value}" placeholder="${escapeAttribute(field.placeholder || "")}" ${required} />
-    </label>
-  `;
-}
-
-function getNodeIcon(node) {
-  if (node.isRoot || node.type === "folder") {
-    return "📁";
-  }
-
-  const lowerName = node.name.toLowerCase();
-  if (lowerName.endsWith(".js")) return "JS";
-  if (lowerName.endsWith(".ts")) return "TS";
-  if (lowerName.endsWith(".json")) return "{}";
-  if (lowerName.endsWith(".css")) return "#";
-  if (lowerName.endsWith(".html")) return "<>";
-  if (lowerName.endsWith(".py")) return "PY";
-  if (lowerName.endsWith(".md")) return "MD";
-  if (/(png|jpg|jpeg|gif|webp|svg)$/.test(lowerName)) return "IMG";
-  return "FILE";
-}
-
-function pathLabel(targetPath) {
-  const segments = String(targetPath || "").split(/[/\\]+/).filter(Boolean);
-  return segments[segments.length - 1] || targetPath;
-}
-
-function escapeHtml(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function escapeAttribute(value) {
-  return escapeHtml(value);
-}
-
-closeTreeBtn.addEventListener("click", () => {
-  projectsContainer.classList.remove("tree-open");
-  state.selectedProject = null;
-  state.selectedNode = null;
-  renderProjects();
-  treeTitle.textContent = "Select a project";
-  treeContent.innerHTML = '<p class="muted">Select a project to load its structure.</p>';
+});
+window.addEventListener("beforeunload", (event) => {
+  if (state.dirty) event.preventDefault();
 });
 
-toolButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    launchTool(button.dataset.tool);
-  });
-});
-
-createProjectBtn?.addEventListener("click", () => {
-  handleCreateProject().catch((error) => {
-    setStatus(`Failed to create project: ${error.message}`, "error");
-    updateStatusView();
-  });
-});
-
-deleteProjectBtn?.addEventListener("click", () => {
-  handleDeleteProject().catch((error) => {
-    setStatus(`Failed to delete project: ${error.message}`, "error");
-    updateStatusView();
-  });
-});
-
-loadProjects().catch((error) => {
-  setStatus(`Failed to initialize: ${error.message}`, "error");
-  renderFileTree();
-});
+loadProjects().catch(report);
+loadTools();
+listenForChanges();

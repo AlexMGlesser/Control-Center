@@ -12,13 +12,7 @@ import {
 } from "./settingsService.js";
 import { getRecentEvents, publishEvent } from "./eventBus.js";
 import { getOllamaState } from "./ollamaService.js";
-import {
-  createProject,
-  getPersonalProjects,
-  getProjectById as getManagedProjectById,
-  getWorkProjects,
-  openProjectNode
-} from "./projectService.js";
+import { addProject, findProject, listProjects, openInVsCode } from "./projectService.js";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
@@ -46,7 +40,6 @@ const CALENDAR_TIMEZONE = getCalendarTimeZone();
 const WINDOW_APPS = [
   "calendar-app",
   "news-app",
-  "work-app",
   "project-app",
   "music-app",
   "drawing-app",
@@ -162,18 +155,18 @@ export const TOOL_DEFINITIONS = [
   ),
   tool(
     "create_project",
-    "Create and register a new project folder. If basePath is not given, ask the user where to save it before calling this.",
+    "Create a new project folder inside basePath and add it to the Projects app. If the user didn't say where to save it, ask before calling this.",
     {
-      appType: { type: "string", enum: ["project-app", "work-app"], description: "project-app for personal, work-app for work/school" },
-      basePath: { type: "string", description: "Folder the project directory will be created inside" },
-      projectName: { type: "string" }
+      basePath: { type: "string", description: "Folder the new project folder is created inside." },
+      projectName: { type: "string" },
+      category: { type: "string", enum: ["personal", "work"], description: "Default personal; work for work or school projects." }
     },
     ["basePath", "projectName"]
   ),
   tool(
     "open_project",
-    "Open an existing managed project by name (fuzzy-matched) or id.",
-    { appType: { type: "string", enum: ["project-app", "work-app"] }, projectId: { type: "string" }, projectName: { type: "string" } }
+    "Open one of the user's projects in VS Code on the PC, by name (fuzzy-matched) or id.",
+    { projectName: { type: "string" }, projectId: { type: "string" } }
   ),
   tool(
     "list_music_tracks",
@@ -675,7 +668,7 @@ export async function executeToolCall(toolName, args = {}, context = {}) {
 }
 
 async function createProjectTool(args) {
-  const appType = String(args.appType || "project-app").trim() === "work-app" ? "work-app" : "project-app";
+  const category = String(args.category || "personal").trim().toLowerCase() === "work" ? "work" : "personal";
   const basePath = String(args.basePath || "").trim();
   const requestedName = String(args.projectName || "").trim();
 
@@ -710,54 +703,39 @@ async function createProjectTool(args) {
     scaffoldProjectFolder(projectFolderPath, safeProjectName);
   }
 
-  const projectResult = createProject(appType, safeProjectName, projectFolderPath);
-  const appId = appType === "work-app" ? "work-app" : "project-app";
-  const tab = `app:${appId}`;
+  let project;
+  try {
+    project = addProject({ name: safeProjectName, path: projectFolderPath, category });
+  } catch (error) {
+    return fail(error?.code || "CREATE_PROJECT_FAILED", error?.message || "Failed to add the project.");
+  }
   const openEvent = publishEvent({
-    appId,
+    appId: "project-app",
     source: "agent",
     type: "open-app",
-    message: `Agent opened ${appType === "work-app" ? "Work App" : "Personal Projects"}.`,
-    meta: { target: appId, tab, label: appType === "work-app" ? "Work App" : "Personal Projects", isWindowApp: true }
+    message: "Agent opened Projects.",
+    meta: { target: "project-app", tab: "app:project-app", label: "Projects", isWindowApp: true, projectId: project.id }
   }).event;
 
-  return ok({ appType, project: projectResult.project, createdNewFolder, event: openEvent });
+  return ok({ project, createdNewFolder, event: openEvent });
 }
 
 async function openProjectTool(args) {
-  const requestedAppType = String(args.appType || "").trim();
-  const appType = requestedAppType === "work-app" || requestedAppType === "project-app" ? requestedAppType : null;
-  const projectId = String(args.projectId || "").trim();
-  const projectName = String(args.projectName || "").trim();
-
-  if (!projectId && !projectName) {
-    return fail("INVALID_PROJECT_TARGET", "open_project requires projectId or projectName.");
+  const query = String(args.projectId || args.projectName || "").trim();
+  if (!query) {
+    return fail("INVALID_PROJECT_TARGET", "open_project requires projectName or projectId.");
   }
-
-  const match = findManagedProject({ appType, projectId, projectName });
-  if (!match) {
-    return fail("PROJECT_NOT_FOUND", "No matching project found. Try a more specific project name.");
+  const project = findProject(query);
+  if (!project) {
+    const known = listProjects().map((entry) => entry.name).join(", ") || "none yet";
+    return fail("PROJECT_NOT_FOUND", `No project matches "${query}". Projects: ${known}.`);
   }
-
-  const openResult = openProjectNode(match.appType, match.project.id, match.project.path);
-  const targetAppId = match.appType === "work-app" ? "work-app" : "project-app";
-  const tab = `app:${targetAppId}`;
-  const openEvent = publishEvent({
-    appId: targetAppId,
-    source: "agent",
-    type: "open-app",
-    message: `Agent opened ${match.project.name}.`,
-    meta: {
-      target: targetAppId,
-      tab,
-      label: targetAppId === "work-app" ? "Work App" : "Personal Projects",
-      isWindowApp: true,
-      projectId: match.project.id,
-      projectPath: match.project.path
-    }
-  }).event;
-
-  return ok({ appType: match.appType, project: match.project, message: openResult.message, event: openEvent });
+  try {
+    const opened = openInVsCode(project.id);
+    return ok({ project, message: opened.message });
+  } catch (error) {
+    return fail(error?.code || "OPEN_PROJECT_FAILED", error?.message || "Failed to open the project.");
+  }
 }
 
 async function newsSummaryTool() {
@@ -870,41 +848,3 @@ function scaffoldProjectFolder(projectPath, projectName) {
   }
 }
 
-function findManagedProject({ appType, projectId, projectName }) {
-  if (projectId && appType) {
-    const direct = getManagedProjectById(appType, projectId);
-    if (direct) {
-      return { appType, project: direct };
-    }
-  }
-
-  const pools = appType
-    ? [{ appType, projects: appType === "work-app" ? getWorkProjects() : getPersonalProjects() }]
-    : [
-        { appType: "project-app", projects: getPersonalProjects() },
-        { appType: "work-app", projects: getWorkProjects() }
-      ];
-
-  const normalizedName = String(projectName || "").trim().toLowerCase();
-
-  for (const pool of pools) {
-    if (projectId) {
-      const byId = pool.projects.find((project) => project.id === projectId);
-      if (byId) {
-        return { appType: pool.appType, project: byId };
-      }
-    }
-    if (normalizedName) {
-      const exact = pool.projects.find((project) => project.name.toLowerCase() === normalizedName);
-      if (exact) {
-        return { appType: pool.appType, project: exact };
-      }
-      const partial = pool.projects.find((project) => project.name.toLowerCase().includes(normalizedName));
-      if (partial) {
-        return { appType: pool.appType, project: partial };
-      }
-    }
-  }
-
-  return null;
-}

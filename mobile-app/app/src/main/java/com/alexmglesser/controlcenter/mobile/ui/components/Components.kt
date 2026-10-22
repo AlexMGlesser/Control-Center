@@ -54,7 +54,6 @@ fun appIconRes(appId: String, iconName: String?): Int {
     return byName ?: when (appId) {
         "calendar-app" -> R.drawable.ic_calendar_days
         "news-app" -> R.drawable.ic_newspaper
-        "work-app" -> R.drawable.ic_briefcase
         "project-app" -> R.drawable.ic_folder_git_2
         "music-app" -> R.drawable.ic_music
         "drawing-app" -> R.drawable.ic_pen_tool

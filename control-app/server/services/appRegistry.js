@@ -4,19 +4,10 @@ const appRegistry = [
   {
     id: "project-app",
     icon: "folder-git-2",
-    name: "Project App",
-    description: "Personal projects, coding workflows, and IDE launch integration.",
+    name: "Projects",
+    description: "Your personal and work project folders: browse, edit text files, open in VS Code.",
     status: "online",
     routeKey: "project-app",
-    capabilities: ["files", "ide", "agent-summary"]
-  },
-  {
-    id: "work-app",
-    icon: "briefcase",
-    name: "Work App",
-    description: "Work and school projects with isolated file boundaries.",
-    status: "online",
-    routeKey: "work-app",
     capabilities: ["files", "ide", "agent-summary"]
   },
   {

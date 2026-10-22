@@ -25,8 +25,7 @@ const SHUTDOWN_TIMEOUT_MS = 15000;
 const APP_WINDOW_CONFIGS = {
   "calendar-app": { title: "Calendar App", backgroundColor: "#0d1417" },
   "news-app": { title: "News App", backgroundColor: "#070f13" },
-  "work-app": { title: "Work App", backgroundColor: "#070f13" },
-  "project-app": { title: "Personal Projects", backgroundColor: "#070f13" },
+  "project-app": { title: "Projects", backgroundColor: "#070f13" },
   "music-app": { title: "Music App", backgroundColor: "#070f13" },
   "drawing-app": { title: "Drawing App", backgroundColor: "#070f13" },
   "movie-app": { title: "Movie App", backgroundColor: "#160b0e" },
@@ -57,7 +56,7 @@ function createMainWindow() {
     backgroundColor: "#081114",
     title: "Control Center",
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -101,7 +100,7 @@ function openAppWindow(appId) {
     title: config.title,
     parent: mainWindow || undefined,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false
     }

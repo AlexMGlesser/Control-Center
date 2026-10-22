@@ -400,10 +400,6 @@ async function openCalendarAppWindow() {
   await openWindowApp("calendar-app");
 }
 
-async function openWorkAppWindow() {
-  await openWindowApp("work-app");
-}
-
 async function openProjectAppWindow() {
   await openWindowApp("project-app");
 }
@@ -412,12 +408,11 @@ async function openMusicAppWindow() {
   await openWindowApp("music-app");
 }
 
-const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app", "wikipedia-app", "file-system-app"];
+const WINDOW_APP_IDS = ["calendar-app", "news-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app", "wikipedia-app", "file-system-app"];
 
 const WINDOW_APP_BRIDGE_NAMES = {
   "calendar-app": "CalendarApp",
   "news-app": "NewsApp",
-  "work-app": "WorkApp",
   "project-app": "ProjectApp",
   "music-app": "MusicApp",
   "drawing-app": "DrawingApp",
@@ -497,10 +492,6 @@ async function closeNewsAppWindow() {
   await closeWindowApp("news-app");
 }
 
-async function closeWorkAppWindow() {
-  await closeWindowApp("work-app");
-}
-
 async function closeProjectAppWindow() {
   await closeWindowApp("project-app");
 }
@@ -550,8 +541,6 @@ async function closeKnownAppWindow(appId) {
     await closeCalendarAppWindow();
   } else if (appId === "news-app") {
     await closeNewsAppWindow();
-  } else if (appId === "work-app") {
-    await closeWorkAppWindow();
   } else if (appId === "project-app") {
     await closeProjectAppWindow();
   } else if (appId === "music-app") {
@@ -2005,10 +1994,6 @@ function startEventStream() {
             });
           } else if (targetTab === "app:news-app") {
             openNewsAppWindow().catch(() => {
-              // Ignore launch failures for now.
-            });
-          } else if (targetTab === "app:work-app") {
-            openWorkAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
           } else if (targetTab === "app:project-app") {

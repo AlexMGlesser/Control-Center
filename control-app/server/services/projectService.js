@@ -1,741 +1,515 @@
+import { execFile, spawn, spawnSync } from "child_process";
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync
 } from "fs";
+import os from "os";
 import path from "path";
-import { spawn, spawnSync } from "child_process";
+import { readRuntimeSection, writeRuntimeSection } from "./runtimePersistenceService.js";
+import { publishEvent } from "./eventBus.js";
 
-const VS_CODE_TEXT_EXTENSIONS = new Set([
-  ".txt",
-  ".md",
-  ".markdown",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".ts",
-  ".tsx",
-  ".json",
-  ".jsonc",
-  ".html",
-  ".htm",
-  ".xhtml",
-  ".shtml",
-  ".vue",
-  ".astro",
-  ".css",
-  ".scss",
-  ".sass",
-  ".less",
-  ".xml",
-  ".yml",
-  ".yaml",
-  ".toml",
-  ".ini",
-  ".cfg",
-  ".conf",
-  ".env",
-  ".py",
-  ".java",
-  ".kt",
-  ".kts",
-  ".groovy",
-  ".scala",
-  ".c",
-  ".h",
-  ".cpp",
-  ".cc",
-  ".cxx",
-  ".hpp",
-  ".hh",
-  ".hxx",
-  ".rs",
-  ".go",
-  ".rb",
-  ".php",
-  ".swift",
-  ".cs",
-  ".fs",
-  ".sql",
-  ".r",
-  ".dart",
-  ".lua",
-  ".sh",
-  ".bash",
-  ".zsh",
-  ".ps1",
-  ".psm1",
-  ".psd1",
-  ".bat",
-  ".cmd",
-  ".dockerfile",
-  ".make",
-  ".gradle",
-  ".properties",
-  ".csv",
-  ".tsv"
-]);
+// The Projects app (project-app): one list of project folders, each tagged
+// Personal or Work (this replaced the separate Projects and Work apps).
+// Projects are browsed one folder at a time and text files can be edited
+// in place, from the desktop and from a paired phone.
 
-const VS_CODE_TEXT_FILE_NAMES = new Set([
-  "makefile",
-  "dockerfile",
-  "readme",
-  "license",
-  "changelog",
-  ".gitignore",
-  ".gitattributes",
-  ".editorconfig"
-]);
+const CATEGORIES = new Set(["personal", "work"]);
+const READ_LIMIT_BYTES = 512 * 1024;
+const SAVE_LIMIT_BYTES = 2 * 1024 * 1024;
+const TRASH_TIMEOUT_MS = 20_000;
 
-let hasVsCodeCli = null;
+let store = loadStore();
 
-const WORK_PROJECTS = [
-  {
-    id: "work-1",
-    name: "Work Project 1",
-    path: "C:\\Users\\Alex\\Documents\\work\\project1"
-  },
-  {
-    id: "work-2",
-    name: "Work Project 2",
-    path: "C:\\Users\\Alex\\Documents\\work\\project2"
-  }
-];
-
-const PERSONAL_PROJECTS = [
-  {
-    id: "personal-1",
-    name: "Personal Project 1",
-    path: "D:\\Control-Center"
-  },
-  {
-    id: "personal-2",
-    name: "Personal Project 2",
-    path: "C:\\Users\\Alex\\Documents\\projects\\project2"
-  }
-];
-
-export function getWorkProjects() {
-  return WORK_PROJECTS.map((project) => ({ ...project }));
+function projectError(code, message, status = 400, details = undefined) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  if (details) error.details = details;
+  return error;
 }
 
-export function getPersonalProjects() {
-  return PERSONAL_PROJECTS.map((project) => ({ ...project }));
+/* ------------------------------------------------------------------ */
+/* The project list                                                    */
+/* ------------------------------------------------------------------ */
+
+function loadStore() {
+  const saved = readRuntimeSection("projects", null);
+  if (saved && Array.isArray(saved.projects)) {
+    return { projects: saved.projects.filter((project) => project?.id && project?.path) };
+  }
+  // First run after the merge: keep the one old placeholder that was a real folder.
+  const seeded = [];
+  const legacy = path.resolve("D:\\Control-Center");
+  if (process.platform === "win32" && existsSync(legacy)) {
+    seeded.push({ id: "control-center", name: "Control-Center", path: legacy, category: "personal", createdAt: new Date().toISOString() });
+  }
+  const initial = { projects: seeded };
+  writeRuntimeSection("projects", initial);
+  return initial;
 }
 
-export function getProjectById(appType, projectId) {
-  const projects = getProjectsCollection(appType);
-  return projects.find((project) => project.id === projectId);
+function saveStore() {
+  writeRuntimeSection("projects", store);
+  publishEvent({ source: "projects", appId: "project-app", type: "data-changed", message: "Projects changed.", meta: { entity: "project" } });
 }
 
-export function createProject(appType, name, projectPath) {
-  const projects = getProjectsCollection(appType);
-  const normalizedName = String(name || "").trim();
-  const normalizedPath = String(projectPath || "").trim();
-
-  if (!normalizedName) {
-    throw createProjectError("INVALID_PROJECT_NAME", "Project name is required.", 400);
-  }
-
-  if (!normalizedPath) {
-    throw createProjectError("INVALID_PROJECT_PATH", "Project path is required.", 400);
-  }
-
-  const resolvedPath = path.resolve(normalizedPath);
-  if (!existsSync(resolvedPath) || !statSync(resolvedPath).isDirectory()) {
-    throw createProjectError("INVALID_PROJECT_PATH", "Project path must be an existing folder.", 400);
-  }
-
-  const duplicatePath = projects.some(
-    (project) => normalizePathForCompare(project.path) === normalizePathForCompare(resolvedPath)
-  );
-
-  if (duplicatePath) {
-    throw createProjectError("DUPLICATE_PROJECT_PATH", "This folder is already in your project list.", 409);
-  }
-
-  const projectPrefix = appType === "work-app" ? "work" : "personal";
-  const projectId = buildUniqueProjectId(projectPrefix, normalizedName, projects);
-  const project = {
-    id: projectId,
-    name: normalizedName,
-    path: resolvedPath
-  };
-
-  projects.push(project);
-
-  return {
-    ok: true,
-    project: { ...project }
-  };
+function describe(project) {
+  return { ...project, missing: !existsSync(project.path) };
 }
 
-export function removeProject(appType, projectId) {
-  const projects = getProjectsCollection(appType);
-  const targetIndex = projects.findIndex((project) => project.id === projectId);
-
-  if (targetIndex < 0) {
-    throw createProjectError("PROJECT_NOT_FOUND", `Project '${projectId}' not found.`, 404);
-  }
-
-  const [removedProject] = projects.splice(targetIndex, 1);
-
-  return {
-    ok: true,
-    project: { ...removedProject }
-  };
+export function listProjects() {
+  return store.projects.map(describe);
 }
 
-export function buildFileTree(projectPath, maxDepth = 3, currentDepth = 0) {
-  if (currentDepth > maxDepth) {
-    return [];
-  }
-
-  try {
-    const entries = readdirSync(projectPath, { withFileTypes: true })
-      .filter((entry) => !entry.name.startsWith("."))
-      .sort((left, right) => {
-        if (left.isDirectory() !== right.isDirectory()) {
-          return left.isDirectory() ? -1 : 1;
-        }
-
-        return left.name.localeCompare(right.name);
-      });
-
-    return entries.map((entry) => {
-      const fullPath = path.join(projectPath, entry.name);
-      const isDirectory = entry.isDirectory();
-      const node = {
-        name: entry.name,
-        path: fullPath,
-        type: isDirectory ? "folder" : "file"
-      };
-
-      if (isDirectory && currentDepth < maxDepth) {
-        node.children = buildFileTree(fullPath, maxDepth, currentDepth + 1);
-      }
-
-      return node;
-    });
-  } catch {
-    return [];
-  }
+export function getProject(projectId) {
+  const project = store.projects.find((entry) => entry.id === projectId);
+  return project ? describe(project) : null;
 }
 
-export function createProjectNode(appType, projectId, parentPath, name, nodeType = "file") {
-  const project = requireProject(appType, projectId);
-  const safeName = normalizeNewNodeName(name);
-  const targetType = nodeType === "folder" ? "folder" : "file";
-  const destinationDirectory = resolveProjectPath(project.path, parentPath || project.path, false);
-
-  if (!statSync(destinationDirectory).isDirectory()) {
-    throw createProjectError("INVALID_DESTINATION", "Create target must be a folder.", 400);
-  }
-
-  const destinationPath = path.join(destinationDirectory, safeName);
-  ensurePathDoesNotExist(destinationPath);
-
-  if (targetType === "folder") {
-    mkdirSync(destinationPath, { recursive: true });
-  } else {
-    writeFileSync(destinationPath, "", { flag: "wx" });
-  }
-
-  return {
-    ok: true,
-    path: destinationPath,
-    node: buildNode(destinationPath)
-  };
-}
-
-export function deleteProjectNode(appType, projectId, targetPath) {
-  const project = requireProject(appType, projectId);
-  const resolvedPath = resolveProjectPath(project.path, targetPath);
-
-  if (resolvedPath === path.resolve(project.path)) {
-    throw createProjectError("INVALID_DELETE_TARGET", "Project root cannot be deleted.", 400);
-  }
-
-  rmSync(resolvedPath, { recursive: true, force: false });
-
-  return {
-    ok: true,
-    path: resolvedPath
-  };
-}
-
-export function copyProjectNode(appType, projectId, sourcePath, destinationPath) {
-  const project = requireProject(appType, projectId);
-  const resolvedSourcePath = resolveProjectPath(project.path, sourcePath);
-  const destinationDirectory = resolveDestinationDirectory(project.path, destinationPath);
-
-  if (isSameOrNestedPath(resolvedSourcePath, destinationDirectory)) {
-    throw createProjectError(
-      "INVALID_COPY_DESTINATION",
-      "Cannot copy a folder into itself or one of its children.",
-      400
-    );
-  }
-
-  const targetPath = getUniqueDestinationPath(destinationDirectory, path.basename(resolvedSourcePath));
-  copyNodeRecursive(resolvedSourcePath, targetPath);
-
-  return {
-    ok: true,
-    path: targetPath,
-    node: buildNode(targetPath)
-  };
-}
-
-export function moveProjectNode(appType, projectId, sourcePath, destinationPath) {
-  const project = requireProject(appType, projectId);
-  const resolvedSourcePath = resolveProjectPath(project.path, sourcePath);
-  const destinationDirectory = resolveDestinationDirectory(project.path, destinationPath);
-
-  if (isSameOrNestedPath(resolvedSourcePath, destinationDirectory)) {
-    throw createProjectError(
-      "INVALID_MOVE_DESTINATION",
-      "Cannot move a folder into itself or one of its children.",
-      400
-    );
-  }
-
-  const targetPath = getUniqueDestinationPath(destinationDirectory, path.basename(resolvedSourcePath));
-
-  try {
-    renameSync(resolvedSourcePath, targetPath);
-  } catch {
-    copyNodeRecursive(resolvedSourcePath, targetPath);
-    rmSync(resolvedSourcePath, { recursive: true, force: false });
-  }
-
-  return {
-    ok: true,
-    path: targetPath,
-    node: buildNode(targetPath)
-  };
-}
-
-export function openProjectNode(appType, projectId, targetPath) {
-  const project = requireProject(appType, projectId);
-  const resolvedPath = resolveProjectPath(project.path, targetPath);
-  const nodeStats = statSync(resolvedPath);
-
-  if (!nodeStats.isDirectory() && shouldOpenInEditor(resolvedPath)) {
-    const openedInEditor = openPathInVsCode(resolvedPath);
-
-    if (openedInEditor) {
-      return {
-        ok: true,
-        path: resolvedPath,
-        message: `Opened ${path.basename(resolvedPath)} in VS Code.`
-      };
-    }
-
-    throw createProjectError(
-      "VSCODE_NOT_AVAILABLE",
-      "VS Code could not be launched. Install VS Code or enable the 'code' command, then try again.",
-      409
-    );
-  }
-
-  openPathWithShell(resolvedPath);
-
-  return {
-    ok: true,
-    path: resolvedPath,
-    message: `Opened ${path.basename(resolvedPath)}.`
-  };
-}
-
-export function launchApp(toolName) {
-  const tools = {
-    vscode: {
-      name: "Visual Studio Code",
-      windows: "code",
-      linux: "code",
-      darwin: "code"
-    },
-    lmstudio: {
-      name: "LMStudio",
-      windows: "C:\\Users\\Alex\\AppData\\Local\\Programs\\LM Studio\\App\\lm-studio.exe",
-      fallback: "start lm-studio",
-      linux: "lm-studio",
-      darwin: "open -a 'LM Studio'"
-    },
-    powershell: {
-      name: "PowerShell",
-      windows: "powershell",
-      linux: "powershell",
-      darwin: "open -a Terminal"
-    },
-    vmware: {
-      name: "VMware Workstation",
-      windows: "C:\\Program Files\\VMware\\VMware Workstation Pro\\vmware.exe",
-      fallback: "vmrun",
-      linux: "vmware",
-      darwin: "open -a 'VMware Fusion'"
-    },
-    "android-studio": {
-      name: "Android Studio",
-      windows: "C:\\Program Files\\Android\\Android Studio\\bin\\studio64.exe",
-      fallback: "studio64",
-      linux: "studio",
-      darwin: "open -a 'Android Studio'"
-    }
-  };
-
-  const tool = tools[toolName];
-  if (!tool) {
-    return {
-      ok: false,
-      code: "UNKNOWN_TOOL",
-      message: `Unknown tool: ${toolName}`
-    };
-  }
-
-  try {
-    const platform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
-    const command = tool[platform];
-
-    spawn(command, { shell: true, detached: true, stdio: "ignore", windowsHide: true });
-
-    return {
-      ok: true,
-      message: `Launched ${tool.name}`
-    };
-  } catch (error) {
-    if (tool.fallback) {
-      try {
-        spawn(tool.fallback, { shell: true, detached: true, stdio: "ignore", windowsHide: true });
-        return {
-          ok: true,
-          message: `Launched ${tool.name} (fallback)`
-        };
-      } catch {
-        return {
-          ok: false,
-          code: "LAUNCH_ERROR",
-          message: `Failed to launch ${tool.name}: ${error.message}`
-        };
-      }
-    }
-
-    return {
-      ok: false,
-      code: "LAUNCH_ERROR",
-      message: `Failed to launch ${tool.name}: ${error.message}`
-    };
-  }
-}
-
-function requireProject(appType, projectId) {
-  const project = getProjectById(appType, projectId);
-
+function requireProject(projectId) {
+  const project = store.projects.find((entry) => entry.id === projectId);
   if (!project) {
-    throw createProjectError("PROJECT_NOT_FOUND", `Project '${projectId}' not found.`, 404);
+    throw projectError("PROJECT_NOT_FOUND", "That project isn't in your list.", 404);
   }
-
+  if (!existsSync(project.path)) {
+    throw projectError("PROJECT_FOLDER_MISSING", `The folder for ${project.name} is missing: ${project.path}`, 404);
+  }
   return project;
 }
 
-function getProjectsCollection(appType) {
-  return appType === "work-app" ? WORK_PROJECTS : PERSONAL_PROJECTS;
+function normalizeCategory(category) {
+  const value = String(category || "personal").trim().toLowerCase();
+  if (!CATEGORIES.has(value)) {
+    throw projectError("INVALID_CATEGORY", "Category must be personal or work.");
+  }
+  return value;
 }
 
-function buildUniqueProjectId(prefix, name, projects) {
-  const slug = String(name || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-+|-+$)/g, "");
-
-  const baseId = `${prefix}-${slug || "project"}`;
-  const existingIds = new Set(projects.map((project) => project.id));
-
-  if (!existingIds.has(baseId)) {
-    return baseId;
+/** Adds an existing folder to the list. */
+export function addProject({ name, path: folderPath, category } = {}) {
+  const resolved = path.resolve(String(folderPath || "").trim() || ".");
+  if (!String(folderPath || "").trim() || !existsSync(resolved) || !statSync(resolved).isDirectory()) {
+    throw projectError("INVALID_PROJECT_PATH", "Choose an existing folder.");
   }
-
-  let suffix = 2;
-  while (existingIds.has(`${baseId}-${suffix}`)) {
-    suffix += 1;
+  if (store.projects.some((project) => samePath(project.path, resolved))) {
+    throw projectError("DUPLICATE_PROJECT_PATH", "That folder is already in your projects.", 409);
   }
-
-  return `${baseId}-${suffix}`;
+  const projectName = String(name || "").trim() || path.basename(resolved) || resolved;
+  const project = {
+    id: uniqueId(projectName),
+    name: projectName.slice(0, 80),
+    path: resolved,
+    category: normalizeCategory(category),
+    createdAt: new Date().toISOString()
+  };
+  store.projects.push(project);
+  saveStore();
+  return describe(project);
 }
 
-function normalizePathForCompare(targetPath) {
-  return String(targetPath || "")
-    .replace(/[\\/]+/g, "/")
-    .replace(/\/+$/, "")
-    .toLowerCase();
+export function updateProject(projectId, { name, category } = {}) {
+  const project = store.projects.find((entry) => entry.id === projectId);
+  if (!project) throw projectError("PROJECT_NOT_FOUND", "That project isn't in your list.", 404);
+  if (name !== undefined) {
+    const trimmed = String(name).trim();
+    if (!trimmed) throw projectError("INVALID_PROJECT_NAME", "A project needs a name.");
+    project.name = trimmed.slice(0, 80);
+  }
+  if (category !== undefined) project.category = normalizeCategory(category);
+  saveStore();
+  return describe(project);
 }
 
-function normalizeNewNodeName(name) {
-  const normalizedName = String(name || "").trim();
-
-  if (!normalizedName) {
-    throw createProjectError("INVALID_NAME", "Name is required.", 400);
-  }
-
-  if (normalizedName === "." || normalizedName === ".." || /[\\/]/.test(normalizedName)) {
-    throw createProjectError("INVALID_NAME", "Name must be a single file or folder name.", 400);
-  }
-
-  return normalizedName;
+/** Removes a project from the list. The folder itself is left alone. */
+export function removeProject(projectId) {
+  const index = store.projects.findIndex((entry) => entry.id === projectId);
+  if (index < 0) throw projectError("PROJECT_NOT_FOUND", "That project isn't in your list.", 404);
+  const [removed] = store.projects.splice(index, 1);
+  saveStore();
+  return describe(removed);
 }
 
-/* Read-only access for the phone's Projects/Work views (mobile architecture 5.5). */
-
-const READ_LIMIT_BYTES = 512 * 1024;
-
-/** A path inside the project, checked again after following symlinks/junctions. */
-function resolveReadablePath(project, targetPath) {
-  const resolved = resolveProjectPath(project.path, targetPath || project.path);
-  let realRoot;
-  let realTarget;
-  try {
-    realRoot = realpathSync.native(path.resolve(project.path));
-    realTarget = realpathSync.native(resolved);
-  } catch {
-    throw createProjectError("PATH_NOT_FOUND", "That file or folder doesn't exist.", 404);
-  }
-  if (!isPathInsideProject(realRoot, realTarget)) {
-    throw createProjectError("INVALID_PATH", "Path is outside the selected project.", 400);
-  }
-  return realTarget;
+/** Fuzzy lookup for the agent: id, exact name, then partial name. */
+export function findProject(query) {
+  const value = String(query || "").trim().toLowerCase();
+  if (!value) return null;
+  const match =
+    store.projects.find((project) => project.id === value) ||
+    store.projects.find((project) => project.name.toLowerCase() === value) ||
+    store.projects.find((project) => project.name.toLowerCase().includes(value));
+  return match ? describe(match) : null;
 }
 
-/** One folder of a project (the phone browses folder by folder). */
-export function listProjectFolder(appType, projectId, folderPath) {
-  const project = requireProject(appType, projectId);
-  const folder = resolveReadablePath(project, folderPath);
+function uniqueId(name) {
+  const base =
+    String(name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-+|-+$)/g, "") || "project";
+  let id = base;
+  for (let n = 2; store.projects.some((project) => project.id === id); n += 1) id = `${base}-${n}`;
+  return id;
+}
+
+function samePath(a, b) {
+  const norm = (value) => path.resolve(value).replace(/[\\/]+$/, "");
+  return process.platform === "win32" ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
+}
+
+/* ------------------------------------------------------------------ */
+/* Paths inside a project                                              */
+/* ------------------------------------------------------------------ */
+
+function isInside(root, target) {
+  const relative = path.relative(root, target);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+/**
+ * Resolves a path inside the project and checks it again after following
+ * symlinks/junctions, so nothing outside the project folder is reachable.
+ */
+function resolveInside(project, targetPath, { mustExist = true } = {}) {
+  const root = realpathSync.native(path.resolve(project.path));
+  const resolved = path.resolve(String(targetPath || "").trim() || root);
+  if (!isInside(path.resolve(project.path), resolved) && !isInside(root, resolved)) {
+    throw projectError("INVALID_PATH", "That path is outside the project.");
+  }
+  if (!existsSync(resolved)) {
+    if (mustExist) throw projectError("PATH_NOT_FOUND", "That file or folder doesn't exist.", 404);
+    return resolved;
+  }
+  const real = realpathSync.native(resolved);
+  if (!isInside(root, real)) {
+    throw projectError("INVALID_PATH", "That path is outside the project.");
+  }
+  return real;
+}
+
+function validateName(name) {
+  const value = String(name || "").trim();
+  if (!value || value === "." || value === ".." || /[\\/:*?"<>|]/.test(value) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(value)) {
+    throw projectError("INVALID_NAME", "That isn't a valid file or folder name.");
+  }
+  return value;
+}
+
+/* ------------------------------------------------------------------ */
+/* Browsing and editing                                                */
+/* ------------------------------------------------------------------ */
+
+/** One folder of a project. */
+export function listProjectFolder(projectId, folderPath) {
+  const project = requireProject(projectId);
+  const folder = resolveInside(project, folderPath);
   if (!statSync(folder).isDirectory()) {
-    throw createProjectError("NOT_A_FOLDER", "That's a file, not a folder.", 400);
+    throw projectError("NOT_A_FOLDER", "That's a file, not a folder.");
   }
   const entries = readdirSync(folder, { withFileTypes: true })
-    .filter((entry) => !entry.name.startsWith("."))
     .map((entry) => {
       const fullPath = path.join(folder, entry.name);
       let stats = null;
       try {
         stats = statSync(fullPath);
       } catch {
-        // listed without size
+        // listed without details
       }
       const isFolder = stats ? stats.isDirectory() : entry.isDirectory();
-      return { name: entry.name, path: fullPath, type: isFolder ? "folder" : "file", size: isFolder || !stats ? null : stats.size };
+      return {
+        name: entry.name,
+        path: fullPath,
+        type: isFolder ? "folder" : "file",
+        size: isFolder || !stats ? null : stats.size,
+        modified: stats ? stats.mtime.toISOString() : null,
+        ...(entry.name.startsWith(".") ? { hidden: true } : {})
+      };
     })
-    .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "folder" ? -1 : 1));
-  const realRoot = realpathSync.native(path.resolve(project.path));
+    .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) : a.type === "folder" ? -1 : 1));
+  const root = realpathSync.native(path.resolve(project.path));
   return {
-    project: { id: project.id, name: project.name },
+    project: describe(project),
     path: folder,
-    relativePath: path.relative(realRoot, folder),
-    parent: folder === realRoot ? null : path.dirname(folder),
+    relativePath: path.relative(root, folder),
+    parent: samePath(folder, root) ? null : path.dirname(folder),
     entries
   };
 }
 
-/** A text file from a project, up to 512 KB. Binary files are refused (415). */
-export function readProjectFile(appType, projectId, filePath) {
-  const project = requireProject(appType, projectId);
-  const target = resolveReadablePath(project, filePath);
+/** A text file, up to 512 KB. Binary files are refused (415). */
+export function readProjectFile(projectId, filePath) {
+  const project = requireProject(projectId);
+  const target = resolveInside(project, filePath);
   const stats = statSync(target);
-  if (!stats.isFile()) {
-    throw createProjectError("NOT_A_FILE", "That's a folder, not a file.", 400);
-  }
+  if (!stats.isFile()) throw projectError("NOT_A_FILE", "That's a folder, not a file.");
   const buffer = readFileSync(target).subarray(0, READ_LIMIT_BYTES);
   // A NUL byte in the first 8 KB means it isn't text.
   if (buffer.subarray(0, 8192).includes(0)) {
-    const error = createProjectError("BINARY_FILE", "Can't preview this file on the phone.", 415);
-    error.details = { size: stats.size, type: path.extname(target).slice(1) || "file" };
-    throw error;
+    throw projectError("BINARY_FILE", "This isn't a text file.", 415, { size: stats.size, type: path.extname(target).slice(1) || "file" });
   }
   return {
     name: path.basename(target),
     path: target,
     size: stats.size,
+    // Saves send this back, so an edit made elsewhere in the meantime isn't overwritten.
+    modified: stats.mtimeMs,
     truncated: stats.size > READ_LIMIT_BYTES,
     text: buffer.toString("utf-8")
   };
 }
 
-function resolveProjectPath(projectPath, targetPath, expectExisting = true) {
-  const rootPath = path.resolve(projectPath);
-  const resolvedPath = path.resolve(String(targetPath || rootPath));
-
-  if (!isPathInsideProject(rootPath, resolvedPath)) {
-    throw createProjectError("INVALID_PATH", "Path is outside the selected project.", 400);
+/**
+ * Saves a text file. If `expectedModified` is given and the file changed on
+ * disk since it was opened, nothing is written and a 409 says so. Writes go
+ * to a temporary file first and are then swapped in, so a failed save never
+ * leaves a half-written file.
+ */
+export function saveProjectFile(projectId, filePath, content, expectedModified) {
+  const project = requireProject(projectId);
+  const text = String(content ?? "");
+  if (Buffer.byteLength(text, "utf-8") > SAVE_LIMIT_BYTES) {
+    throw projectError("FILE_TOO_LARGE", "Files over 2 MB can't be saved from here.", 413);
   }
-
-  if (expectExisting && !existsSync(resolvedPath)) {
-    throw createProjectError("PATH_NOT_FOUND", `Path not found: ${resolvedPath}`, 404);
+  const target = resolveInside(project, filePath);
+  const stats = statSync(target);
+  if (!stats.isFile()) throw projectError("NOT_A_FILE", "That's a folder, not a file.");
+  if (stats.size > READ_LIMIT_BYTES) {
+    throw projectError("FILE_TOO_LARGE", "This file was only partly loaded, so it can't be saved from here.", 413);
   }
-
-  return resolvedPath;
+  if (expectedModified !== undefined && expectedModified !== null && Math.abs(stats.mtimeMs - Number(expectedModified)) > 1) {
+    throw projectError("FILE_CHANGED", "The file changed on disk since you opened it. Reload it before saving.", 409, { modified: stats.mtimeMs });
+  }
+  const temporary = `${target}.cc-save-${process.pid}-${Date.now()}`;
+  writeFileSync(temporary, text, "utf-8");
+  try {
+    renameSync(temporary, target);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw projectError("SAVE_FAILED", `Couldn't save: ${error.message}`, 500);
+  }
+  const saved = statSync(target);
+  publishEvent({
+    source: "projects",
+    appId: "project-app",
+    type: "data-changed",
+    message: `Saved ${path.basename(target)}.`,
+    meta: { entity: "file", projectId, path: target }
+  });
+  return { name: path.basename(target), path: target, size: saved.size, modified: saved.mtimeMs };
 }
 
-function resolveDestinationDirectory(projectPath, destinationPath) {
-  const resolvedPath = resolveProjectPath(projectPath, destinationPath);
-  const stats = statSync(resolvedPath);
-  return stats.isDirectory() ? resolvedPath : path.dirname(resolvedPath);
+/** New empty file or folder. */
+export function createProjectEntry(projectId, parentPath, name, type = "file") {
+  const project = requireProject(projectId);
+  const parent = resolveInside(project, parentPath);
+  if (!statSync(parent).isDirectory()) throw projectError("NOT_A_FOLDER", "New items go inside a folder.");
+  const target = path.join(parent, validateName(name));
+  if (existsSync(target)) throw projectError("PATH_ALREADY_EXISTS", `${path.basename(target)} already exists here.`, 409);
+  if (type === "folder") mkdirSync(target);
+  else writeFileSync(target, "", { flag: "wx" });
+  publishEvent({ source: "projects", appId: "project-app", type: "data-changed", message: `Created ${path.basename(target)}.`, meta: { entity: "file", projectId, path: target } });
+  return { name: path.basename(target), path: target, type: type === "folder" ? "folder" : "file" };
 }
 
-function isPathInsideProject(projectPath, targetPath) {
-  const relativePath = path.relative(projectPath, targetPath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+export function renameProjectEntry(projectId, targetPath, newName) {
+  const project = requireProject(projectId);
+  const source = resolveInside(project, targetPath);
+  if (samePath(source, project.path)) throw projectError("INVALID_TARGET", "Rename the project itself from the project list.");
+  const destination = path.join(path.dirname(source), validateName(newName));
+  if (existsSync(destination) && !samePath(source, destination)) {
+    throw projectError("PATH_ALREADY_EXISTS", `${path.basename(destination)} already exists here.`, 409);
+  }
+  renameSync(source, destination);
+  return { path: destination, name: path.basename(destination) };
 }
 
-function isSameOrNestedPath(sourcePath, candidatePath) {
-  const relativePath = path.relative(sourcePath, candidatePath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+export function copyProjectEntry(projectId, sourcePath, destinationFolder) {
+  const project = requireProject(projectId);
+  const source = resolveInside(project, sourcePath);
+  const folder = resolveInside(project, destinationFolder);
+  if (!statSync(folder).isDirectory()) throw projectError("NOT_A_FOLDER", "Paste into a folder.");
+  if (isInside(source, folder)) throw projectError("INVALID_DESTINATION", "Can't copy a folder into itself.");
+  const destination = uniqueDestination(folder, path.basename(source));
+  copyRecursive(source, destination);
+  return { path: destination, name: path.basename(destination) };
 }
 
-function ensurePathDoesNotExist(targetPath) {
-  if (existsSync(targetPath)) {
-    throw createProjectError(
-      "PATH_ALREADY_EXISTS",
-      `${path.basename(targetPath)} already exists in this folder.`,
-      409
+export function moveProjectEntry(projectId, sourcePath, destinationFolder) {
+  const project = requireProject(projectId);
+  const source = resolveInside(project, sourcePath);
+  const folder = resolveInside(project, destinationFolder);
+  if (!statSync(folder).isDirectory()) throw projectError("NOT_A_FOLDER", "Paste into a folder.");
+  if (isInside(source, folder)) throw projectError("INVALID_DESTINATION", "Can't move a folder into itself.");
+  const destination = uniqueDestination(folder, path.basename(source));
+  renameSync(source, destination);
+  return { path: destination, name: path.basename(destination) };
+}
+
+/**
+ * Deleting sends the item to the Windows Recycle Bin: nothing in Projects
+ * is ever deleted permanently. The path goes in through an environment
+ * variable, never into the command text.
+ */
+export function trashProjectEntry(projectId, targetPath) {
+  const project = requireProject(projectId);
+  const target = resolveInside(project, targetPath);
+  if (samePath(target, project.path)) throw projectError("INVALID_TARGET", "Remove the project from the list instead.");
+  if (process.platform !== "win32") throw projectError("UNSUPPORTED", "Recycle Bin delete is only available on Windows.", 501);
+  const isFolder = statSync(target).isDirectory();
+  const script =
+    "Add-Type -AssemblyName Microsoft.VisualBasic; " +
+    (isFolder
+      ? "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:CC_TRASH_PATH, 'OnlyErrorDialogs', 'SendToRecycleBin')"
+      : "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:CC_TRASH_PATH, 'OnlyErrorDialogs', 'SendToRecycleBin')");
+  return new Promise((resolve, reject) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { windowsHide: true, timeout: TRASH_TIMEOUT_MS, env: { ...process.env, CC_TRASH_PATH: target } },
+      (error, _stdout, stderr) => {
+        if (error || existsSync(target)) {
+          reject(projectError("DELETE_FAILED", `Couldn't move it to the Recycle Bin. ${String(stderr || error?.message || "").trim()}`.trim(), 500));
+          return;
+        }
+        resolve({ path: target, recycled: true });
+      }
     );
-  }
+  });
 }
 
-function getUniqueDestinationPath(destinationDirectory, baseName) {
-  const parsedPath = path.parse(baseName);
-  let candidatePath = path.join(destinationDirectory, baseName);
-  let copyIndex = 1;
-
-  while (existsSync(candidatePath)) {
-    const suffix = copyIndex === 1 ? "copy" : `copy-${copyIndex}`;
-    const candidateName = parsedPath.ext
-      ? `${parsedPath.name}-${suffix}${parsedPath.ext}`
-      : `${parsedPath.name}-${suffix}`;
-
-    candidatePath = path.join(destinationDirectory, candidateName);
-    copyIndex += 1;
+function uniqueDestination(folder, baseName) {
+  const parsed = path.parse(baseName);
+  let candidate = path.join(folder, baseName);
+  for (let n = 1; existsSync(candidate); n += 1) {
+    const suffix = n === 1 ? " copy" : ` copy ${n}`;
+    candidate = path.join(folder, `${parsed.name}${suffix}${parsed.ext}`);
   }
-
-  return candidatePath;
+  return candidate;
 }
 
-function copyNodeRecursive(sourcePath, destinationPath) {
-  const stats = statSync(sourcePath);
-
-  if (stats.isDirectory()) {
-    mkdirSync(destinationPath, { recursive: true });
-    const children = readdirSync(sourcePath);
-    children.forEach((childName) => {
-      copyNodeRecursive(path.join(sourcePath, childName), path.join(destinationPath, childName));
-    });
+function copyRecursive(source, destination) {
+  if (statSync(source).isDirectory()) {
+    mkdirSync(destination, { recursive: true });
+    for (const child of readdirSync(source)) copyRecursive(path.join(source, child), path.join(destination, child));
     return;
   }
-
-  copyFileSync(sourcePath, destinationPath);
+  copyFileSync(source, destination);
 }
 
-function buildNode(targetPath) {
-  const stats = statSync(targetPath);
-  return {
-    name: path.basename(targetPath),
-    path: targetPath,
-    type: stats.isDirectory() ? "folder" : "file"
-  };
-}
+/* ------------------------------------------------------------------ */
+/* Opening things on the PC (desktop only)                             */
+/* ------------------------------------------------------------------ */
 
-function openPathWithShell(targetPath) {
-  const child =
-    process.platform === "win32"
-      ? spawn("cmd", ["/c", "start", "", targetPath], { detached: true, stdio: "ignore", windowsHide: true })
-      : process.platform === "darwin"
-        ? spawn("open", [targetPath], { detached: true, stdio: "ignore" })
-        : spawn("xdg-open", [targetPath], { detached: true, stdio: "ignore" });
-
-  child.unref();
-}
-
-function shouldOpenInEditor(targetPath) {
-  const baseName = path.basename(targetPath).toLowerCase();
-  const extension = path.extname(baseName);
-
-  if (VS_CODE_TEXT_EXTENSIONS.has(extension)) {
-    return true;
+/** Opens a project, folder or file in VS Code. */
+export function openInVsCode(projectId, targetPath) {
+  const project = requireProject(projectId);
+  const target = resolveInside(project, targetPath || project.path);
+  if (!launchVsCode(target)) {
+    throw projectError("VSCODE_NOT_AVAILABLE", "VS Code isn't installed, or its 'code' command isn't on PATH.", 409);
   }
-
-  return VS_CODE_TEXT_FILE_NAMES.has(baseName);
+  return { path: target, message: `Opened ${path.basename(target)} in VS Code.` };
 }
 
-function openPathInVsCode(targetPath) {
-  if (isVsCodeCliAvailable()) {
-    const child = spawn("code", ["-r", targetPath], {
-      detached: true,
-      stdio: "ignore",
-      shell: process.platform === "win32",
-      windowsHide: true
-    });
-
-    child.unref();
-    return true;
+/** Opens a file with its default Windows app, or a folder in Explorer. */
+export function openWithDefaultApp(projectId, targetPath) {
+  const project = requireProject(projectId);
+  const target = resolveInside(project, targetPath || project.path);
+  if (process.platform === "win32") {
+    spawn("explorer.exe", [target], { detached: true, stdio: "ignore" }).unref();
+  } else {
+    spawn(process.platform === "darwin" ? "open" : "xdg-open", [target], { detached: true, stdio: "ignore" }).unref();
   }
-
-  const vscodeExecutable = getVsCodeExecutablePath();
-  if (!vscodeExecutable) {
-    return false;
-  }
-
-  const child = spawn(vscodeExecutable, [targetPath], {
-    detached: true,
-    stdio: "ignore",
-    shell: false,
-    windowsHide: true
-  });
-
-  child.unref();
-  return true;
+  return { path: target };
 }
 
-function isVsCodeCliAvailable() {
-  if (typeof hasVsCodeCli === "boolean") {
-    return hasVsCodeCli;
+const TOOLS = {
+  vscode: { name: "VS Code" },
+  terminal: { name: "Terminal" },
+  explorer: { name: "File Explorer" },
+  "android-studio": {
+    name: "Android Studio",
+    candidates: ["C:\\Program Files\\Android\\Android Studio\\bin\\studio64.exe"]
+  },
+  vmware: {
+    name: "VMware Workstation",
+    candidates: ["C:\\Program Files (x86)\\VMware\\VMware Workstation\\vmware.exe", "C:\\Program Files\\VMware\\VMware Workstation Pro\\vmware.exe"]
   }
+};
 
-  const lookupCommand = process.platform === "win32" ? "where" : "which";
-  const result = spawnSync(lookupCommand, ["code"], {
-    stdio: "ignore",
-    shell: process.platform === "win32",
-    windowsHide: true
-  });
-
-  hasVsCodeCli = result.status === 0;
-  return hasVsCodeCli;
+/** Which tools exist on this PC, for the toolbar. */
+export function availableTools() {
+  return Object.entries(TOOLS)
+    .filter(([id, tool]) => !tool.candidates || tool.candidates.some((candidate) => existsSync(candidate)))
+    .map(([id, tool]) => ({ id, name: tool.name }));
 }
 
-function getVsCodeExecutablePath() {
-  if (process.platform !== "win32") {
-    return null;
-  }
+/**
+ * Launches a tool, in the project's folder when one is given. Executables
+ * are spawned directly with argument arrays (no shell), so paths with
+ * spaces work and nothing is interpreted.
+ */
+export function launchTool(toolId, projectId) {
+  const tool = TOOLS[toolId];
+  if (!tool) throw projectError("UNKNOWN_TOOL", `Unknown tool: ${toolId}`);
+  const folder = projectId ? requireProject(projectId).path : os.homedir();
 
-  const executableCandidates = [
-    "C:\\Users\\Alex\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
-    "C:\\Program Files\\Microsoft VS Code\\Code.exe",
-    "C:\\Program Files (x86)\\Microsoft VS Code\\Code.exe"
+  if (toolId === "vscode") {
+    if (!launchVsCode(folder)) throw projectError("VSCODE_NOT_AVAILABLE", "VS Code isn't installed.", 409);
+    return { message: `Opened ${path.basename(folder)} in VS Code.` };
+  }
+  if (toolId === "explorer") {
+    spawn("explorer.exe", [folder], { detached: true, stdio: "ignore" }).unref();
+    return { message: "Opened File Explorer." };
+  }
+  if (toolId === "terminal") {
+    // Windows Terminal if installed, otherwise a PowerShell window, starting in the folder.
+    const hasWindowsTerminal = spawnSync("where", ["wt"], { windowsHide: true, stdio: "ignore" }).status === 0;
+    if (hasWindowsTerminal) {
+      spawn("wt.exe", ["-d", folder], { detached: true, stdio: "ignore" }).unref();
+    } else {
+      spawn("cmd.exe", ["/c", "start", "", "powershell.exe", "-NoExit"], { cwd: folder, detached: true, stdio: "ignore", windowsHide: true }).unref();
+    }
+    return { message: "Opened a terminal." };
+  }
+  const executable = tool.candidates.find((candidate) => existsSync(candidate));
+  if (!executable) throw projectError("TOOL_NOT_INSTALLED", `${tool.name} isn't installed here.`, 409);
+  spawn(executable, projectId ? [folder] : [], { detached: true, stdio: "ignore" }).unref();
+  return { message: `Launched ${tool.name}.` };
+}
+
+let vsCodeExecutable;
+
+/**
+ * Finds Code.exe. The `code` command on PATH is a .cmd shim, which can only
+ * run through a shell (and Node doesn't quote arguments for the shell, so a
+ * path with spaces or "&" would break or run something else). Code.exe is
+ * started directly instead; it hands the path to an open VS Code window.
+ */
+function findVsCode() {
+  if (vsCodeExecutable !== undefined) return vsCodeExecutable;
+  const candidates = [
+    path.join(os.homedir(), "AppData", "Local", "Programs", "Microsoft VS Code", "Code.exe"),
+    "C:\\Program Files\\Microsoft VS Code\\Code.exe"
   ];
-
-  return executableCandidates.find((candidatePath) => existsSync(candidatePath)) || null;
+  const where = spawnSync("where", ["code"], { encoding: "utf8", windowsHide: true });
+  for (const shim of String(where.stdout || "").split(/\r?\n/).filter(Boolean)) {
+    // ...\Microsoft VS Code\bin\code.cmd -> ...\Microsoft VS Code\Code.exe
+    candidates.unshift(path.join(path.dirname(path.dirname(shim.trim())), "Code.exe"));
+  }
+  vsCodeExecutable = candidates.find((candidate) => existsSync(candidate)) || null;
+  return vsCodeExecutable;
 }
 
-function createProjectError(code, message, status = 500) {
-  const error = new Error(message);
-  error.code = code;
-  error.status = status;
-  return error;
+function launchVsCode(target) {
+  const executable = findVsCode();
+  if (!executable) return false;
+  spawn(executable, [target], { detached: true, stdio: "ignore" }).unref();
+  return true;
 }

@@ -63,13 +63,6 @@
         ]
       },
       {
-        "from": "../work-app",
-        "to": "apps/work-app",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
         "from": "../project-app",
         "to": "apps/project-app",
         "filter": [

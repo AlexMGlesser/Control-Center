@@ -46,9 +46,12 @@ const REMOTE_ALLOWLIST = [
   ["POST", /^\/apps\/music-app\/playlists$/],
   ["POST", /^\/apps\/music-app\/playlists\/[^/]+\/tracks$/],
   ["GET", /^\/apps\/drawing-app\/files(\/[^/]+)?$/],
-  ["GET", /^\/apps\/(project-app|work-app)\/projects$/],
-  ["GET", /^\/apps\/(project-app|work-app)\/projects\/[^/]+\/tree$/],
-  ["GET", /^\/apps\/(project-app|work-app)\/projects\/[^/]+\/(list|file)$/],
+  ["GET", /^\/apps\/project-app\/projects$/],
+  ["GET", /^\/apps\/project-app\/projects\/[^/]+\/(list|file)$/],
+  // The phone's text editor: save existing files and create new ones.
+  // Rename, copy, move and delete stay on the PC.
+  ["PUT", /^\/apps\/project-app\/projects\/[^/]+\/file$/],
+  ["POST", /^\/apps\/project-app\/projects\/[^/]+\/entries$/],
   ["GET", /^\/apps\/wikipedia-app\/proxy\/[^/]+$/],
   ["GET", /^\/files\/(roots|list|info|content)$/]
 ];

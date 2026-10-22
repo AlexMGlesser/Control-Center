@@ -3,43 +3,79 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Project App</title>
+    <title>Projects</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="projects-app-root">
-      <header class="projects-header">
-        <h1>Personal Projects</h1>
-        <p>Personal projects, coding workflows, and IDE launch integration.</p>
+    <div class="app">
+      <header class="app-header">
+        <div class="title">
+          <h1>Projects</h1>
+          <div class="filters" role="tablist" aria-label="Show">
+            <button class="chip is-active" data-filter="all" role="tab">All</button>
+            <button class="chip" data-filter="personal" role="tab">Personal</button>
+            <button class="chip" data-filter="work" role="tab">Work</button>
+          </div>
+        </div>
+        <div class="header-actions">
+          <div class="tools" id="tools"></div>
+          <button class="btn primary" id="add-project">+ Add project</button>
+        </div>
       </header>
 
-      <section class="app-toolbar">
-        <div class="toolbar-label">Tools</div>
-        <div class="toolbar-buttons">
-          <button class="tool-btn" data-tool="vscode" title="Open VSCode">VSCode</button>
-          <button class="tool-btn" data-tool="lmstudio" title="Open LMStudio">LMStudio</button>
-          <button class="tool-btn" data-tool="powershell" title="Open PowerShell">PowerShell</button>
-          <button class="tool-btn" data-tool="vmware" title="Open VMware Workstation">VMware</button>
-          <button class="tool-btn" data-tool="android-studio" title="Open Android Studio">Android Studio</button>
+      <aside class="projects" aria-label="Projects">
+        <ul id="project-list" class="project-list"></ul>
+        <p id="project-empty" class="empty" hidden>No projects yet. Add a folder to get started.</p>
+      </aside>
+
+      <section class="browser" aria-label="Files">
+        <div class="browser-bar">
+          <nav id="breadcrumb" class="breadcrumb" aria-label="Folder"></nav>
+          <div class="browser-actions">
+            <button class="btn" id="new-file" disabled>New file</button>
+            <button class="btn" id="new-folder" disabled>New folder</button>
+            <button class="btn" id="paste" hidden>Paste</button>
+            <label class="toggle"><input type="checkbox" id="show-hidden" /> Hidden</label>
+          </div>
         </div>
-        <div class="toolbar-label">Projects</div>
-        <div class="toolbar-buttons">
-          <button class="tool-btn project-action-btn" id="create-project-btn" type="button">+ Create Project</button>
-          <button class="tool-btn project-action-btn" id="delete-project-btn" type="button" disabled>Delete Project</button>
-        </div>
+        <div id="entries" class="entries" role="list"></div>
+        <p id="browser-empty" class="empty">Choose a project on the left.</p>
       </section>
 
-      <section class="projects-container">
-        <div class="projects-grid" id="projects-grid"></div>
-        <div class="file-tree-panel" id="file-tree-panel">
-          <div class="tree-header">
-            <h3 id="tree-title">Select a project</h3>
-            <button class="close-tree-btn" id="close-tree-btn">✕</button>
+      <section class="editor" id="editor" hidden aria-label="Editor">
+        <div class="editor-bar">
+          <div class="editor-title">
+            <span id="editor-name"></span>
+            <span id="editor-dirty" class="dirty" hidden title="Unsaved changes">●</span>
           </div>
-          <div class="tree-content" id="tree-content"></div>
+          <div class="editor-actions">
+            <button class="btn primary" id="save" disabled>Save</button>
+            <button class="btn" id="open-vscode">VS Code</button>
+            <button class="btn" id="close-editor" aria-label="Close">✕</button>
+          </div>
         </div>
+        <div id="editor-banner" class="banner" hidden></div>
+        <div class="editor-body" id="editor-body">
+          <pre class="gutter" id="gutter" aria-hidden="true"></pre>
+          <textarea id="text" spellcheck="false" wrap="off" aria-label="File contents"></textarea>
+        </div>
+        <div class="file-info" id="file-info" hidden></div>
       </section>
-    </main>
+
+      <footer class="status" id="status" role="status" aria-live="polite"></footer>
+    </div>
+
+    <dialog id="dialog">
+      <form method="dialog" id="dialog-form">
+        <h2 id="dialog-title"></h2>
+        <p id="dialog-text" class="muted"></p>
+        <div id="dialog-fields"></div>
+        <div class="dialog-actions">
+          <button class="btn" value="cancel" formnovalidate>Cancel</button>
+          <button class="btn primary" value="ok" id="dialog-ok">OK</button>
+        </div>
+      </form>
+    </dialog>
 
     <script type="module" src="./app.js"></script>
   </body>

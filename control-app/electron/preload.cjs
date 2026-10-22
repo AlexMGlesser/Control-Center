@@ -1,9 +1,11 @@
-import { contextBridge, ipcRenderer } from "electron";
+// CommonJS on purpose: Electron runs preload scripts in a sandbox that can't
+// load ES modules. (The old preload.js used `import`, so it never loaded and
+// window.controlCenterDesktop was always missing.)
+const { contextBridge, ipcRenderer } = require("electron");
 
 const WINDOW_APP_BRIDGE_NAMES = {
   "calendar-app": "CalendarApp",
   "news-app": "NewsApp",
-  "work-app": "WorkApp",
   "project-app": "ProjectApp",
   "music-app": "MusicApp",
   "drawing-app": "DrawingApp",

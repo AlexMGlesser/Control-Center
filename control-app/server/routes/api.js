@@ -47,20 +47,22 @@ import {
   stopAlarmScheduler
 } from "../services/alarmService.js";
 import {
-  getWorkProjects,
-  getPersonalProjects,
-  getProjectById,
-  createProject,
-  removeProject,
-  buildFileTree,
-  createProjectNode,
-  deleteProjectNode,
-  copyProjectNode,
-  moveProjectNode,
-  openProjectNode,
-  launchApp,
+  addProject,
+  availableTools,
+  copyProjectEntry,
+  createProjectEntry,
+  launchTool,
   listProjectFolder,
-  readProjectFile
+  listProjects,
+  moveProjectEntry,
+  openInVsCode,
+  openWithDefaultApp,
+  readProjectFile,
+  removeProject,
+  renameProjectEntry,
+  saveProjectFile,
+  trashProjectEntry,
+  updateProject
 } from "../services/projectService.js";
 import {
   fileInfo,
@@ -666,90 +668,58 @@ router.delete("/apps/calendar-app/events/:eventId", async (req, res) => {
   }
 });
 
-router.get("/apps/work-app/projects", (req, res) => {
-  res.json({ ok: true, projects: getWorkProjects() });
-});
+/* Projects (one app for personal and work projects). The phone may list,
+   browse, read, save and create; everything else is desktop-only via the
+   remote allowlist. */
 
-router.post("/apps/work-app/projects", (req, res) => {
-  handleProjectAction(res, () => createProject("work-app", req.body?.name, req.body?.path));
-});
-
-router.delete("/apps/work-app/projects/:projectId", (req, res) => {
-  handleProjectAction(res, () => removeProject("work-app", req.params.projectId));
-});
-
-router.get("/apps/work-app/projects/:projectId/tree", (req, res) => {
-  const project = getProjectById("work-app", req.params.projectId);
-  if (!project) {
-    res.status(404).json({ ok: false, code: "PROJECT_NOT_FOUND", message: `Project '${req.params.projectId}' not found.` });
-    return;
+async function projectRoute(res, action) {
+  try {
+    res.json({ ok: true, ...(await action()) });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "PROJECT_ERROR", message: error.message, ...(error.details || {}) });
   }
-  res.json({ ok: true, project, tree: buildFileTree(project.path) });
-});
-
-router.post("/apps/work-app/projects/:projectId/files/create", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () =>
-    createProjectNode("work-app", req.params.projectId, req.body?.parentPath, req.body?.name, req.body?.nodeType)
-  );
-});
-
-router.post("/apps/work-app/projects/:projectId/files/delete", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () => deleteProjectNode("work-app", req.params.projectId, req.body?.targetPath));
-});
-
-router.post("/apps/work-app/projects/:projectId/files/copy", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () =>
-    copyProjectNode("work-app", req.params.projectId, req.body?.sourcePath, req.body?.destinationPath)
-  );
-});
-
-router.post("/apps/work-app/projects/:projectId/files/move", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () =>
-    moveProjectNode("work-app", req.params.projectId, req.body?.sourcePath, req.body?.destinationPath)
-  );
-});
-
-router.post("/apps/work-app/projects/:projectId/files/open", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () => openProjectNode("work-app", req.params.projectId, req.body?.targetPath));
-});
-
-router.post("/apps/work-app/launch-tool", (req, res) => {
-  res.json(launchApp(String(req.body?.tool || "").trim()));
-});
-
-router.get("/apps/project-app/projects", (req, res) => {
-  res.json({ ok: true, projects: getPersonalProjects() });
-});
-
-router.post("/apps/project-app/projects", (req, res) => {
-  handleProjectAction(res, () => createProject("project-app", req.body?.name, req.body?.path));
-});
-
-router.delete("/apps/project-app/projects/:projectId", (req, res) => {
-  handleProjectAction(res, () => removeProject("project-app", req.params.projectId));
-});
-
-/* Read-only project browsing for the phone (mobile architecture 5.5). */
-
-function sendProjectError(res, error) {
-  res.status(error.status || 500).json({ ok: false, code: error.code || "PROJECT_ERROR", message: error.message, ...(error.details || {}) });
 }
 
-router.get("/apps/:appType(project-app|work-app)/projects/:projectId/list", (req, res) => {
-  try {
-    res.json({ ok: true, ...listProjectFolder(req.params.appType, req.params.projectId, req.query.path) });
-  } catch (error) {
-    sendProjectError(res, error);
-  }
-});
+router.get("/apps/project-app/projects", (req, res) => projectRoute(res, () => ({ projects: listProjects() })));
+router.post("/apps/project-app/projects", (req, res) => projectRoute(res, () => ({ project: addProject(req.body || {}) })));
+router.patch("/apps/project-app/projects/:projectId", (req, res) =>
+  projectRoute(res, () => ({ project: updateProject(req.params.projectId, req.body || {}) }))
+);
+router.delete("/apps/project-app/projects/:projectId", (req, res) => projectRoute(res, () => ({ project: removeProject(req.params.projectId) })));
 
-router.get("/apps/:appType(project-app|work-app)/projects/:projectId/file", (req, res) => {
-  try {
-    res.json({ ok: true, ...readProjectFile(req.params.appType, req.params.projectId, req.query.path) });
-  } catch (error) {
-    sendProjectError(res, error);
-  }
-});
+router.get("/apps/project-app/projects/:projectId/list", (req, res) =>
+  projectRoute(res, () => listProjectFolder(req.params.projectId, req.query.path))
+);
+router.get("/apps/project-app/projects/:projectId/file", (req, res) =>
+  projectRoute(res, () => readProjectFile(req.params.projectId, req.query.path))
+);
+router.put("/apps/project-app/projects/:projectId/file", (req, res) =>
+  projectRoute(res, () => saveProjectFile(req.params.projectId, req.body?.path, req.body?.content, req.body?.expectedModified))
+);
+router.post("/apps/project-app/projects/:projectId/entries", (req, res) =>
+  projectRoute(res, () => createProjectEntry(req.params.projectId, req.body?.parentPath, req.body?.name, req.body?.type))
+);
+router.post("/apps/project-app/projects/:projectId/rename", (req, res) =>
+  projectRoute(res, () => renameProjectEntry(req.params.projectId, req.body?.path, req.body?.newName))
+);
+router.post("/apps/project-app/projects/:projectId/copy", (req, res) =>
+  projectRoute(res, () => copyProjectEntry(req.params.projectId, req.body?.path, req.body?.destination))
+);
+router.post("/apps/project-app/projects/:projectId/move", (req, res) =>
+  projectRoute(res, () => moveProjectEntry(req.params.projectId, req.body?.path, req.body?.destination))
+);
+router.post("/apps/project-app/projects/:projectId/trash", (req, res) =>
+  projectRoute(res, () => trashProjectEntry(req.params.projectId, req.body?.path))
+);
+router.post("/apps/project-app/projects/:projectId/open", (req, res) =>
+  projectRoute(res, () =>
+    req.body?.with === "default" ? openWithDefaultApp(req.params.projectId, req.body?.path) : openInVsCode(req.params.projectId, req.body?.path)
+  )
+);
+router.get("/apps/project-app/tools", (req, res) => projectRoute(res, () => ({ tools: availableTools() })));
+router.post("/apps/project-app/launch-tool", (req, res) =>
+  projectRoute(res, () => launchTool(String(req.body?.tool || "").trim(), req.body?.projectId || null))
+);
 
 /* The phone's Wikipedia view: read-only proxy to the librarian, which only
    listens on 127.0.0.1 (mobile architecture 5.4). */
@@ -853,45 +823,6 @@ router.get("/devices/phone-file-access", (req, res) => {
 
 router.put("/devices/phone-file-access", (req, res) => {
   res.json({ ok: true, enabled: setPhoneFileAccessEnabled(req.body?.enabled !== false) });
-});
-
-router.get("/apps/project-app/projects/:projectId/tree", (req, res) => {
-  const project = getProjectById("project-app", req.params.projectId);
-  if (!project) {
-    res.status(404).json({ ok: false, code: "PROJECT_NOT_FOUND", message: `Project '${req.params.projectId}' not found.` });
-    return;
-  }
-  res.json({ ok: true, project, tree: buildFileTree(project.path) });
-});
-
-router.post("/apps/project-app/projects/:projectId/files/create", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () =>
-    createProjectNode("project-app", req.params.projectId, req.body?.parentPath, req.body?.name, req.body?.nodeType)
-  );
-});
-
-router.post("/apps/project-app/projects/:projectId/files/delete", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () => deleteProjectNode("project-app", req.params.projectId, req.body?.targetPath));
-});
-
-router.post("/apps/project-app/projects/:projectId/files/copy", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () =>
-    copyProjectNode("project-app", req.params.projectId, req.body?.sourcePath, req.body?.destinationPath)
-  );
-});
-
-router.post("/apps/project-app/projects/:projectId/files/move", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () =>
-    moveProjectNode("project-app", req.params.projectId, req.body?.sourcePath, req.body?.destinationPath)
-  );
-});
-
-router.post("/apps/project-app/projects/:projectId/files/open", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () => openProjectNode("project-app", req.params.projectId, req.body?.targetPath));
-});
-
-router.post("/apps/project-app/launch-tool", (req, res) => {
-  res.json(launchApp(String(req.body?.tool || "").trim()));
 });
 
 router.get("/apps/file-system-app/status", (req, res) => {
@@ -1215,20 +1146,6 @@ router.post("/alarms/:id/stop", (req, res) => {
 });
 
 export default router;
-
-function handleProjectFileAction(req, res, appId, action) {
-  const project = getProjectById(appId, req.params.projectId);
-  if (!project) {
-    res.status(404).json({ ok: false, code: "PROJECT_NOT_FOUND", message: `Project '${req.params.projectId}' not found.` });
-    return;
-  }
-
-  try {
-    res.json(action());
-  } catch (error) {
-    res.status(error.status || 500).json({ ok: false, code: error.code || "PROJECT_FILE_ACTION_FAILED", message: error.message || "Project file action failed." });
-  }
-}
 
 function handleProjectAction(res, action) {
   try {

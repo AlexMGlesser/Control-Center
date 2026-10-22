@@ -16,7 +16,6 @@ const clientDir = path.join(__dirname, "..", "client");
 const APP_STATIC_DIRS = [
   ["calendar-app", getBundledAppDirectory("calendar-app")],
   ["news-app", getBundledAppDirectory("news-app")],
-  ["work-app", getBundledAppDirectory("work-app")],
   ["project-app", getBundledAppDirectory("project-app")],
   ["music-app", getBundledAppDirectory("music-app")],
   ["drawing-app", getBundledAppDirectory("drawing-app")],
