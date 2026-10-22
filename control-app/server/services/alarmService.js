@@ -112,14 +112,32 @@ export function cancelAlarm(id) {
 // evening timestamp as "the next day" is an easy, systematic mistake since
 // LA evenings are already the next calendar day in UTC.
 function describeAlarm(alarm) {
+  // Relative alarms ("in 30 seconds") get seconds in the time and a plain
+  // "firesIn", so Jarvis doesn't say "in about a minute" for 30 seconds.
+  const relative = Boolean(alarm.fireAt);
   return {
     ...alarm,
     nextFireAtLocal: alarm.nextFireAt
-      ? new Intl.DateTimeFormat("en-US", { timeZone: CALENDAR_TIMEZONE, dateStyle: "full", timeStyle: "short" }).format(
+      ? new Intl.DateTimeFormat("en-US", { timeZone: CALENDAR_TIMEZONE, dateStyle: "full", timeStyle: relative ? "medium" : "short" }).format(
           new Date(alarm.nextFireAt)
         )
-      : null
+      : null,
+    ...(relative && alarm.enabled ? { firesIn: describeDuration(new Date(alarm.nextFireAt).getTime() - Date.now()) } : {})
   };
+}
+
+/** 30000 -> "30 seconds", 120000 -> "2 minutes", 5400000 -> "1 hour 30 minutes". */
+function describeDuration(ms) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const unit = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  const parts = [];
+  if (hours) parts.push(unit(hours, "hour"));
+  if (minutes) parts.push(unit(minutes, "minute"));
+  if (seconds && !hours) parts.push(unit(seconds, "second"));
+  return parts.join(" ") || "now";
 }
 
 export function getRingingAlarms() {
