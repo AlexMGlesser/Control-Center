@@ -12,10 +12,11 @@
         <div>
           <p class="eyebrow">Control Center</p>
           <h1>Movie App</h1>
-          <p class="subtitle">Import your movie folder, pick a title, and control playback.</p>
+          <p class="subtitle">Add your movie folders once. They're saved on this PC and your phone can stream them too.</p>
         </div>
         <div class="top-actions">
-          <button id="import-folder-btn" class="btn btn-gold" type="button">Import Movie Folder</button>
+          <button id="import-folder-btn" class="btn btn-gold" type="button">Add Movie Folder</button>
+          <button id="rescan-btn" class="btn" type="button">Rescan</button>
           <button id="open-selected-btn" class="btn" type="button" disabled>Open Selected</button>
         </div>
       </header>
@@ -26,6 +27,7 @@
             <h2>Movie Library</h2>
             <span id="movie-count" class="pill">0</span>
           </div>
+          <div id="folder-list" class="folder-list"></div>
           <div id="movie-grid" class="movie-grid"></div>
         </aside>
 
@@ -56,12 +58,11 @@
       <section id="select-overlay" class="select-overlay">
         <div class="select-card">
           <h2>Select Movie</h2>
-          <p>Import a folder first, then choose a movie from the panel to start watching.</p>
-          <button id="overlay-import-btn" class="btn btn-gold" type="button">Import Folder</button>
+          <p>Add a folder with your movies. Control Center remembers it, and finds new movies when you rescan.</p>
+          <button id="overlay-import-btn" class="btn btn-gold" type="button">Add Movie Folder</button>
         </div>
       </section>
 
-      <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
     </main>
 
     <script type="module" src="./app.js"></script>

@@ -45,6 +45,10 @@ const REMOTE_ALLOWLIST = [
   ["GET", /^\/apps\/music-app\/(library|library\/tracks|library\/artists|library\/genres|local-file|playlists)$/],
   ["POST", /^\/apps\/music-app\/playlists$/],
   ["POST", /^\/apps\/music-app\/playlists\/[^/]+\/tracks$/],
+  // "Play on PC": the same commands Jarvis's control_music sends.
+  ["POST", /^\/apps\/music-app\/command$/],
+  ["GET", /^\/apps\/movie-app\/(library|stream\/[a-f0-9]+|poster\/[a-f0-9]+|subtitles\/[a-f0-9]+)$/],
+  ["GET", /^\/apps\/server-manager-app\/servers$/],
   ["GET", /^\/apps\/drawing-app\/files(\/[^/]+)?$/],
   ["GET", /^\/apps\/project-app\/projects$/],
   ["GET", /^\/apps\/project-app\/projects\/[^/]+\/(list|file)$/],

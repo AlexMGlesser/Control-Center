@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -7,6 +8,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Phone alarms: exact alarm clock (auto-granted for alarm/clock apps), full-screen ringing. -->
@@ -75,6 +77,26 @@
         <receiver
             android:name=".notify.CalendarReminderReceiver"
             android:exported="false" />
+
+        <!-- Music on the phone: background playback with lock-screen and notification controls.
+             Exported so the system (Bluetooth, lock screen) can control it; MusicService
+             only accepts trusted controllers and this app. -->
+        <service
+            android:name=".media.MusicService"
+            android:exported="true"
+            tools:ignore="ExportedService"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
+        <!-- Full-screen movie playback; rotation doesn't restart it. -->
+        <activity
+            android:name=".media.MoviePlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:theme="@style/Theme.ControlCenter" />
 
         <!-- Share sheet access to copies of PC files (res/xml/file_paths.xml). -->
         <provider

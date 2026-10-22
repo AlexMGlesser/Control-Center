@@ -14,6 +14,17 @@ import {
   revokeDevice
 } from "../services/authService.js";
 import { getRemoteAccessStatus } from "../services/remoteAccessService.js";
+import { executeToolCall } from "../services/agentTools.js";
+import {
+  addMovieFolder,
+  getMovieLibrary,
+  movieFilePath,
+  moviePosterPath,
+  movieSubtitlesVtt,
+  removeMovieFolder,
+  rescanMovies
+} from "../services/movieLibraryService.js";
+import { listServers, saveServers } from "../services/serverListService.js";
 import { getAllApps, getAppById } from "../services/appRegistry.js";
 import { addAppMessage } from "../services/appMessageService.js";
 import { connectApp, getOrchestratorStatus } from "../services/orchestrator.js";
@@ -578,6 +589,68 @@ router.post("/apps/music-app/playlists/:playlistName/tracks", (req, res) => {
   handleProjectAction(res, () =>
     addTrackToPlaylist({ playlistName: req.params.playlistName, trackId: req.body?.trackId, trackName: req.body?.trackName })
   );
+});
+
+/* "Play on PC" from the phone: the same path as Jarvis's control_music. */
+router.post("/apps/music-app/command", async (req, res) => {
+  const result = await executeToolCall(
+    "control_music",
+    { action: req.body?.action, playlistName: req.body?.playlistName, artistName: req.body?.artistName },
+    { origin: { type: "user", device: req.auth?.device } }
+  );
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+/* Movie library on the PC (mobile architecture 5.6). The phone reads and
+   streams; adding folders and rescanning are desktop-only. */
+
+function movieRoute(res, action) {
+  try {
+    res.json({ ok: true, ...action() });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "MOVIE_ERROR", message: error.message });
+  }
+}
+
+router.get("/apps/movie-app/library", (req, res) => movieRoute(res, getMovieLibrary));
+router.post("/apps/movie-app/folders", (req, res) => movieRoute(res, () => addMovieFolder(req.body?.path)));
+router.post("/apps/movie-app/folders/remove", (req, res) => movieRoute(res, () => removeMovieFolder(req.body?.path)));
+router.post("/apps/movie-app/rescan", (req, res) => movieRoute(res, rescanMovies));
+
+function sendMovieFile(res, resolve, options = {}) {
+  let filePath;
+  try {
+    filePath = resolve();
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "MOVIE_ERROR", message: error.message });
+    return;
+  }
+  // sendFile answers Range requests, so players can seek.
+  res.sendFile(filePath, options, (error) => {
+    if (error && !res.headersSent) res.status(500).json({ ok: false, code: "MOVIE_STREAM_FAILED", message: "Could not stream the file." });
+  });
+}
+
+router.get("/apps/movie-app/stream/:movieId", (req, res) => sendMovieFile(res, () => movieFilePath(req.params.movieId)));
+router.get("/apps/movie-app/poster/:movieId", (req, res) =>
+  sendMovieFile(res, () => moviePosterPath(req.params.movieId), { maxAge: "1d" })
+);
+router.get("/apps/movie-app/subtitles/:movieId", (req, res) => {
+  try {
+    res.type("text/vtt").send(movieSubtitlesVtt(req.params.movieId, req.query.index));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "MOVIE_ERROR", message: error.message });
+  }
+});
+
+/* Server Manager's list (mobile architecture 5.7). The phone only reads it. */
+router.get("/apps/server-manager-app/servers", (req, res) => res.json({ ok: true, ...listServers() }));
+router.put("/apps/server-manager-app/servers", (req, res) => {
+  try {
+    res.json({ ok: true, ...saveServers(req.body?.servers) });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "SERVERS_SAVE_FAILED", message: error.message });
+  }
 });
 
 router.get("/apps/drawing-app/files", (req, res) => {

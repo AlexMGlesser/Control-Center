@@ -229,6 +229,70 @@ data class PcFile(
 @Serializable
 data class PcFolder(val path: String, val parent: String? = null, val entries: List<PcFile> = emptyList())
 
+/* Music: saved playlists of files on the PC (control-app/server/services/musicLibraryService.js) */
+
+@Serializable
+data class MusicTrack(val name: String = "", val sourcePath: String? = null)
+
+@Serializable
+data class MusicPlaylist(val name: String, val count: Int = 0, val source: String = "", val tracks: List<MusicTrack> = emptyList())
+
+@Serializable
+data class MusicPlaylistsResponse(val playlists: List<MusicPlaylist> = emptyList())
+
+@Serializable
+data class MusicCommandRequest(val action: String, val playlistName: String? = null)
+
+/* Movies (control-app/server/services/movieLibraryService.js) */
+
+@Serializable
+data class MovieSubtitle(val index: Int = 0, val label: String = "Subtitles")
+
+@Serializable
+data class MovieInfo(
+    val id: String,
+    val title: String,
+    val fileName: String = "",
+    val container: String = "",
+    val size: Long = 0,
+    val hasPoster: Boolean = false,
+    val subtitles: List<MovieSubtitle> = emptyList()
+)
+
+@Serializable
+data class MovieFolder(val path: String, val missing: Boolean = false)
+
+@Serializable
+data class MovieLibrary(val folders: List<MovieFolder> = emptyList(), val movies: List<MovieInfo> = emptyList())
+
+/* Server Manager (control-app/server/services/serverListService.js) */
+
+@Serializable
+data class SshInfo(val host: String = "", val username: String = "", val port: Int = 22)
+
+@Serializable
+data class ServerInfo(val id: String, val name: String = "Server", val environment: String = "", val ssh: SshInfo = SshInfo())
+
+@Serializable
+data class ServersResponse(val servers: List<ServerInfo> = emptyList())
+
+/* Drawing (control-app/server/services/drawingFileService.js) */
+
+@Serializable
+data class DrawingSummary(val id: Long, val name: String = "Drawing", val mode: String = "2d", val updatedAt: String = "")
+
+@Serializable
+data class DrawingsResponse(val files: List<DrawingSummary> = emptyList())
+
+@Serializable
+data class DrawingContent(val imageDataUrl: String? = null, val objects: List<JsonObject> = emptyList())
+
+@Serializable
+data class DrawingFile(val id: Long, val name: String = "", val mode: String = "2d", val content: DrawingContent = DrawingContent())
+
+@Serializable
+data class DrawingResponse(val file: DrawingFile)
+
 /* Projects (control-app/server/services/projectService.js) */
 
 @Serializable

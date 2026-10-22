@@ -36,7 +36,11 @@ data class AppSettings(
     /** Minutes before an event starts: 0 (at start), 5, 10, 15 or 30. */
     val remindMinutes: Int = 0,
     /** Ask for fingerprint or screen lock before showing the PC's files. */
-    val lockFileSystem: Boolean = true
+    val lockFileSystem: Boolean = true,
+    /** Music plays on the PC's speakers (remote control) instead of the phone. */
+    val musicOnPc: Boolean = false,
+    /** Ask before streaming a movie over mobile data. */
+    val warnMobileData: Boolean = true
 )
 
 sealed interface SessionState {
@@ -65,7 +69,9 @@ class SessionStore(private val context: Context) {
             firstRunDone = prefs[FIRST_RUN_DONE] ?: false,
             calendarReminders = prefs[CALENDAR_REMINDERS] ?: true,
             remindMinutes = prefs[REMIND_MINUTES] ?: 0,
-            lockFileSystem = prefs[LOCK_FILE_SYSTEM] ?: true
+            lockFileSystem = prefs[LOCK_FILE_SYSTEM] ?: true,
+            musicOnPc = prefs[MUSIC_ON_PC] ?: false,
+            warnMobileData = prefs[WARN_MOBILE_DATA] ?: true
         )
     }
 
@@ -115,6 +121,8 @@ class SessionStore(private val context: Context) {
             prefs[CALENDAR_REMINDERS] = updated.calendarReminders
             prefs[REMIND_MINUTES] = updated.remindMinutes
             prefs[LOCK_FILE_SYSTEM] = updated.lockFileSystem
+            prefs[MUSIC_ON_PC] = updated.musicOnPc
+            prefs[WARN_MOBILE_DATA] = updated.warnMobileData
         }
     }
 
@@ -146,5 +154,7 @@ class SessionStore(private val context: Context) {
         val CALENDAR_REMINDERS = booleanPreferencesKey("calendar_reminders")
         val REMIND_MINUTES = intPreferencesKey("remind_minutes")
         val LOCK_FILE_SYSTEM = booleanPreferencesKey("lock_file_system")
+        val MUSIC_ON_PC = booleanPreferencesKey("music_on_pc")
+        val WARN_MOBILE_DATA = booleanPreferencesKey("warn_mobile_data")
     }
 }

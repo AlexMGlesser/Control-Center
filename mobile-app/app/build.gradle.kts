@@ -58,5 +58,11 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.mlkit.barcode.scanning)
 
+    // Music and Movies: streaming from the PC, background playback, lock-screen controls.
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.session)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.datasource.okhttp)
+
     testImplementation(libs.junit)
 }

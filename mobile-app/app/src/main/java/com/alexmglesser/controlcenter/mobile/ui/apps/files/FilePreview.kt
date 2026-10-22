@@ -9,7 +9,6 @@ import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,7 +29,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -38,10 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -56,6 +51,8 @@ import com.alexmglesser.controlcenter.mobile.data.api.PcFile
 import com.alexmglesser.controlcenter.mobile.ui.components.AppTopBar
 import com.alexmglesser.controlcenter.mobile.ui.components.NeonButton
 import com.alexmglesser.controlcenter.mobile.ui.components.Note
+import com.alexmglesser.controlcenter.mobile.ui.components.RemoteImages
+import com.alexmglesser.controlcenter.mobile.ui.components.ZoomableBitmap
 import com.alexmglesser.controlcenter.mobile.ui.components.formatBytes
 import com.alexmglesser.controlcenter.mobile.ui.theme.CC
 import kotlinx.coroutines.Dispatchers
@@ -138,43 +135,13 @@ private fun ImagePreview(file: PcFile) {
         value = runCatching {
             if ((file.size ?: 0) > IMAGE_MAX_BYTES) error("This image is too big to preview. Use Download.")
             val bytes = context.appContainer.api.fileHead(file.path, IMAGE_MAX_BYTES)
-            withContext(Dispatchers.Default) { decodeSampled(bytes, maxSide * 2) } ?: error("Android can't show this image type. Use Download.")
+            withContext(Dispatchers.Default) { RemoteImages.decodeSampled(bytes, maxSide * 2) } ?: error("Android can't show this image type. Use Download.")
         }
     }
     val result = bitmap ?: return Note("Loading…")
     val image = result.getOrElse { return Note(it.message ?: "Couldn't load the image.") }
 
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    Image(
-        bitmap = image.asImageBitmap(),
-        contentDescription = file.name,
-        contentScale = ContentScale.Fit,
-        modifier = Modifier
-            .fillMaxSize()
-            .background(CC.bgPrimary)
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 8f)
-                    offset = if (scale == 1f) Offset.Zero else offset + pan
-                }
-            }
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                translationX = offset.x
-                translationY = offset.y
-            }
-    )
-}
-
-private fun decodeSampled(bytes: ByteArray, maxSide: Int): Bitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    if (bounds.outWidth <= 0) return null
-    var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    ZoomableBitmap(image, file.name)
 }
 
 /** Android's own PDF renderer, one page at a time as they scroll into view. */

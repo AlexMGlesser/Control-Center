@@ -37,6 +37,7 @@ object Notifications {
     const val NAVIGATE_CHAT = "chat"
     const val NAVIGATE_SETTINGS = "settings"
     const val NAVIGATE_CALENDAR = "app:calendar-app"
+    const val NAVIGATE_MUSIC = "app:music-app"
     const val REPLY_KEY = "jarvis_reply"
 
     private val ACCENT = 0xFF00F0FF.toInt()

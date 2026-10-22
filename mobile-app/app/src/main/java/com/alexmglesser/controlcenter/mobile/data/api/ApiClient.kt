@@ -77,6 +77,45 @@ class ApiClient(private val sessionStore: SessionStore) {
         send("POST", "/api/alarms/$alarmId/stop", "{}") { }
     }
 
+    /* Music */
+
+    suspend fun musicPlaylists(): List<MusicPlaylist> =
+        get("/api/apps/music-app/playlists") { json.decodeFromString(MusicPlaylistsResponse.serializer(), it).playlists }
+
+    /** "Play on PC": play-pause, next, prev or play-playlist. */
+    suspend fun musicCommand(action: String, playlistName: String? = null) {
+        val body = json.encodeToString(MusicCommandRequest.serializer(), MusicCommandRequest(action, playlistName))
+        send("POST", "/api/apps/music-app/command", body) { }
+    }
+
+    fun musicTrackPath(sourcePath: String): String = "/api/apps/music-app/local-file?path=${encode(sourcePath)}"
+
+    /* Movies */
+
+    suspend fun movieLibrary(): MovieLibrary = get("/api/apps/movie-app/library") { json.decodeFromString(MovieLibrary.serializer(), it) }
+
+    fun movieStreamPath(id: String): String = "/api/apps/movie-app/stream/${encode(id)}"
+
+    fun movieSubtitlesPath(id: String, index: Int): String = "/api/apps/movie-app/subtitles/${encode(id)}?index=$index"
+
+    /* Server Manager */
+
+    suspend fun servers(): List<ServerInfo> =
+        get("/api/apps/server-manager-app/servers") { json.decodeFromString(ServersResponse.serializer(), it).servers }
+
+    /* Drawing */
+
+    suspend fun drawings(): List<DrawingSummary> =
+        get("/api/apps/drawing-app/files") { json.decodeFromString(DrawingsResponse.serializer(), it).files }
+
+    suspend fun drawing(id: Long): DrawingFile =
+        get("/api/apps/drawing-app/files/$id") { json.decodeFromString(DrawingResponse.serializer(), it).file }
+
+    /** Raw bytes of any authorized GET (posters and the like). */
+    suspend fun bytes(path: String): ByteArray = withContext(Dispatchers.IO) {
+        callForBody(authorizedRequest(requireSession(), path).get().build()) { it.bytes() }
+    }
+
     /* Calendar */
 
     suspend fun calendarEvents(startIso: String, endIso: String): List<CalendarEvent> =

@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
             Notifications.NAVIGATE_CHAT -> viewModel.selectTab(Tab.JARVIS)
             Notifications.NAVIGATE_SETTINGS -> viewModel.selectTab(Tab.SETTINGS)
             Notifications.NAVIGATE_CALENDAR -> viewModel.openApp("calendar-app")
+            Notifications.NAVIGATE_MUSIC -> viewModel.openApp("music-app")
         }
     }
 }

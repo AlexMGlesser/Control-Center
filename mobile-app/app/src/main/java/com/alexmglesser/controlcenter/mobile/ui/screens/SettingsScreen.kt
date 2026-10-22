@@ -138,6 +138,18 @@ fun SettingsScreen(
                 settings.lockFileSystem
             ) { checked -> onUpdate { it.copy(lockFileSystem = checked) } }
 
+            SectionLabel("Music & movies")
+            ToggleRow(
+                "Play music on the PC",
+                "Off: music plays on this phone. On: the phone is a remote for the PC's speakers.",
+                settings.musicOnPc
+            ) { checked -> onUpdate { it.copy(musicOnPc = checked) } }
+            ToggleRow(
+                "Warn before movies on mobile data",
+                "Movies use 2 to 4 GB an hour.",
+                settings.warnMobileData
+            ) { checked -> onUpdate { it.copy(warnMobileData = checked) } }
+
             SectionLabel("About")
             InfoRow("App", BuildConfigInfo.versionName(context))
 
