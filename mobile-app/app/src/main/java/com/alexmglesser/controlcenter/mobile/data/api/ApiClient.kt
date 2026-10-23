@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Dispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -34,8 +35,24 @@ class ApiClient(private val sessionStore: SessionStore) {
     /** For calls the PC may take minutes on, and whole-file downloads. */
     val slowHttp: OkHttpClient = http.newBuilder().readTimeout(160, TimeUnit.SECONDS).build()
 
-    /** For the event stream: no read timeout (the stream has its own heartbeat watchdog). */
-    val streamHttp: OkHttpClient = http.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
+    /**
+     * For music and movies. Media3 queues its requests on an OkHttp
+     * dispatcher, which allows only 5 per host at once, and a loaded song or
+     * movie keeps its request open. On a dispatcher of their own they can't
+     * use up the slots the event stream needs.
+     */
+    val mediaHttp: OkHttpClient = slowHttp.newBuilder()
+        .dispatcher(Dispatcher().apply { maxRequestsPerHost = 16 })
+        .build()
+
+    /**
+     * For the event stream: its own dispatcher, so nothing else can leave it
+     * waiting in a queue, and no read timeout (it has its own heartbeat watchdog).
+     */
+    val streamHttp: OkHttpClient = http.newBuilder()
+        .dispatcher(Dispatcher())
+        .readTimeout(0, TimeUnit.SECONDS)
+        .build()
 
     /** Called when the PC rejects our token, i.e. this device was removed there. */
     var onUnauthorized: () -> Unit = {}

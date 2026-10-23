@@ -1001,10 +1001,14 @@ router.get("/events/stream", (req, res) => {
     }
   };
 
-  send(`data: ${JSON.stringify({ type: "snapshot", events: getRecentEvents(15) })}\n\n`);
+  // Remote devices don't show the PC's console log, so it isn't sent to them.
+  const remote = req.auth?.scope === "remote";
+  const wanted = (event) => !(remote && event.source === "console");
+
+  send(`data: ${JSON.stringify({ type: "snapshot", events: getRecentEvents(15).filter(wanted) })}\n\n`);
 
   const unsubscribe = subscribeToEvents((event) => {
-    send(`data: ${JSON.stringify({ type: "event", event })}\n\n`);
+    if (wanted(event)) send(`data: ${JSON.stringify({ type: "event", event })}\n\n`);
   });
 
   // Heartbeat: lets a phone tell a quiet connection from a dead one.

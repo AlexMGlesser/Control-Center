@@ -122,6 +122,38 @@ describe("server manager list", () => {
   });
 });
 
+describe("event stream for remote devices", () => {
+  test("carries app events but not the PC's console log", async () => {
+    const { publishEvent } = await import("../server/services/eventBus.js");
+    const controller = new AbortController();
+    const res = await fetch(`${baseUrl}/api/events/stream`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+    assert.equal(res.status, 200);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    // A read still pending when a wait times out is carried over, not dropped.
+    let pendingRead = null;
+    const readFor = async (ms) => {
+      const until = Date.now() + ms;
+      while (Date.now() < until) {
+        pendingRead ??= reader.read();
+        const chunk = await Promise.race([pendingRead, new Promise((resolve) => setTimeout(() => resolve(null), until - Date.now()))]);
+        if (!chunk) break;
+        pendingRead = null;
+        if (chunk.done) break;
+        text += decoder.decode(chunk.value, { stream: true });
+      }
+    };
+    await readFor(200);
+    console.log("console line that phones should not get");
+    publishEvent({ source: "test", appId: "calendar-app", type: "data-changed", message: "Calendar changed." });
+    await readFor(300);
+    controller.abort();
+    assert.ok(text.includes("Calendar changed."));
+    assert.ok(!text.includes("console line that phones should not get"));
+  });
+});
+
 describe("music on the PC from the phone", () => {
   test("valid commands go through; bad ones are refused", async () => {
     const good = await call("/apps/music-app/command", { method: "POST", phone: true, body: { action: "play-pause" } });

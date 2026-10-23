@@ -29,7 +29,7 @@ object AuthMedia {
     @OptIn(UnstableApi::class)
     fun dataSourceFactory(context: Context): DataSource.Factory {
         val container = context.applicationContext.appContainer
-        val upstream = OkHttpDataSource.Factory(container.api.slowHttp)
+        val upstream = OkHttpDataSource.Factory(container.api.mediaHttp)
         return ResolvingDataSource.Factory(upstream) { spec ->
             val token = container.sessionStore.currentSession()?.token
             if (token == null) spec else spec.withAdditionalHeaders(mapOf("Authorization" to "Bearer $token"))

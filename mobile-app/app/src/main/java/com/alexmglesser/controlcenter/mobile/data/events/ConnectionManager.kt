@@ -13,6 +13,7 @@ import com.alexmglesser.controlcenter.mobile.data.api.StreamMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -145,10 +146,16 @@ class ConnectionManager(
         var watchdog: Job? = null
         var source: EventSource? = null
 
+        // The watchdog and OkHttp's callbacks run on different threads and can
+        // both end the stream at once; only the first may resume. (Checking
+        // cont.isActive first wasn't enough: two threads could both pass it,
+        // and the second resume crashed the app.)
+        val finished = AtomicBoolean(false)
         fun finish(result: StreamResult) {
+            if (!finished.compareAndSet(false, true)) return
             watchdog?.cancel()
             source?.cancel()
-            if (cont.isActive) cont.resume(result)
+            cont.resume(result)
         }
 
         val listener = object : EventSourceListener() {
@@ -183,12 +190,19 @@ class ConnectionManager(
         source = EventSources.createFactory(api.streamHttp).newEventSource(request, listener)
 
         // A stream that goes quiet past the heartbeat interval is dead even if
-        // the socket hasn't noticed yet (e.g. the PC lost power).
+        // the socket hasn't noticed yet (e.g. the PC lost power). One that
+        // never opens (stuck connecting or queued) is given up on too, so the
+        // retry loop can't wait forever.
+        val startedAt = now()
         watchdog = scope.launch {
             while (isActive) {
                 delay(5_000)
                 if (connected && now() - lastDataAt > ReconnectPolicy.HEARTBEAT_TIMEOUT_MS) {
                     finish(StreamResult.Ended(true))
+                    break
+                }
+                if (!connected && now() - startedAt > ReconnectPolicy.OPEN_TIMEOUT_MS) {
+                    finish(StreamResult.Ended(false))
                     break
                 }
             }

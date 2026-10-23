@@ -34,6 +34,9 @@ object ReconnectPolicy {
     /** No data (not even a heartbeat) for this long means the stream is dead. */
     const val HEARTBEAT_TIMEOUT_MS = 45_000L
 
+    /** A stream that hasn't opened by now is abandoned and retried. */
+    const val OPEN_TIMEOUT_MS = 20_000L
+
     /** Failures shorter than this are a blip: no alert. */
     const val GRACE_MS = 60_000L
 

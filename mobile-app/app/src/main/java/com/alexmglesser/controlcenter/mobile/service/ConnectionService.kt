@@ -12,6 +12,7 @@ import com.alexmglesser.controlcenter.mobile.appContainer
 import com.alexmglesser.controlcenter.mobile.data.api.ServerEvent
 import com.alexmglesser.controlcenter.mobile.alarm.AlarmRingService
 import com.alexmglesser.controlcenter.mobile.alarm.PhoneAlarms
+import com.alexmglesser.controlcenter.mobile.data.SessionState
 import com.alexmglesser.controlcenter.mobile.data.events.ConnectionState
 import com.alexmglesser.controlcenter.mobile.data.events.OutageNotifier
 import java.time.Instant
@@ -88,10 +89,22 @@ class ConnectionService : Service() {
             }
         }
 
-        container.connection.start()
+        // Start once the pairing is loaded. When Android restarts this service
+        // on its own (after the app was killed), it runs before the saved
+        // session has loaded; starting right away would find no session and
+        // leave the connection idle for good.
+        scope.launch {
+            container.sessionStore.state.collect { state ->
+                if (state is SessionState.Paired) container.connection.start()
+            }
+        }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    /** Every start request (e.g. the app coming to the front) also revives a stopped connection. */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (appContainer.sessionStore.currentSession() != null) appContainer.connection.start()
+        return START_STICKY
+    }
 
     override fun onDestroy() {
         scope.cancel()
