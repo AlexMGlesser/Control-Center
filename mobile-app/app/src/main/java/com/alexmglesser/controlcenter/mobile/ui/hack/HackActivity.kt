@@ -7,13 +7,16 @@ import android.graphics.Typeface
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -21,13 +24,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -44,12 +53,15 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.alexmglesser.controlcenter.mobile.R
 import com.alexmglesser.controlcenter.mobile.ui.theme.CC
 import com.alexmglesser.controlcenter.mobile.ui.theme.ChamferShape
 import com.alexmglesser.controlcenter.mobile.ui.theme.ControlCenterTheme
@@ -61,7 +73,8 @@ import kotlin.random.Random
 
 /**
  * "Hack the mainframe": a full screen of movie-style hacker panels. Purely
- * for show; it does nothing and talks to nothing. Tap or Back to leave.
+ * for show; it does nothing and talks to nothing. Tap a panel to make it
+ * the big one; the arrow (or Back) leaves.
  */
 class HackActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,6 +101,40 @@ class HackActivity : ComponentActivity() {
 private val GREEN = Color(0xFF39FF9C)
 private val PanelShape = ChamferShape(8.dp)
 
+private val HEADER_HEIGHT = 44.dp
+private val GAP = 8.dp
+
+/** Where one panel sits, inside the area under the header. */
+private data class Slot(val x: Dp, val y: Dp, val width: Dp, val height: Dp)
+
+/**
+ * The even grid when nothing is focused; otherwise the focused panel takes
+ * most of the screen and the rest line up beside it (landscape) or under it.
+ */
+private fun slotFor(index: Int, focused: Int?, landscape: Boolean, width: Dp, height: Dp): Slot {
+    if (focused == null) {
+        val columns = if (landscape) 3 else 2
+        val rows = 6 / columns
+        val cellWidth = (width - GAP * (columns - 1)) / columns
+        val cellHeight = (height - GAP * (rows - 1)) / rows
+        return Slot((cellWidth + GAP) * (index % columns), (cellHeight + GAP) * (index / columns), cellWidth, cellHeight)
+    }
+    val mainShare = 0.74f
+    if (index == focused) {
+        return if (landscape) Slot(0.dp, 0.dp, width * mainShare, height) else Slot(0.dp, 0.dp, width, height * mainShare)
+    }
+    val order = (0 until 6).filter { it != focused }.indexOf(index)
+    return if (landscape) {
+        val x = width * mainShare + GAP
+        val stripHeight = (height - GAP * 4) / 5
+        Slot(x, (stripHeight + GAP) * order, width - x, stripHeight)
+    } else {
+        val y = height * mainShare + GAP
+        val stripWidth = (width - GAP * 4) / 5
+        Slot((stripWidth + GAP) * order, y, stripWidth, height - y)
+    }
+}
+
 @Composable
 private fun HackScreen(onExit: () -> Unit) {
     // One clock for every panel. Panels read it while drawing, so each frame
@@ -98,31 +145,49 @@ private fun HackScreen(onExit: () -> Unit) {
     }
     val clock = { now }
 
+    // The panel tapped into the big spot; null is the even grid. Back
+    // returns to the grid first, then leaves.
+    var focused by rememberSaveable { mutableStateOf<Int?>(null) }
+    BackHandler(enabled = focused != null) { focused = null }
+
+    val panels: List<Pair<String, @Composable (Modifier) -> Unit>> = listOf(
+        "DECRYPT//STREAM" to { m -> MatrixRain(clock, m) },
+        "PAYLOAD.C" to { m -> CodeTyper(clock, m) },
+        "MEM 0x7FFA0000" to { m -> HexDump(clock, m) },
+        "NODE TRACE" to { m -> Radar(clock, m) },
+        "INTRUSION" to { m -> Progress(clock, m) },
+        "SIGNAL" to { m -> Scope(clock, m) }
+    )
+
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(Color(0xFF020306))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onExit)
             .padding(8.dp)
     ) {
         val landscape = maxWidth > maxHeight
-        val panels: List<Pair<String, @Composable (Modifier) -> Unit>> = listOf(
-            "DECRYPT//STREAM" to { m -> MatrixRain(clock, m) },
-            "PAYLOAD.C" to { m -> CodeTyper(clock, m) },
-            "MEM 0x7FFA0000" to { m -> HexDump(clock, m) },
-            "NODE TRACE" to { m -> Radar(clock, m) },
-            "INTRUSION" to { m -> Progress(clock, m) },
-            "SIGNAL" to { m -> Scope(clock, m) }
-        )
-        Column(Modifier.fillMaxSize()) {
-            Header(clock)
-            val columns = if (landscape) 3 else 2
-            panels.chunked(columns).forEach { row ->
-                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { (title, content) -> Panel(title, Modifier.weight(1f)) { content(Modifier.fillMaxSize()) } }
-                }
-                Box(Modifier.padding(top = 8.dp))
+        val areaHeight = maxHeight - HEADER_HEIGHT - GAP
+        Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onExit) {
+                Icon(painterResource(R.drawable.ic_arrow_left), contentDescription = "Exit", tint = CC.cyan)
             }
+            Header(clock, Modifier.weight(1f))
+        }
+        panels.forEachIndexed { index, (title, content) ->
+            val slot = slotFor(index, focused, landscape, maxWidth, areaHeight)
+            val motion = tween<Dp>(durationMillis = 380, easing = FastOutSlowInEasing)
+            val x by animateDpAsState(slot.x, motion, label = "x$index")
+            val y by animateDpAsState(slot.y, motion, label = "y$index")
+            val width by animateDpAsState(slot.width, motion, label = "w$index")
+            val height by animateDpAsState(slot.height, motion, label = "h$index")
+            Panel(
+                title = title,
+                selected = focused == index,
+                onClick = { focused = if (focused == index) null else index },
+                modifier = Modifier
+                    .offset(x, y + HEADER_HEIGHT + GAP)
+                    .size(width, height)
+            ) { content(Modifier.fillMaxSize()) }
         }
         AccessGranted(clock, Modifier.align(Alignment.Center))
     }
@@ -133,15 +198,15 @@ private fun HackScreen(onExit: () -> Unit) {
 /* ------------------------------------------------------------------ */
 
 @Composable
-private fun Panel(title: String, modifier: Modifier, content: @Composable () -> Unit) {
+private fun Panel(title: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
     Column(
         modifier
-            .fillMaxSize()
-            .border(1.dp, CC.cyan.copy(alpha = 0.45f), PanelShape)
+            .border(1.dp, if (selected) CC.magenta else CC.cyan.copy(alpha = 0.45f), PanelShape)
             .background(Color(0xFF05080F), PanelShape)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
             .padding(6.dp)
     ) {
-        Text("▌$title", color = CC.magenta, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        Text("▌$title", color = CC.magenta, fontSize = 10.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) { content() }
     }
 }
@@ -171,10 +236,10 @@ private fun DrawScope.text(paint: Paint, value: String, x: Float, y: Float, alph
 /* ------------------------------------------------------------------ */
 
 @Composable
-private fun Header(clock: () -> Long) {
+private fun Header(clock: () -> Long, modifier: Modifier) {
     val paint = monoPaint(13f, CC.cyan)
     val dim = monoPaint(10f, CC.textSecondary)
-    Canvas(Modifier.fillMaxWidth().padding(bottom = 6.dp).height(34.dp)) {
+    Canvas(modifier.height(34.dp)) {
         val t = clock()
         val dots = ".".repeat(((t / 400) % 4).toInt())
         val stage = listOf("ACCESSING MAINFRAME", "ROUTING THROUGH 7 PROXIES", "ESCALATING PRIVILEGES", "OVERRIDING SECURITY GRID")[((t / 4000) % 4).toInt()]
