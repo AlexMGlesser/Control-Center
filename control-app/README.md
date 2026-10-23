@@ -78,7 +78,7 @@ All routes are in `server/routes/api.js`. The phone's view of them is in
 
     npm test
 
-Runs `tests/**/*.test.mjs` (auth, devices, alarms, files, projects, media)
+Runs `tests/**/*.test.mjs` (auth, devices, alarms, files, projects, media, process check, phone-only apps)
 against a server on a random port, with state in a temp folder.
 
 ## Notes

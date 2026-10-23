@@ -43,6 +43,25 @@ Tailscale network.
 | Server Manager | Server list, SSH from the PC | List and Open SSH in an Android SSH app |
 | Wikipedia | Offline search and articles | Same, through the PC |
 | File System | Hand-tracking file explorer | Read-only browsing of the whole PC: previews, download, share; behind a fingerprint lock |
+| Hack the mainframe | — | Just for fun: a full-screen fake hacker console with six animated panels (tap one to make it the big one). Built into the phone, works offline |
+
+### Things to ask Jarvis
+
+Besides answering questions with the apps' data (schedule, news, music,
+projects, Wikipedia), Jarvis can:
+
+- set alarms and timers ("set an alarm in 30 seconds"), which ring on the
+  device you asked from
+- open and close apps (from the phone, they open on the phone)
+- control music on the PC
+- run a **process check**: it lists the PC's running processes into a
+  temporary log, looks for common malware signs (system process names in
+  the wrong place, look-alike names, hidden or download-and-run script
+  commands, unsigned programs in Temp or Downloads), reports anything worth
+  a look or "All processes normal", and deletes the log. These are warning
+  signs, not proof; without admin rights Windows hides some processes'
+  paths, so those are checked by name only
+- "hack the mainframe" (from the phone)
 
 ## Running it
 
@@ -58,7 +77,8 @@ Needs [Node.js](https://nodejs.org) and [Ollama](https://ollama.com) with
 `control-app/.env.example`. See [`control-app/README.md`](control-app/README.md)
 for the details and the Windows build.
 
-Tests: `npm test` in `control-app/`.
+Tests: `npm test` in `control-app/` (server, security and Jarvis-tool tests). The phone app
+builds and runs Android lint with `gradlew assembleDebug lintDebug` in `mobile-app/`.
 
 ## Using it away from home
 
