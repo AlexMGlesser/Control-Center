@@ -410,7 +410,8 @@ export async function executeToolCall(toolName, args = {}, context = {}) {
           message: `Agent opened ${name} on ${remoteDevice.name}.`,
           meta: { target: phoneApp, label: name, targetDeviceId: remoteDevice.id }
         });
-        return ok({ target: phoneApp, label: name, targetDeviceId: remoteDevice.id, event: eventResult.event });
+        // Say where it opened, so the reply doesn't guess "on your PC".
+        return ok({ target: phoneApp, label: name, openedOn: `the phone (${remoteDevice.name})`, targetDeviceId: remoteDevice.id, event: eventResult.event });
       }
 
       const result = await openSingleApp(target, { targetDevice: remoteDevice });
@@ -807,7 +808,7 @@ async function openSingleApp(target, { targetDevice = null } = {}) {
       message: `Agent opened ${label} on ${targetDevice.name}.`,
       meta: { target, tab, label, targetDeviceId: targetDevice.id }
     });
-    return { ok: true, target, tab, label, targetDeviceId: targetDevice.id, event: eventResult.event };
+    return { ok: true, target, tab, label, openedOn: `the ${targetDevice.kind || "device"} (${targetDevice.name})`, targetDeviceId: targetDevice.id, event: eventResult.event };
   }
 
   let nativeLaunch = null;

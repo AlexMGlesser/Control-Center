@@ -25,6 +25,7 @@ describe("Hack the mainframe", () => {
     unsubscribe();
     assert.equal(result.ok, true);
     assert.equal(result.target, "hack-mainframe");
+    assert.match(result.openedOn, /phone/);
     const opened = events.find((event) => event.type === "open-app");
     assert.equal(opened.meta.target, "hack-mainframe");
     assert.equal(opened.meta.targetDeviceId, "dev_phone");

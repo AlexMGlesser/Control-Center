@@ -2,13 +2,13 @@
 
 A personal hub that runs on a home PC: a desktop app with its own apps
 (calendar, music, movies, projects and more) and a local AI assistant,
-Jarvis. The phone app reaches all of it from anywhere, over a private
-Tailscale network.
+Jarvis. The phone app and the laptop app (Control Center Remote) reach all
+of it from anywhere, over a private Tailscale network.
 
 ```
  Phone (Android app) ──┐
                        │  Tailscale (private network, HTTPS)
- Laptop (coming next) ─┤
+ Laptop (Remote app) ──┤
                        ▼
  Home PC: Control Center (Electron + Express on 127.0.0.1:3100)
    ├─ Jarvis: local AI agent on Ollama (qwen3.5:9b), with tools for the apps
@@ -23,6 +23,7 @@ Tailscale network.
 |---|---|
 | [`control-app/`](control-app/) | The desktop app: Electron window, Express server, Jarvis, tests |
 | [`mobile-app/`](mobile-app/) | Control Center Mobile, the native Android app (Kotlin, Jetpack Compose) |
+| [`desktop-client/`](desktop-client/) | Control Center Remote, for a laptop or another desktop (Windows and Linux): the phone app's features, with install and start scripts |
 | `project-app/`, `calendar-app/`, `news-app/`, `music-app/`, `movie-app/`, `drawing-app/`, `server-manager-app/` | The desktop apps' windows |
 | [`wikipedia-app/`](wikipedia-app/) | Offline Wikipedia: a Python "librarian" server over a local archive (the archive itself stays where it is) |
 | [`file-system-app/`](file-system-app/) | Hand-tracking file explorer and gesture recorder (Python, PC only) |
@@ -82,15 +83,18 @@ builds and runs Android lint with `gradlew assembleDebug lintDebug` in `mobile-a
 
 ## Using it away from home
 
-1. Install [Tailscale](https://tailscale.com) on the PC and the phone, signed
-   in to the same account.
+1. Install [Tailscale](https://tailscale.com) on the PC and on your phone or
+   laptop, signed in to the same account.
 2. On the PC: `tailscale serve --bg 3100`. This publishes Control Center at
    `https://<pc-name>.<tailnet>.ts.net`, reachable only by your own devices.
 3. In Control Center: Settings > Devices > **Pair a device**, then scan the QR
-   code with the phone app.
+   code with the phone app, or enter the address and code in Control Center
+   Remote on a laptop.
 
 Build and install the phone app from `mobile-app/` with Android Studio, or
-`gradlew assembleDebug` and `adb install`.
+`gradlew assembleDebug` and `adb install`. Install the laptop app with
+`desktop-client/install.ps1` (Windows) or `desktop-client/install.sh` (Linux);
+see [`desktop-client/README.md`](desktop-client/README.md).
 
 ## Security in short
 

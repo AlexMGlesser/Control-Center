@@ -276,7 +276,7 @@ function renderDevicesCard() {
       <div class="pairing-panel">
         <div class="pairing-qr">${pairing.qrSvg}</div>
         <div class="stack">
-          <p>Scan this with the Control Center app on your phone.</p>
+          <p>Scan this with the Control Center app on your phone. On a laptop, enter the address and code in Control Center Remote.</p>
           <p class="pairing-code">${escapeHtml(pairing.code.replace(/(.{4})/, "$1 "))}</p>
           <p class="muted">Or enter the code manually. Expires in <span id="pairing-countdown"></span>.</p>
           ${pairing.url ? `<p class="muted">Address: ${escapeHtml(pairing.url)}</p>` : `<p class="status wip">Remote access isn't set up yet, so the phone won't be able to connect. See the checklist above.</p>`}
@@ -288,7 +288,7 @@ function renderDevicesCard() {
   return `
     <article class="card stack" id="devices-card">
       <h3>Devices</h3>
-      <p class="muted">Phones paired here can use Control Center from anywhere over Tailscale.</p>
+      <p class="muted">Phones and laptops paired here can use Control Center from anywhere over Tailscale.</p>
       ${access?.nextStep ? `<p class="status wip">Next step: ${escapeHtml(access.nextStep)}</p>` : ""}
       ${checklist ? `<ul class="list">${checklist}</ul>` : ""}
       <h4>Paired devices</h4>

@@ -1,0 +1,3 @@
+
+# Linux scripts must keep LF line endings.
+desktop-client/*.sh text eol=lf
