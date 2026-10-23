@@ -91,6 +91,13 @@
             </intent-filter>
         </service>
 
+        <!-- "Hack the mainframe": full-screen fake hacker panels, purely for fun. -->
+        <activity
+            android:name=".ui.hack.HackActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:theme="@style/Theme.ControlCenter" />
+
         <!-- Full-screen movie playback; rotation doesn't restart it. -->
         <activity
             android:name=".media.MoviePlayerActivity"

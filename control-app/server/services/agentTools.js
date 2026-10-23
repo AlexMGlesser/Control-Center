@@ -63,6 +63,16 @@ const NATIVE_PROCESS_APPS = {
 const SYSTEM_TABS = ["overview", "settings", "chatbot", "event-bus", "agent-core", "integration-hub"];
 
 // JSON-schema tool definitions in Ollama's native function-calling format.
+// Apps that only exist in the phone app (not in the PC's registry). Jarvis
+// can open them when asked from the phone.
+const PHONE_ONLY_APPS = {
+  "hack-mainframe": { name: "Hack the mainframe", aliases: ["hack the mainframe", "hack-the-mainframe", "mainframe", "hack"] }
+};
+
+function phoneOnlyApp(target) {
+  return Object.entries(PHONE_ONLY_APPS).find(([id, app]) => id === target || app.aliases.includes(target))?.[0] || null;
+}
+
 export const TOOL_DEFINITIONS = [
   tool("get_system_state", "Get Control Center system runtime state (Ollama connection, mode, orchestrator).", {}),
   tool("list_apps", "List all registered apps.", {}),
@@ -70,7 +80,7 @@ export const TOOL_DEFINITIONS = [
   tool(
     "open_app",
     `Open an app tab or system tab in the Control Center UI. Only call this when the user explicitly asks to open, show or launch an app ("open the calendar"). Never use it to answer a question: for "what do I have scheduled?" read the calendar tools and answer in your reply, without opening anything. This opens exactly ONE target per call. If the user names two or more SPECIFIC apps ("open calendar and music"), call this once per named app — do NOT use target "all" for that, it is not a shortcut for "several." Only use target "all" when the user asks for literally every app / everything, with no specific apps named.`,
-    { target: { type: "string", description: `One of: ${[...SYSTEM_TABS, ...WINDOW_APPS].join(", ")}, or "all" — but ONLY "all" when the user did not name specific apps. file-system-app is the gesture-controlled "file system" / "file explorer" (formerly called the "hand tracker"; it turns on the webcam).` } },
+    { target: { type: "string", description: `One of: ${[...SYSTEM_TABS, ...WINDOW_APPS].join(", ")}, or "all" — but ONLY "all" when the user did not name specific apps. file-system-app is the gesture-controlled "file system" / "file explorer" (formerly called the "hand tracker"; it turns on the webcam). Also "hack-mainframe": the phone app's just-for-fun "Hack the mainframe" screen; it only works when the user asks from their phone.` } },
     ["target"]
   ),
   tool(
@@ -385,6 +395,22 @@ export async function executeToolCall(toolName, args = {}, context = {}) {
         }
         const opened = await Promise.all(WINDOW_APPS.map((appId) => openSingleApp(appId)));
         return ok({ target: "all-apps", opened, count: opened.filter((entry) => entry.ok).length });
+      }
+
+      const phoneApp = phoneOnlyApp(target);
+      if (phoneApp) {
+        const { name } = PHONE_ONLY_APPS[phoneApp];
+        if (remoteDevice?.kind !== "phone") {
+          return fail("PHONE_ONLY_APP", `${name} is only in the phone app. Ask from the phone to open it.`);
+        }
+        const eventResult = publishEvent({
+          appId: "control-center",
+          source: "agent",
+          type: "open-app",
+          message: `Agent opened ${name} on ${remoteDevice.name}.`,
+          meta: { target: phoneApp, label: name, targetDeviceId: remoteDevice.id }
+        });
+        return ok({ target: phoneApp, label: name, targetDeviceId: remoteDevice.id, event: eventResult.event });
       }
 
       const result = await openSingleApp(target, { targetDevice: remoteDevice });

@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alexmglesser.controlcenter.mobile.alarm.PhoneAlarms
 import com.alexmglesser.controlcenter.mobile.notify.CalendarReminders
+import com.alexmglesser.controlcenter.mobile.ui.hack.HackActivity
 import com.alexmglesser.controlcenter.mobile.appContainer
 import com.alexmglesser.controlcenter.mobile.data.AppSettings
 import com.alexmglesser.controlcenter.mobile.data.Session
@@ -190,6 +191,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             "open-app" -> if (event.metaString("targetDeviceId") == myDeviceId) {
+                // The phone's own just-for-fun screen, not one of the PC's apps.
+                if (event.metaString("target") == "hack-mainframe") {
+                    HackActivity.start(getApplication<Application>(), newTask = true)
+                    return
+                }
                 val app = _apps.value.firstOrNull { it.id == event.metaString("target") } ?: return
                 // In the chat, don't jump away: the reply is about to arrive there.
                 // A chip under it opens the app with one tap instead.

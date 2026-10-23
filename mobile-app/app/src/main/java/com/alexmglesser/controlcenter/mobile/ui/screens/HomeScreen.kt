@@ -33,7 +33,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalContext
 import com.alexmglesser.controlcenter.mobile.ui.isWideLayout
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -52,12 +54,16 @@ import com.alexmglesser.controlcenter.mobile.ui.apps.ServersScreen
 import com.alexmglesser.controlcenter.mobile.ui.apps.NewsScreen
 import com.alexmglesser.controlcenter.mobile.ui.apps.WikipediaScreen
 import com.alexmglesser.controlcenter.mobile.ui.apps.files.FilesScreen
+import com.alexmglesser.controlcenter.mobile.ui.hack.HackActivity
 import com.alexmglesser.controlcenter.mobile.ui.projects.ProjectsScreen
 import com.alexmglesser.controlcenter.mobile.ui.theme.CC
 import com.alexmglesser.controlcenter.mobile.ui.theme.TileShape
 import com.alexmglesser.controlcenter.mobile.ui.theme.neonClickable
 
-/** The app grid (design 3.2), built from the PC's app registry. */
+/** Built into the phone, not from the PC: works offline too. Purely for fun. */
+private val HACK_TILE = AppInfo(id = "hack-mainframe", name = "Hack the mainframe", status = "online", icon = "terminal")
+
+/** The app grid (design 3.2), built from the PC's app registry, plus the phone's own tile. */
 @Composable
 fun HomeScreen(
     apps: List<AppInfo>,
@@ -69,38 +75,41 @@ fun HomeScreen(
     animatedScope: AnimatedVisibilityScope
 ) {
     val wide = isWideLayout()
+    val context = LocalContext.current
     PullToRefreshBox(isRefreshing = loading, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
-        if (apps.isEmpty() && !loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    if (online) "No apps yet. Pull down to refresh." else "Can't load your apps while offline.",
-                    color = CC.textSecondary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(24.dp)
-                )
-            }
-            return@PullToRefreshBox
-        }
         LazyVerticalGrid(
             columns = GridCells.Fixed(if (wide) 6 else 3),
             contentPadding = PaddingValues(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .alpha(if (online) 1f else 0.55f)
+            modifier = Modifier.fillMaxSize()
         ) {
+            if (apps.isEmpty() && !loading) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        if (online) "No apps yet. Pull down to refresh." else "Can't load your apps while offline.",
+                        color = CC.textSecondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(24.dp)
+                    )
+                }
+            }
             items(apps, key = { it.id }) { app ->
                 with(sharedScope) {
                     AppTile(
                         app = app,
                         onClick = { onOpen(app) },
-                        modifier = Modifier.sharedBounds(
-                            rememberSharedContentState(key = "app-${app.id}"),
-                            animatedVisibilityScope = animatedScope
-                        )
+                        modifier = Modifier
+                            .alpha(if (online) 1f else 0.55f)
+                            .sharedBounds(
+                                rememberSharedContentState(key = "app-${app.id}"),
+                                animatedVisibilityScope = animatedScope
+                            )
                     )
                 }
+            }
+            item(key = HACK_TILE.id) {
+                AppTile(app = HACK_TILE, onClick = { HackActivity.start(context) })
             }
         }
     }
