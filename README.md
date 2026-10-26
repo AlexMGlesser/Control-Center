@@ -63,6 +63,15 @@ projects, Wikipedia), Jarvis can:
   a look or "All processes normal", and deletes the log. These are warning
   signs, not proof; without admin rights Windows hides some processes'
   paths, so those are checked by name only
+- **check hardware health**: "check my CPU", "do a GPU scan", "how are my
+  drives", "check my RAM", or "any hardware errors" each run that one check;
+  "full system sweep" / "full system scan" runs them all. Reports the CPU
+  (load, clocks), GPU (temperature, load, VRAM, power), drive health (SMART),
+  memory use, and recent hardware/disk errors from the event log. Read-only,
+  no admin needed. CPU temperature has no built-in Windows source, so it
+  isn't included
+- run a **system diagnostic**: the process check plus whether the apps are
+  online and whether Ollama is connected with its model loaded
 - "hack the mainframe" (from the phone)
 
 ## Running it
