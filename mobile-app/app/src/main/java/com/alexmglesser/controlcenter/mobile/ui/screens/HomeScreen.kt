@@ -55,6 +55,7 @@ import com.alexmglesser.controlcenter.mobile.ui.apps.NewsScreen
 import com.alexmglesser.controlcenter.mobile.ui.apps.WikipediaScreen
 import com.alexmglesser.controlcenter.mobile.ui.apps.files.FilesScreen
 import com.alexmglesser.controlcenter.mobile.ui.hack.HackActivity
+import com.alexmglesser.controlcenter.mobile.ui.ide.IdeScreen
 import com.alexmglesser.controlcenter.mobile.ui.projects.ProjectsScreen
 import com.alexmglesser.controlcenter.mobile.ui.theme.CC
 import com.alexmglesser.controlcenter.mobile.ui.theme.TileShape
@@ -62,6 +63,14 @@ import com.alexmglesser.controlcenter.mobile.ui.theme.neonClickable
 
 /** Built into the phone, not from the PC: works offline too. Purely for fun. */
 private val HACK_TILE = AppInfo(id = "hack-mainframe", name = "Hack the mainframe", status = "online", icon = "terminal")
+
+/**
+ * Phone-only apps that open like the PC's apps, after them on the grid. The
+ * IDE edits the PC's scripts folder, so it needs the connection like the rest.
+ */
+val PHONE_APPS = listOf(
+    AppInfo(id = "ide", name = "IDE", description = "Edit scripts in the PC's scripts folder, with an AI panel.", status = "online", icon = "code-xml")
+)
 
 /** The app grid (design 3.2), built from the PC's app registry, plus the phone's own tile. */
 @Composable
@@ -94,7 +103,7 @@ fun HomeScreen(
                     )
                 }
             }
-            items(apps, key = { it.id }) { app ->
+            items(apps + PHONE_APPS, key = { it.id }) { app ->
                 with(sharedScope) {
                     AppTile(
                         app = app,
@@ -171,6 +180,7 @@ fun AppScreen(app: AppInfo?, onBack: () -> Unit, sharedScope: SharedTransitionSc
                 "movie-app" -> MoviesScreen(onExit = onBack)
                 "server-manager-app" -> ServersScreen(onExit = onBack)
                 "drawing-app" -> DrawingScreen(onExit = onBack)
+                "ide" -> IdeScreen(onExit = onBack)
                 else -> GenericAppBody(app, onBack)
             }
         }

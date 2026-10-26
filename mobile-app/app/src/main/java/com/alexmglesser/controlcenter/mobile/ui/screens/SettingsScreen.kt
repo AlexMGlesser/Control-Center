@@ -87,6 +87,9 @@ fun SettingsScreen(
                 settings.stayConnected
             ) { checked -> onUpdate { it.copy(stayConnected = checked) } }
 
+            SectionLabel("Jarvis")
+            AiModelSection()
+
             SectionLabel("This device")
             InfoRow("Name", session.deviceName)
             InfoRow("Paired", DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(session.pairedAt)))

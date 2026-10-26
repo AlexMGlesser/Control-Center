@@ -44,6 +44,7 @@ of it from anywhere, over a private Tailscale network.
 | Server Manager | Server list, SSH from the PC | List and Open SSH in an Android SSH app |
 | Wikipedia | Offline search and articles | Same, through the PC |
 | File System | Hand-tracking file explorer | Read-only browsing of the whole PC: previews, download, share; behind a fingerprint lock |
+| IDE | — | A VS Code-style editor for the PC's `scripts/` folder: explorer, tabs, syntax colors, Save / Save As. Its AI tab on the right reads the open file and proposes changes as a diff you apply or discard (local model, nothing saved until you tap Save) |
 | Hack the mainframe | — | Just for fun: a full-screen fake hacker console with six animated panels (tap one to make it the big one). Built into the phone, works offline |
 
 ### Things to ask Jarvis
@@ -74,7 +75,9 @@ npm start
 ```
 
 Needs [Node.js](https://nodejs.org) and [Ollama](https://ollama.com) with
-`ollama pull qwen3.5:9b`. Optional settings are in
+`ollama pull qwen3.5:9b` (the default; any other installed model can be
+picked from the Ollama card on the Overview tab, or in the phone's
+Settings). Optional settings are in
 `control-app/.env.example`. See [`control-app/README.md`](control-app/README.md)
 for the details and the Windows build.
 
@@ -105,6 +108,6 @@ see [`desktop-client/README.md`](desktop-client/README.md).
   encrypted on the phone. Pairing codes last 5 minutes and work once.
 - Paired devices only get an allowlist of endpoints. Opening dialogs or
   programs on the PC, shutting down, settings, and file changes outside
-  Projects stay desktop-only. File System on the phone is read-only and can
+  Projects and the IDE's `scripts/` folder stay desktop-only. File System on the phone is read-only and can
   be switched off on the PC.
 - Remove a device any time from Settings > Devices.

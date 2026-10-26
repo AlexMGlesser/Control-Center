@@ -25,6 +25,7 @@ import {
   rescanMovies
 } from "../services/movieLibraryService.js";
 import { listServers, saveServers } from "../services/serverListService.js";
+import { assistWithFile, createScriptEntry, listScriptsFolder, readScript, renameScript, saveScript } from "../services/ideService.js";
 import { withTrackTags } from "../services/musicTagsService.js";
 import { getAllApps, getAppById } from "../services/appRegistry.js";
 import { addAppMessage } from "../services/appMessageService.js";
@@ -44,7 +45,15 @@ import {
 } from "../services/settingsService.js";
 import { addUserMessage, getChatMessages } from "../services/chatService.js";
 import { getAgentContextText, getAgentRuntimeStatus, getAgentToolCatalog } from "../services/agentRuntime.js";
-import { startOllama, stopOllama, startOllamaProbe, stopOllamaProbe } from "../services/ollamaService.js";
+import {
+  getOllamaConfig,
+  listOllamaModels,
+  setActiveModel,
+  startOllama,
+  stopOllama,
+  startOllamaProbe,
+  stopOllamaProbe
+} from "../services/ollamaService.js";
 import { getWikipediaConfig, getWikipediaStatus, probeLibrarian, startWikipedia, stopWikipedia } from "../services/wikipediaService.js";
 import { getVoiceStatus } from "../services/voiceService.js";
 import { enqueueUserTurn, getQueueStatus, onReplyDelivered } from "../services/queueWorker.js";
@@ -184,6 +193,33 @@ router.post("/ollama/stop", async (req, res) => {
     meta: {}
   });
   res.json(result);
+});
+
+/* Settings > AI Model (desktop only): which installed model Jarvis and the IDE use. */
+
+router.get("/ollama/models", async (req, res) => {
+  const { model, defaultModel } = getOllamaConfig();
+  try {
+    res.json({ ok: true, active: model, default: defaultModel, models: await listOllamaModels() });
+  } catch (error) {
+    res.status(503).json({ ok: false, code: "OLLAMA_UNAVAILABLE", message: `Can't reach Ollama: ${error.message}`, active: model, default: defaultModel });
+  }
+});
+
+router.put("/ollama/model", async (req, res) => {
+  try {
+    const result = await setActiveModel(req.body?.model);
+    publishEvent({
+      source: "ollama",
+      appId: "control-center",
+      type: "ollama",
+      message: `AI model switched to ${result.model}.`,
+      meta: result
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(error.status || 503).json({ ok: false, code: error.code || "OLLAMA_UNAVAILABLE", message: error.message });
+  }
 });
 
 router.get("/system", (req, res) => {
@@ -796,6 +832,19 @@ router.get("/apps/project-app/tools", (req, res) => projectRoute(res, () => ({ t
 router.post("/apps/project-app/launch-tool", (req, res) =>
   projectRoute(res, () => launchTool(String(req.body?.tool || "").trim(), req.body?.projectId || null))
 );
+
+/* The phone's IDE: the scripts folder, plus the AI panel. */
+
+router.get("/ide/list", (req, res) => projectRoute(res, () => listScriptsFolder(req.query.path)));
+router.get("/ide/file", (req, res) => projectRoute(res, () => readScript(req.query.path)));
+router.put("/ide/file", (req, res) =>
+  projectRoute(res, () => saveScript(req.body?.path, req.body?.content, req.body?.expectedModified))
+);
+router.post("/ide/entries", (req, res) =>
+  projectRoute(res, () => createScriptEntry(req.body?.parentPath, req.body?.name, req.body?.type, req.body?.content))
+);
+router.post("/ide/rename", (req, res) => projectRoute(res, () => renameScript(req.body?.path, req.body?.newName)));
+router.post("/ide/assist", (req, res) => projectRoute(res, () => assistWithFile(req.body || {})));
 
 /* The phone's Wikipedia view: read-only proxy to the librarian, which only
    listens on 127.0.0.1 (mobile architecture 5.4). */

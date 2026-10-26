@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -14,6 +13,8 @@ import com.alexmglesser.controlcenter.mobile.data.api.FolderEntry
 import com.alexmglesser.controlcenter.mobile.data.api.FolderListing
 import com.alexmglesser.controlcenter.mobile.data.api.ProjectInfo
 import com.alexmglesser.controlcenter.mobile.data.api.ServerEvent
+import com.alexmglesser.controlcenter.mobile.ui.components.insertAtCursor
+import com.alexmglesser.controlcenter.mobile.ui.components.withAutoIndent
 import kotlinx.coroutines.launch
 
 /** A file open in the editor. [savedText] is what's on the PC, to tell if there are unsaved edits. */
@@ -131,30 +132,12 @@ class ProjectsViewModel(application: Application) : AndroidViewModel(application
 
     /** Typing, plus auto-indent: a new line starts with the previous line's indentation. */
     fun onEditorChange(next: TextFieldValue) {
-        val previous = editor
-        val cursor = next.selection.start
-        val typedNewline = next.selection.collapsed &&
-            next.text.length == previous.text.length + 1 &&
-            cursor > 0 && next.text[cursor - 1] == '\n' &&
-            next.text.regionMatches(0, previous.text, 0, cursor - 1) &&
-            next.text.regionMatches(cursor, previous.text, cursor - 1, previous.text.length - cursor + 1)
-        if (typedNewline) {
-            val lineStart = next.text.lastIndexOf('\n', cursor - 2) + 1
-            val indent = next.text.substring(lineStart, cursor - 1).takeWhile { it == ' ' || it == '\t' }
-            if (indent.isNotEmpty()) {
-                editor = TextFieldValue(next.text.substring(0, cursor) + indent + next.text.substring(cursor), TextRange(cursor + indent.length))
-                return
-            }
-        }
-        editor = next
+        editor = withAutoIndent(editor, next)
     }
 
     /** The symbol row above the keyboard. */
     fun insert(snippet: String) {
-        val value = editor
-        val start = minOf(value.selection.start, value.selection.end)
-        val end = maxOf(value.selection.start, value.selection.end)
-        editor = TextFieldValue(value.text.replaceRange(start, end, snippet), TextRange(start + snippet.length))
+        editor = insertAtCursor(editor, snippet)
     }
 
     /** Saves to the PC. With [force], overwrites even if the file changed there. */

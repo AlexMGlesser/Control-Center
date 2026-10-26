@@ -391,3 +391,64 @@ data class StreamMessage(
     val event: ServerEvent? = null,
     val events: List<ServerEvent> = emptyList()
 )
+
+/* The phone's IDE: the PC's scripts folder and the AI panel. */
+
+@Serializable
+data class IdeListing(
+    /** The scripts folder itself. */
+    val root: String = "",
+    val path: String,
+    val relativePath: String = "",
+    /** Null at the scripts folder. */
+    val parent: String? = null,
+    val entries: List<FolderEntry> = emptyList()
+)
+
+@Serializable
+data class IdeCreateRequest(val parentPath: String, val name: String, val type: String, val content: String? = null)
+
+@Serializable
+data class IdeCreated(val name: String, val path: String, val type: String = "file", val modified: Double? = null)
+
+@Serializable
+data class IdeRenameRequest(val path: String, val newName: String)
+
+@Serializable
+data class IdeRenamed(val path: String, val name: String)
+
+@Serializable
+data class AssistTurn(val role: String, val text: String)
+
+@Serializable
+data class AssistRequest(val fileName: String, val content: String, val instruction: String, val history: List<AssistTurn> = emptyList())
+
+@Serializable
+data class AssistResponse(
+    val reply: String = "",
+    /** The whole proposed file, or null when the model only answered. */
+    val content: String? = null
+)
+
+/* The AI model Jarvis and the IDE use (Settings > AI model). */
+
+@Serializable
+data class OllamaModel(
+    val name: String,
+    val size: Long? = null,
+    val parameterSize: String? = null,
+    val quantization: String? = null
+)
+
+@Serializable
+data class OllamaModelsResponse(
+    val active: String? = null,
+    val default: String? = null,
+    val models: List<OllamaModel> = emptyList()
+)
+
+@Serializable
+data class SetModelRequest(val model: String)
+
+@Serializable
+data class SetModelResponse(val model: String = "", val previous: String? = null)

@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { existsSync } from "fs";
 import path from "path";
 import { getBundledAppDirectory } from "../appPaths.js";
+import { getActiveModel } from "./ollamaService.js";
 
 // The Wikipedia App is the GLESSER ARCHIVE librarian (wikipedia-app/librarian/
 // librarian.py), a stdlib-only Python HTTP server. This service runs it as a
@@ -16,8 +17,9 @@ const WIKIPEDIA_PYTHON = process.env.WIKIPEDIA_PYTHON || "python";
 const LIBRARIAN_PORT = Number(process.env.WIKIPEDIA_LIBRARIAN_PORT || 8766);
 const LIBRARIAN_BASE_URL = `http://127.0.0.1:${LIBRARIAN_PORT}`;
 // Model for the librarian's own /agent chat page. Defaults to Control
-// Center's model so opening that page never loads a second model into VRAM.
-const LIBRARIAN_MODEL = process.env.WIKIPEDIA_LIBRARIAN_MODEL || process.env.OLLAMA_MODEL || "qwen3.5:9b";
+// Center's current model (as of the librarian's start) so opening that page
+// never loads a second model into VRAM.
+const librarianModel = () => process.env.WIKIPEDIA_LIBRARIAN_MODEL || getActiveModel();
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
 const STARTUP_TIMEOUT_MS = 30000;
 
@@ -32,7 +34,7 @@ export function getWikipediaConfig() {
     dataDir: WIKIPEDIA_DATA_DIR,
     python: WIKIPEDIA_PYTHON,
     script: getLibrarianScriptPath(),
-    librarianModel: LIBRARIAN_MODEL
+    librarianModel: librarianModel()
   };
 }
 
@@ -86,7 +88,7 @@ function spawnLibrarian() {
     String(LIBRARIAN_PORT),
     "--no-browser",
     "--model",
-    LIBRARIAN_MODEL,
+    librarianModel(),
     "--llm-url",
     OLLAMA_BASE_URL
   ];

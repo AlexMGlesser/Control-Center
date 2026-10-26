@@ -64,3 +64,6 @@ wikipedia-app/**/*.sqlite*
 # training datasets (biometric-ish, can grow large) stay local
 file-system-app/gesture_profiles/
 file-system-app/dataset/
+
+# Local scratch scripts
+/scripts/

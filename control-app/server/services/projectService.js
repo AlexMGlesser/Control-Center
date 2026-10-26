@@ -178,9 +178,13 @@ function isInside(root, target) {
  * symlinks/junctions, so nothing outside the project folder is reachable.
  */
 function resolveInside(project, targetPath, { mustExist = true } = {}) {
-  const root = realpathSync.native(path.resolve(project.path));
+  return resolveInsideRoot(project.path, targetPath, { mustExist });
+}
+
+function resolveInsideRoot(rootPath, targetPath, { mustExist = true } = {}) {
+  const root = realpathSync.native(path.resolve(rootPath));
   const resolved = path.resolve(String(targetPath || "").trim() || root);
-  if (!isInside(path.resolve(project.path), resolved) && !isInside(root, resolved)) {
+  if (!isInside(path.resolve(rootPath), resolved) && !isInside(root, resolved)) {
     throw projectError("INVALID_PATH", "That path is outside the project.");
   }
   if (!existsSync(resolved)) {
@@ -206,10 +210,15 @@ function validateName(name) {
 /* Browsing and editing                                                */
 /* ------------------------------------------------------------------ */
 
-/** One folder of a project. */
-export function listProjectFolder(projectId, folderPath) {
-  const project = requireProject(projectId);
-  const folder = resolveInside(project, folderPath);
+/*
+ * The folder/file operations work on any root folder: the Projects app uses
+ * them per project, and the phone's IDE (ideService.js) on the scripts folder.
+ * Nothing outside the root is reachable, even through symlinks/junctions.
+ */
+
+/** One folder under a root. */
+export function listFolderInRoot(rootPath, folderPath) {
+  const folder = resolveInsideRoot(rootPath, folderPath);
   if (!statSync(folder).isDirectory()) {
     throw projectError("NOT_A_FOLDER", "That's a file, not a folder.");
   }
@@ -233,9 +242,8 @@ export function listProjectFolder(projectId, folderPath) {
       };
     })
     .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) : a.type === "folder" ? -1 : 1));
-  const root = realpathSync.native(path.resolve(project.path));
+  const root = realpathSync.native(path.resolve(rootPath));
   return {
-    project: describe(project),
     path: folder,
     relativePath: path.relative(root, folder),
     parent: samePath(folder, root) ? null : path.dirname(folder),
@@ -244,9 +252,8 @@ export function listProjectFolder(projectId, folderPath) {
 }
 
 /** A text file, up to 512 KB. Binary files are refused (415). */
-export function readProjectFile(projectId, filePath) {
-  const project = requireProject(projectId);
-  const target = resolveInside(project, filePath);
+export function readTextFileInRoot(rootPath, filePath) {
+  const target = resolveInsideRoot(rootPath, filePath);
   const stats = statSync(target);
   if (!stats.isFile()) throw projectError("NOT_A_FILE", "That's a folder, not a file.");
   const buffer = readFileSync(target).subarray(0, READ_LIMIT_BYTES);
@@ -265,19 +272,22 @@ export function readProjectFile(projectId, filePath) {
   };
 }
 
+function checkSaveSize(text) {
+  if (Buffer.byteLength(text, "utf-8") > SAVE_LIMIT_BYTES) {
+    throw projectError("FILE_TOO_LARGE", "Files over 2 MB can't be saved from here.", 413);
+  }
+}
+
 /**
  * Saves a text file. If `expectedModified` is given and the file changed on
  * disk since it was opened, nothing is written and a 409 says so. Writes go
  * to a temporary file first and are then swapped in, so a failed save never
  * leaves a half-written file.
  */
-export function saveProjectFile(projectId, filePath, content, expectedModified) {
-  const project = requireProject(projectId);
+export function saveTextFileInRoot(rootPath, filePath, content, expectedModified) {
   const text = String(content ?? "");
-  if (Buffer.byteLength(text, "utf-8") > SAVE_LIMIT_BYTES) {
-    throw projectError("FILE_TOO_LARGE", "Files over 2 MB can't be saved from here.", 413);
-  }
-  const target = resolveInside(project, filePath);
+  checkSaveSize(text);
+  const target = resolveInsideRoot(rootPath, filePath);
   const stats = statSync(target);
   if (!stats.isFile()) throw projectError("NOT_A_FILE", "That's a folder, not a file.");
   if (stats.size > READ_LIMIT_BYTES) {
@@ -295,39 +305,73 @@ export function saveProjectFile(projectId, filePath, content, expectedModified) 
     throw projectError("SAVE_FAILED", `Couldn't save: ${error.message}`, 500);
   }
   const saved = statSync(target);
+  return { name: path.basename(target), path: target, size: saved.size, modified: saved.mtimeMs };
+}
+
+/** New file (empty, or with `content`) or folder. Never overwrites (409). */
+export function createEntryInRoot(rootPath, parentPath, name, type = "file", content = "") {
+  const parent = resolveInsideRoot(rootPath, parentPath);
+  if (!statSync(parent).isDirectory()) throw projectError("NOT_A_FOLDER", "New items go inside a folder.");
+  const target = path.join(parent, validateName(name));
+  if (existsSync(target)) throw projectError("PATH_ALREADY_EXISTS", `${path.basename(target)} already exists here.`, 409);
+  if (type === "folder") {
+    mkdirSync(target);
+    return { name: path.basename(target), path: target, type: "folder" };
+  }
+  const text = String(content ?? "");
+  checkSaveSize(text);
+  writeFileSync(target, text, { encoding: "utf-8", flag: "wx" });
+  return { name: path.basename(target), path: target, type: "file", modified: statSync(target).mtimeMs };
+}
+
+/** One folder of a project. */
+export function listProjectFolder(projectId, folderPath) {
+  const project = requireProject(projectId);
+  return { project: describe(project), ...listFolderInRoot(project.path, folderPath) };
+}
+
+export function readProjectFile(projectId, filePath) {
+  return readTextFileInRoot(requireProject(projectId).path, filePath);
+}
+
+export function saveProjectFile(projectId, filePath, content, expectedModified) {
+  const project = requireProject(projectId);
+  const saved = saveTextFileInRoot(project.path, filePath, content, expectedModified);
   publishEvent({
     source: "projects",
     appId: "project-app",
     type: "data-changed",
-    message: `Saved ${path.basename(target)}.`,
-    meta: { entity: "file", projectId, path: target }
+    message: `Saved ${saved.name}.`,
+    meta: { entity: "file", projectId, path: saved.path }
   });
-  return { name: path.basename(target), path: target, size: saved.size, modified: saved.mtimeMs };
+  return saved;
 }
 
-/** New empty file or folder. */
 export function createProjectEntry(projectId, parentPath, name, type = "file") {
   const project = requireProject(projectId);
-  const parent = resolveInside(project, parentPath);
-  if (!statSync(parent).isDirectory()) throw projectError("NOT_A_FOLDER", "New items go inside a folder.");
-  const target = path.join(parent, validateName(name));
-  if (existsSync(target)) throw projectError("PATH_ALREADY_EXISTS", `${path.basename(target)} already exists here.`, 409);
-  if (type === "folder") mkdirSync(target);
-  else writeFileSync(target, "", { flag: "wx" });
-  publishEvent({ source: "projects", appId: "project-app", type: "data-changed", message: `Created ${path.basename(target)}.`, meta: { entity: "file", projectId, path: target } });
-  return { name: path.basename(target), path: target, type: type === "folder" ? "folder" : "file" };
+  const { modified, ...created } = createEntryInRoot(project.path, parentPath, name, type === "folder" ? "folder" : "file");
+  publishEvent({ source: "projects", appId: "project-app", type: "data-changed", message: `Created ${created.name}.`, meta: { entity: "file", projectId, path: created.path } });
+  return created;
 }
 
-export function renameProjectEntry(projectId, targetPath, newName) {
-  const project = requireProject(projectId);
-  const source = resolveInside(project, targetPath);
-  if (samePath(source, project.path)) throw projectError("INVALID_TARGET", "Rename the project itself from the project list.");
+/** Renames a file or folder in place. The root itself can't be renamed. */
+export function renameEntryInRoot(rootPath, targetPath, newName) {
+  const source = resolveInsideRoot(rootPath, targetPath);
+  if (samePath(source, rootPath)) throw projectError("INVALID_TARGET", "The top folder can't be renamed from here.");
   const destination = path.join(path.dirname(source), validateName(newName));
   if (existsSync(destination) && !samePath(source, destination)) {
     throw projectError("PATH_ALREADY_EXISTS", `${path.basename(destination)} already exists here.`, 409);
   }
   renameSync(source, destination);
   return { path: destination, name: path.basename(destination) };
+}
+
+export function renameProjectEntry(projectId, targetPath, newName) {
+  const project = requireProject(projectId);
+  if (samePath(resolveInside(project, targetPath), project.path)) {
+    throw projectError("INVALID_TARGET", "Rename the project itself from the project list.");
+  }
+  return renameEntryInRoot(project.path, targetPath, newName);
 }
 
 export function copyProjectEntry(projectId, sourcePath, destinationFolder) {

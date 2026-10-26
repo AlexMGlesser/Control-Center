@@ -57,7 +57,15 @@ const REMOTE_ALLOWLIST = [
   ["PUT", /^\/apps\/project-app\/projects\/[^/]+\/file$/],
   ["POST", /^\/apps\/project-app\/projects\/[^/]+\/entries$/],
   ["GET", /^\/apps\/wikipedia-app\/proxy\/[^/]+$/],
-  ["GET", /^\/files\/(roots|list|info|content)$/]
+  ["GET", /^\/files\/(roots|list|info|content)$/],
+  // The phone's IDE: read, save and create inside the scripts folder only,
+  // and ask the local model about the open file.
+  ["GET", /^\/ide\/(list|file)$/],
+  ["PUT", /^\/ide\/file$/],
+  ["POST", /^\/ide\/(entries|rename|assist)$/],
+  // Switching the AI model Jarvis and the IDE use (installed models only).
+  ["GET", /^\/ollama\/models$/],
+  ["PUT", /^\/ollama\/model$/]
 ];
 
 // Reachable without credentials: the health probe (no data, and a second

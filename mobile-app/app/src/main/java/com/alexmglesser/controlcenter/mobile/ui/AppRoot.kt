@@ -49,6 +49,7 @@ import com.alexmglesser.controlcenter.mobile.ui.screens.ChatScreen
 import com.alexmglesser.controlcenter.mobile.ui.screens.ConnectScreen
 import com.alexmglesser.controlcenter.mobile.ui.screens.FirstRunScreen
 import com.alexmglesser.controlcenter.mobile.ui.screens.HomeScreen
+import com.alexmglesser.controlcenter.mobile.ui.screens.PHONE_APPS
 import com.alexmglesser.controlcenter.mobile.ui.screens.RemovedScreen
 import com.alexmglesser.controlcenter.mobile.ui.screens.SettingsScreen
 import com.alexmglesser.controlcenter.mobile.ui.theme.CC
@@ -232,7 +233,7 @@ private fun AppsTab(
                 )
             } else {
                 AppScreen(
-                    app = apps.firstOrNull { it.id == appId },
+                    app = (apps + PHONE_APPS).firstOrNull { it.id == appId },
                     onBack = viewModel::closeApp,
                     sharedScope = this@SharedTransitionLayout,
                     animatedScope = this@AnimatedContent

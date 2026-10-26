@@ -50,6 +50,7 @@ fun appIconRes(appId: String, iconName: String?): Int {
         "book-open-text" -> R.drawable.ic_book_open_text
         "folder-tree" -> R.drawable.ic_folder_tree
         "terminal" -> R.drawable.ic_terminal
+        "code-xml" -> R.drawable.ic_code_xml
         else -> null
     }
     return byName ?: when (appId) {

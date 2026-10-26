@@ -35,6 +35,9 @@ class ApiClient(private val sessionStore: SessionStore) {
     /** For calls the PC may take minutes on, and whole-file downloads. */
     val slowHttp: OkHttpClient = http.newBuilder().readTimeout(160, TimeUnit.SECONDS).build()
 
+    /** For the IDE's AI panel: the model may write a whole file, which can take minutes. */
+    val assistHttp: OkHttpClient = http.newBuilder().readTimeout(320, TimeUnit.SECONDS).build()
+
     /**
      * For music and movies. Media3 queues its requests on an OkHttp
      * dispatcher, which allows only 5 per host at once, and a loaded song or
@@ -249,6 +252,51 @@ class ApiClient(private val sessionStore: SessionStore) {
         return send("POST", "/api/apps/project-app/projects/${encode(projectId)}/entries", body) { json.decodeFromString(CreatedEntry.serializer(), it) }
     }
 
+    /* IDE: the PC's scripts folder, and the AI panel */
+
+    suspend fun ideFolder(folderPath: String?): IdeListing {
+        val query = folderPath?.let { "?path=${encode(it)}" }.orEmpty()
+        return get("/api/ide/list$query") { json.decodeFromString(IdeListing.serializer(), it) }
+    }
+
+    /** Throws ApiException with code BINARY_FILE (415) for files that aren't text. */
+    suspend fun ideFile(filePath: String): ProjectFile =
+        get("/api/ide/file?path=${encode(filePath)}") { json.decodeFromString(ProjectFile.serializer(), it) }
+
+    /** Throws ApiException with code FILE_CHANGED (409) if the file changed since [expectedModified]. */
+    suspend fun saveIdeFile(filePath: String, content: String, expectedModified: Double?): SavedFile {
+        val body = json.encodeToString(SaveFileRequest.serializer(), SaveFileRequest(filePath, content, expectedModified))
+        return send("PUT", "/api/ide/file", body) { json.decodeFromString(SavedFile.serializer(), it) }
+    }
+
+    /** A new folder, or a new file with [content]. Throws PATH_ALREADY_EXISTS (409) rather than overwrite. */
+    suspend fun createIdeEntry(parentPath: String, name: String, type: String, content: String? = null): IdeCreated {
+        val body = json.encodeToString(IdeCreateRequest.serializer(), IdeCreateRequest(parentPath, name, type, content))
+        return send("POST", "/api/ide/entries", body) { json.decodeFromString(IdeCreated.serializer(), it) }
+    }
+
+    /** Throws PATH_ALREADY_EXISTS (409) rather than overwrite another file. */
+    suspend fun renameIdeEntry(path: String, newName: String): IdeRenamed {
+        val body = json.encodeToString(IdeRenameRequest.serializer(), IdeRenameRequest(path, newName))
+        return send("POST", "/api/ide/rename", body) { json.decodeFromString(IdeRenamed.serializer(), it) }
+    }
+
+    suspend fun ideAssist(request: AssistRequest): AssistResponse {
+        val body = json.encodeToString(AssistRequest.serializer(), request)
+        return send("POST", "/api/ide/assist", body, assistHttp) { json.decodeFromString(AssistResponse.serializer(), it) }
+    }
+
+    /* AI model: the models installed in Ollama on the PC, and switching between them */
+
+    suspend fun ollamaModels(): OllamaModelsResponse =
+        get("/api/ollama/models") { json.decodeFromString(OllamaModelsResponse.serializer(), it) }
+
+    /** Unloads the current model first, so this returns quickly; the new one loads on its next request. */
+    suspend fun setOllamaModel(model: String): SetModelResponse {
+        val body = json.encodeToString(SetModelRequest.serializer(), SetModelRequest(model))
+        return send("PUT", "/api/ollama/model", body) { json.decodeFromString(SetModelResponse.serializer(), it) }
+    }
+
     /** Unpairs this device on the PC (Settings > Sign out). */
     suspend fun signOutDevice() {
         send("DELETE", "/api/devices/self", null) { }
@@ -269,11 +317,11 @@ class ApiClient(private val sessionStore: SessionStore) {
         return execute(authorizedRequest(session, path).get().build(), authenticated = true, if (slow) slowHttp else http, allowError, parse)
     }
 
-    private suspend fun <T> send(method: String, path: String, body: String?, parse: (String) -> T): T {
+    private suspend fun <T> send(method: String, path: String, body: String?, client: OkHttpClient = http, parse: (String) -> T): T {
         val session = requireSession()
         val requestBody = (body ?: "").toRequestBody(JSON_TYPE)
         val request = authorizedRequest(session, path).method(method, if (method == "DELETE" && body == null) null else requestBody).build()
-        return execute(request, authenticated = true, parse = parse)
+        return execute(request, authenticated = true, client = client, parse = parse)
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")

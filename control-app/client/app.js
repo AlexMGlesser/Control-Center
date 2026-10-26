@@ -168,7 +168,32 @@ async function loadSettings() {
   const data = await res.json();
   state.settings = data.settings;
   state.settingsOptions = data.options;
+  await loadModels();
 }
+
+/* The Overview's Ollama card: the installed models and the one in use. */
+
+async function loadModels() {
+  try {
+    state.models = await (await fetch("/api/ollama/models")).json();
+  } catch {
+    state.models = { ok: false, message: "Can't reach Control Center." };
+  }
+}
+
+async function switchModel(model) {
+  const res = await fetch("/api/ollama/model", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model })
+  });
+  return res.json();
+}
+
+function formatModelSize(bytes) {
+  return bytes ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : "";
+}
+
 
 /* Paired devices (Settings > Devices) for the mobile app. */
 
@@ -874,6 +899,23 @@ function renderOllamaCard(system) {
   const statusLabel = isConnected ? "Connected" : (status === "error" ? "Error" : "Offline");
   const errorHtml = ollama.lastError ? `<li class="muted" style="font-size:0.78em">Last error: ${ollama.lastError}</li>` : "";
   const modelHtml = model ? `<li>Model: <span class="muted">${model}</span></li>` : "";
+  const installed = state.models?.models ?? [];
+  // The card re-renders on every event; keep a choice the user hasn't applied yet.
+  const chosen = state.modelChoice ?? state.models?.active ?? model;
+  const modelOptionsHtml = installed
+    .map((entry) => {
+      const details = [entry.parameterSize, entry.quantization, formatModelSize(entry.size)].filter(Boolean).join(", ");
+      const isDefault = entry.name === state.models.default ? " (default)" : "";
+      return `<option value="${escapeHtml(entry.name)}" ${entry.name === chosen ? "selected" : ""}>${escapeHtml(entry.name)}${isDefault}${details ? ` — ${escapeHtml(details)}` : ""}</option>`;
+    })
+    .join("");
+  const pickerHtml = installed.length
+    ? `
+      <label class="settings-field">
+        <span>Change model</span>
+        <select id="ai-model-select">${modelOptionsHtml}</select>
+      </label>`
+    : "";
 
   return `
     <article class="card stack">
@@ -887,6 +929,8 @@ function renderOllamaCard(system) {
         <button class="action-btn" data-action="ollama-start" ${isConnected ? "disabled" : ""}>Start Model</button>
         <button class="action-btn" data-action="ollama-stop" ${!isConnected ? "disabled" : ""}>Stop Model</button>
       </div>
+      ${pickerHtml}
+      ${installed.length ? `<div class="event-controls"><button class="action-btn" id="ai-model-switch" ${chosen === (state.models?.active ?? model) ? "disabled" : ""}>Switch Model</button></div>` : ""}
       <p class="muted" id="ollama-feedback" style="font-size:0.8em;min-height:1.2em"></p>
     </article>
   `;
@@ -1360,6 +1404,10 @@ function activateTab(tab) {
   if (tab === "overview") {
     setVisibleView("view-overview");
     stopQueuePolling();
+    // Re-check what's installed in Ollama, so a model pulled since the last look shows up.
+    loadModels()
+      .then(() => state.system && state.activeTab === "overview" && renderOverview(state.system))
+      .catch(() => {});
     return;
   }
 
@@ -1627,6 +1675,30 @@ function wireNavigation() {
       return;
     }
 
+    const switchModelButton = event.target.closest("#ai-model-switch");
+    if (switchModelButton && !switchModelButton.disabled) {
+      const model = document.getElementById("ai-model-select")?.value;
+      if (!model) return;
+      switchModelButton.disabled = true;
+      switchModelButton.textContent = "Switching...";
+      const feedback = document.getElementById("ollama-feedback");
+      if (feedback) feedback.textContent = `Switching to ${model}...`;
+      switchModel(model)
+        .then(async (result) => {
+          if (result.ok) state.modelChoice = null;
+          await loadModels();
+          await refreshSystemStatus();
+          const fb = document.getElementById("ollama-feedback");
+          if (fb) fb.textContent = result.ok ? `Now using ${result.model}. It loads on the next request (a few seconds).` : (result.message || "Couldn't switch models.");
+        })
+        .catch(async () => {
+          await refreshSystemStatus();
+          const fb = document.getElementById("ollama-feedback");
+          if (fb) fb.textContent = "Couldn't switch models.";
+        });
+      return;
+    }
+
     const testVoiceButton = event.target.closest("#test-voice-btn");
     if (testVoiceButton) {
       runVoiceTest("This is a local desktop voice test.")
@@ -1668,6 +1740,15 @@ function wireNavigation() {
     }
 
     activateTab(target.dataset.tab);
+  });
+
+  // The model dropdown on the Overview's Ollama card.
+  document.addEventListener("change", (event) => {
+    const select = event.target.closest("#ai-model-select");
+    if (!select) return;
+    state.modelChoice = select.value;
+    const switchButton = document.getElementById("ai-model-switch");
+    if (switchButton) switchButton.disabled = select.value === state.models?.active;
   });
 
   document.addEventListener("submit", (event) => {

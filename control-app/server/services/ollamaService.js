@@ -1,15 +1,23 @@
 import { spawn } from "child_process";
+import { readRuntimeSection, writeRuntimeSection } from "./runtimePersistenceService.js";
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen3.5:9b";
+// The .env model is the default; Settings > AI Model on the PC can pick
+// another installed model, which is remembered across restarts.
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL || "qwen3.5:9b";
 const PROBE_INTERVAL_MS = 5000;
 
 let spawnedProcess = null;
 let probeTimer = null;
 let lastKnownState = { status: "not_connected", model: null };
+let activeModel = String(readRuntimeSection("ollama", null)?.model || "").trim() || DEFAULT_MODEL;
 
 export function getOllamaConfig() {
-  return { baseUrl: OLLAMA_BASE_URL, model: OLLAMA_MODEL };
+  return { baseUrl: OLLAMA_BASE_URL, model: activeModel, defaultModel: DEFAULT_MODEL };
+}
+
+export function getActiveModel() {
+  return activeModel;
 }
 
 export function getOllamaState() {
@@ -29,8 +37,8 @@ export async function probeOllamaStatus() {
     }
     const data = await res.json();
     const models = Array.isArray(data?.models) ? data.models : [];
-    const modelPulled = models.some((entry) => entry?.name === OLLAMA_MODEL || entry?.model === OLLAMA_MODEL);
-    lastKnownState = { status: "connected", model: OLLAMA_MODEL, modelPulled };
+    const modelPulled = models.some((entry) => entry?.name === activeModel || entry?.model === activeModel);
+    lastKnownState = { status: "connected", model: activeModel, modelPulled };
     return true;
   } catch {
     lastKnownState = { status: "not_connected", model: null };
@@ -98,7 +106,7 @@ export async function startOllama() {
     await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: OLLAMA_MODEL, messages: [{ role: "user", content: "hi" }], stream: false })
+      body: JSON.stringify({ model: activeModel, messages: [{ role: "user", content: "hi" }], stream: false })
     });
   } catch {
     // Model may not be pulled yet — status will reflect modelPulled: false.
@@ -118,16 +126,7 @@ export async function stopOllama() {
   // up more runner processes during shutdown. Bounded so a busy or hung
   // daemon can't stall app exit.
   if (!spawnedProcess) {
-    try {
-      await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: OLLAMA_MODEL, messages: [], stream: false, keep_alive: 0 }),
-        signal: AbortSignal.timeout(3000)
-      });
-    } catch {
-      // Ignore — daemon may already be down.
-    }
+    await unloadModel(activeModel);
   }
 
   if (spawnedProcess) {
@@ -159,19 +158,70 @@ export async function stopOllama() {
   return { ok: true, message: "Ollama model unloaded." };
 }
 
+async function unloadModel(model) {
+  try {
+    await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages: [], stream: false, keep_alive: 0 }),
+      signal: AbortSignal.timeout(3000)
+    });
+  } catch {
+    // Ignore — daemon may already be down.
+  }
+}
+
+/** The models installed in Ollama, for the model picker. */
+export async function listOllamaModels() {
+  const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { signal: AbortSignal.timeout(3000) });
+  if (!res.ok) throw new Error(`Ollama responded with status ${res.status}.`);
+  const data = await res.json();
+  return (Array.isArray(data?.models) ? data.models : [])
+    .map((entry) => ({
+      name: String(entry.name || entry.model || ""),
+      size: Number(entry.size) || null,
+      parameterSize: entry.details?.parameter_size || null,
+      quantization: entry.details?.quantization_level || null
+    }))
+    .filter((entry) => entry.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Switches every Ollama caller (Jarvis, the IDE's AI panel) to another
+ * installed model. The old one is unloaded first, so two big models never
+ * share the GPU; the new one loads on its next request.
+ */
+export async function setActiveModel(model) {
+  const name = String(model || "").trim();
+  const installed = await listOllamaModels();
+  if (!installed.some((entry) => entry.name === name)) {
+    const error = new Error(`${name || "That model"} isn't installed in Ollama. Pull it first: ollama pull ${name || "<model>"}`);
+    error.code = "MODEL_NOT_INSTALLED";
+    error.status = 400;
+    throw error;
+  }
+  const previous = activeModel;
+  if (previous !== name) await unloadModel(previous);
+  activeModel = name;
+  writeRuntimeSection("ollama", { model: name === DEFAULT_MODEL ? null : name });
+  if (lastKnownState.status === "connected") lastKnownState = { ...lastKnownState, model: name, modelPulled: true };
+  return { previous, model: name };
+}
+
 /**
  * Sends a chat completion request with optional tool definitions.
  * Returns { ok, rawText } — the model's raw text response. Tool-call intent
  * is expressed in that text as {system | request | ...} envelopes (see
  * envelopeProtocol.js), not via Ollama's structured tool-calling API.
  */
-export async function requestOllamaChatCompletion({ messages }) {
+export async function requestOllamaChatCompletion({ messages, timeoutMs = 120000, temperature }) {
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
+        model: activeModel,
         messages,
         think: false,
         stream: false,
@@ -180,9 +230,9 @@ export async function requestOllamaChatCompletion({ messages }) {
         // once a retry or a few chat turns accumulate, requests were hitting
         // the wall and getting truncated to a single token. Model supports
         // far more; 16384 comfortably covers real usage with headroom.
-        options: { num_ctx: 16384 }
+        options: { num_ctx: 16384, ...(temperature !== undefined ? { temperature } : {}) }
       }),
-      signal: AbortSignal.timeout(120000)
+      signal: AbortSignal.timeout(timeoutMs)
     });
 
     if (!res.ok) {
@@ -199,7 +249,9 @@ export async function requestOllamaChatCompletion({ messages }) {
     );
     return {
       ok: true,
-      rawText: String(data.message?.content || "")
+      rawText: String(data.message?.content || ""),
+      // "length" means the reply hit the context window and was cut off.
+      doneReason: data.done_reason || null
     };
   } catch (error) {
     const cause = error?.cause?.message || error?.cause?.code || "";
