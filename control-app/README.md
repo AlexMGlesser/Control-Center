@@ -41,8 +41,8 @@ Closing the Control Center window also shuts down the local backend runtime, voi
 
 2. Use either generated file from `control-app/dist/`:
 
-   - `Control Center 1.0.0.exe` for a portable executable you can double-click directly
-   - `Control Center Setup 1.0.0.exe` for an installer with Start Menu and desktop shortcut support
+   - `Control Center 1.2.5.exe` for a portable executable you can double-click directly
+   - `Control Center Setup 1.2.5.exe` for an installer with Start Menu and desktop shortcut support
 
 The packaged desktop build bundles the sibling app UIs and design documents, and it writes runtime data under your user profile instead of the install folder.
 

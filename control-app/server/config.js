@@ -8,7 +8,7 @@ export const serverConfig = {
 
 export const systemConfig = {
   name: "Control Center",
-  version: "1.0.0",
+  version: "1.2.5",
   mode: "desktop",
   ollama: {
     status: "not_connected",

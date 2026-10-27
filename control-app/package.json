@@ -1,6 +1,6 @@
 {
   "name": "control-center-control-app",
-  "version": "1.0.0",
+  "version": "1.2.5",
   "private": true,
   "author": "Alex Glesser",
   "description": "Control Center host app with UI-first shell and backend integration stubs",
