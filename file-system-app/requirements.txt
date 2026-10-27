@@ -1,0 +1,7 @@
+# Third-party packages imported by file_explorer.py, hand_tracker.py and
+# gesture_recorder.py (tkinter ships with the python.org Windows installer).
+# Versions are what this was verified with (Python 3.12.7).
+mediapipe==0.10.35
+opencv-python==4.13.0.92
+numpy==2.4.4
+Pillow==12.2.0

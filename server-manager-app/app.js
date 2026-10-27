@@ -1,4 +1,8 @@
+// The list is kept on the PC (control-app/server/services/serverListService.js)
+// so the phone can see it. The old browser-only copy under STORAGE_KEY is
+// uploaded once, the first time this version runs.
 const STORAGE_KEY = "control-center-server-manager-v1";
+const SERVERS_API = "/api/apps/server-manager-app/servers";
 
 const state = {
   servers: [],
@@ -31,7 +35,7 @@ function setStatus(message) {
   elements.statusLine.textContent = String(message || "").trim() || "Ready.";
 }
 
-function loadServers() {
+function loadLegacyServers() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
@@ -50,8 +54,31 @@ function loadServers() {
   }
 }
 
-function saveServers() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.servers));
+async function loadServers() {
+  const res = await fetch(SERVERS_API);
+  const data = await res.json();
+  if (!res.ok || !data.ok) throw new Error(data.message || "Could not load the server list.");
+  if (!data.initialized) {
+    const legacy = loadLegacyServers();
+    state.servers = legacy;
+    await saveServers();
+    return legacy;
+  }
+  return data.servers;
+}
+
+async function saveServers() {
+  try {
+    const res = await fetch(SERVERS_API, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ servers: state.servers })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.message || "Could not save the server list.");
+  } catch (error) {
+    setStatus(`Not saved: ${error.message}`);
+  }
 }
 
 function getSelectedServer() {
@@ -297,12 +324,18 @@ function bindEvents() {
   });
 }
 
-function init() {
-  state.servers = loadServers();
+async function init() {
+  bindEvents();
+  let loadError = null;
+  try {
+    state.servers = await loadServers();
+  } catch (error) {
+    state.servers = [];
+    loadError = error.message;
+  }
   state.selectedServerId = state.servers[0]?.id || null;
   renderServers();
-  bindEvents();
-  setStatus(state.servers.length ? "Select a server panel and choose an option." : "No servers loaded. Click Add Server.");
+  setStatus(loadError || (state.servers.length ? "Select a server panel and choose an option." : "No servers loaded. Click Add Server."));
 }
 
 init();

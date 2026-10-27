@@ -1,354 +1,135 @@
-# Control Center - Project Overview
+# Control Center
 
-**Last Updated:** 2026-06-22  
-**Status:** (v0.2.3)
-
----
-
-## 1. Project Summary
-
-Control Center is a desktop-based AI system hub that combines:
-- **Desktop Application:** Electron-based GUI (Windows)
-- **Local AI Agent:** Ollama integration with native tool-calling, plus a small deterministic fast path for trivial commands
-- **Modular App Ecosystem:** 8+ integrated applications with independent data/API access
-- **Backend Server:** Express.js running locally, provides API surface and orchestration
-- **Task Queue:** Chat/voice/app requests queue and drain in order instead of blocking on each other
-- **Voice Pipeline:** Whisper (STT) + Piper (TTS) for audio interaction
-
-**Primary Purpose:** Centralized app hub with AI orchestration, supporting both Desktop and Mobile modes.
-
----
-
-## 2. Architecture Overview
-
-### System Layers (Top to Bottom)
+A personal hub that runs on a home PC: a desktop app with its own apps
+(calendar, music, movies, projects and more) and a local AI assistant,
+Jarvis. The phone app and the laptop app (Control Center Remote) reach all
+of it from anywhere, over a private Tailscale network.
 
 ```
-Desktop UI (Electron) ←→ IPC/HTTP
-         ↓
-   Express Backend (localhost:3000)
-         ↓
-┌─────────────────────────────────────┐
-│ Services Layer                      │
-├─────────────────────────────────────┤
-│ • Orchestrator                      │
-│ • App Registry & App Messages       │
-│ • Event Bus (in-memory + SSE)       │
-│ • Task Queue (chat/voice/app)       │
-│ • Chat Service (AI integration)     │
-│ • Ollama Integration                │
-│ • Voice (Whisper/Piper)             │
-│ • Mode State Machine                │
-│ • Settings, Calendar, Drawing, etc. │
-└─────────────────────────────────────┘
-         ↓
-   App Modules (8 apps)
-   + Local File System
+ Phone (Android app) ──┐
+                       │  Tailscale (private network, HTTPS)
+ Laptop (Remote app) ──┤
+                       ▼
+ Home PC: Control Center (Electron + Express on 127.0.0.1:3100)
+   ├─ Jarvis: local AI agent on Ollama (any installed model; qwen3.5:9b by
+   │          default), with tools for the apps, PC health and ArtCraft
+   ├─ Apps: Projects, Calendar, News, Music, Movies, Drawing,
+   │        Server Manager, Wikipedia (offline), File System
+   └─ Data stays on the PC: nothing is synced to a cloud service
 ```
 
-### Design Principles
-- **Centralized Orchestration:** One Control Center runtime coordinates the system
-- **App Modularity:** Each app has isolated services and data access rules
-- **Tool-Gated AI Access:** Agent acts through approved tools, not directly
-- **Desktop-First Execution:** All core processing runs on the desktop host
-- **Mobile as Client:** Phone connects to desktop-hosted backend (future)
-- **Shared UI Language:** Consistent dark-mode visual style across apps
+## What's in this repo
 
----
+| Folder | What it is |
+|---|---|
+| [`control-app/`](control-app/) | The desktop app: Electron window, Express server, Jarvis, tests |
+| [`mobile-app/`](mobile-app/) | Control Center Mobile, the native Android app (Kotlin, Jetpack Compose) |
+| [`desktop-client/`](desktop-client/) | Control Center Remote, for a laptop or another desktop (Windows and Linux): the phone app's features, with install and start scripts |
+| `project-app/`, `calendar-app/`, `news-app/`, `music-app/`, `movie-app/`, `drawing-app/`, `server-manager-app/` | The desktop apps' windows |
+| [`wikipedia-app/`](wikipedia-app/) | Offline Wikipedia: a Python "librarian" server over a local archive (the archive itself stays where it is) |
+| [`file-system-app/`](file-system-app/) | Hand-tracking file explorer and gesture recorder (Python, PC only) |
+| [`design-documents/`](design-documents/) | PRDs, designs and architecture, including the mobile app's |
 
-## 3. Desktop Application (Electron)
+## The apps
 
-### File Structure
+| App | On the PC | On the phone |
+|---|---|---|
+| Jarvis | Chat and voice | Chat; replies arrive as notifications |
+| Projects | Personal and work project folders: browse, edit text files, rename, copy, move, Recycle Bin, open in VS Code | Browse, edit and save text files, new files and folders |
+| Calendar | Month view and agenda | Agenda, month grid, add and delete; reminders scheduled on the phone |
+| Alarms | Ring on the PC | "Set an alarm in 30 seconds" rings on the device that asked |
+| News | Weather and headlines | Same, with pull to refresh |
+| Music | Player and playlists | Streams to the phone with lock-screen controls, or acts as a remote for the PC |
+| Movies | Saved library from your movie folders | Streams with subtitles; warns before using mobile data |
+| Drawing | 2D and 3D editor | View 2D drawings |
+| Server Manager | Server list, SSH from the PC | List and Open SSH in an Android SSH app |
+| Wikipedia | Offline search and articles | Same, through the PC |
+| File System | Hand-tracking file explorer | Read-only browsing of the whole PC: previews, download, share; behind a fingerprint lock |
+| IDE | — | A VS Code-style editor for the PC's `scripts/` folder: explorer, tabs, syntax colors, Save / Save As, rename. Its AI tab on the right reads the open file and proposes changes as a diff you apply or discard (local model, nothing saved until you tap Save). **Save to phone** copies a script to the phone's `Download/scripts`, which Termux reaches as `~/storage/downloads/scripts` (run `termux-setup-storage` once) |
+| AI model | The Ollama card on the Overview tab lists the installed models; pick one to switch | Settings > Jarvis > AI model, the same list |
+| Hack the mainframe | — | Just for fun: a full-screen fake hacker console with six animated panels (tap one to make it the big one). Built into the phone, works offline |
+
+### Things to ask Jarvis
+
+Jarvis answers general questions (how-to, explanations, writing, advice)
+from the model's own knowledge, and questions about the apps' data
+(schedule, news, music, projects, Wikipedia). It can also:
+
+- set alarms and timers ("set an alarm in 30 seconds"), which ring on the
+  device you asked from
+- open and close apps (from the phone, they open on the phone)
+- control music on the PC
+- run a **process check**: it lists the PC's running processes into a
+  temporary log, looks for common malware signs (system process names in
+  the wrong place, look-alike names, hidden or download-and-run script
+  commands, unsigned programs in Temp or Downloads), reports anything worth
+  a look or "All processes normal", and deletes the log. These are warning
+  signs, not proof; without admin rights Windows hides some processes'
+  paths, so those are checked by name only
+- **check hardware health**: "check my CPU", "do a GPU scan", "how are my
+  drives", "check my RAM", or "any hardware errors" each run that one check;
+  "full system sweep" / "full system scan" runs them all. Reports the CPU
+  (load, clocks), GPU (temperature, load, VRAM, power), drive health (SMART),
+  memory use, and recent hardware/disk errors from the event log. Read-only,
+  no admin needed. CPU temperature has no built-in Windows source, so it
+  isn't included
+- run a **system diagnostic**: the process check plus whether the apps are
+  online and whether Ollama is connected with its model loaded
+- use the **ArtCraft** apps installed on the PC (PhotoCraft, WordCraft,
+  VectorCraft, FilmCraft and the rest, found under `ARTCRAFT_DIR`, default
+  `D:\ArtCraft`): open one, optionally with a file; read a file's details
+  (pages, slides, sheets, layers, length); get the text of a PDF or document;
+  and convert between formats (never overwriting, never writing into the
+  ArtCraft folder). These run on the PC only, not when asked from the phone,
+  except listing the installed apps
+- shut down Control Center ("shut down", from the PC only)
+- "hack the mainframe" (from the phone)
+
+## Running it
+
+On the home PC (Windows), from `control-app/`:
+
 ```
-control-app/
-├── electron/
-│   ├── main.js           (Electron main process, window creation)
-│   └── preload.js        (IPC bridge for security)
-├── client/               (Vite-bundled frontend)
-│   ├── app.js            (Tab system, UI state)
-│   ├── voice.js          (Audio interaction)
-│   ├── index.html
-│   └── styles.css        (Dark theme)
-├── server/               (Express backend)
-├── agent/
-│   ├── AGENT_RUNTIME_CONTEXT.txt    (AI continuity)
-│   └── AGENT_TOOL_CONTEXT.txt       (Tool definitions)
-└── package.json          (Dependencies)
-```
-
-### Launch Process
-1. `npm start` or `start-control-center.ps1` (PowerShell)
-2. Electron spawns main window (1400×900, min 1050×700)
-3. Loads `http://localhost:3000` (backend auto-starts)
-4. On close: graceful shutdown of backend, voice sockets, Ollama probe
-
-### Main Features
-- **Tab System:** System tabs (Overview, Settings, Chatbot, Event Bus, Agent Core, Integration Hub) + Dynamic app tabs
-- **Mode Switching:** Desktop ↔ Mobile mode toggle in header
-- **Status Cards:** App registry display with smooth navigation
-- **Settings Tab:** Audio device selection, voice model selection, voice speed adjustment
-- **Chatbot Tab:** Desktop-only text chat with local AI agent (Mobile shows desktop-required notice)
-- **Event Bus:** Real-time scrollable event stream with SSE connection
-
----
-
-## 4. Backend Services (Express Server)
-
-### Core Config
-- **Port:** localhost:3000 (configurable via `server/config.js`)
-- **Static Routes:** `/calendar-app`, `/news-app`, `/work-app`, `/project-app`, `/music-app`, `/drawing-app`, `/movie-app`, `/server-manager-app`
-- **API Route:** `/api/*` (main orchestration endpoint)
-
-### Service Modules (`server/services/`)
-
-| Service | Purpose |
-|---------|---------|
-| **orchestrator.js** | Core orchestration status, app connection lifecycle |
-| **appRegistry.js** | Maintains list of 8 modular apps and their metadata |
-| **appMessageService.js** | In-memory app event logging with bounded history |
-| **eventBus.js** | System-wide event broadcasting (in-memory + SSE streaming) |
-| **chatService.js** | Local AI chat state and message history |
-| **ollamaService.js** | Ollama status probing, lifecycle (start/stop), tool-calling chat completions |
-| **voiceService.js** | WebSocket attachment for voice I/O, audio stream handling |
-| **whisperService.js** | Speech-to-text (local or remote) |
-| **piperService.js** | Text-to-speech synthesis (Piper engine) |
-| **modeStateMachine.js** | Desktop ↔ Mobile mode state, transition history |
-| **settingsService.js** | Audio device, voice model, speed preferences |
-| **calendarService.js** | CRUD for calendar events, entirely local JSON storage |
-| **drawingFileService.js** | Directory picker and path handling for drawing exports |
-| **musicLibraryService.js** | Music folder scanning and library state |
-| **newsService.js** | News feed integration |
-| **projectService.js** | Project folder and metadata management |
-| **agentRuntime.js** | Builds the agent's system prompt, runs the Ollama tool-calling loop, deterministic fast path |
-| **agentTools.js** | Tool catalog (JSON-schema definitions) and dispatcher for tool execution |
-| **agentContextLoader.js** | Builds context bundles from design docs for AI prompts |
-| **queueManager.js** / **queueWorker.js** | Task queue (priority FIFO) and drain loop shared by chat, voice, and app messages |
-| **runtimePersistenceService.js** | Reads/writes `logs/control-center-runtime.json` and agent context |
-| **windowControlBridge.js** | IPC handler for opening/closing app windows |
-
----
-
-## 5. Modular Applications
-
-All apps follow a dark-mode visual style and can run either:
-- **Embedded:** In tabs within Control Center
-- **Standalone:** In dedicated Electron child windows
-
-### Application Details
-
-| App | Location | Features | Backend |
-|-----|----------|----------|---------|
-| **Calendar** | `calendar-app/` | Month view, agenda, CRUD events | Local JSON only |
-| **Project** | `project-app/` | Folder browser, file management, IDE integration | Local file system |
-| **Work** | `work-app/` | Work/school project management | Local file system |
-| **Drawing** | `drawing-app/` | 2D canvas + 3D primitives, transform controls, STL export | Directory picker, local file save |
-| **Movie** | `movie-app/` | Folder import, library cards, inline playback | Local folder scanning |
-| **Music** | `music-app/` | Library management, playback controls | Local folder scanning |
-| **News** | `news-app/` | Feed aggregation | External news APIs |
-| **Server Manager** | `server-manager-app/` | SSH config, server inventory, PowerShell launch | Browser storage, SSH bridge |
-
-### App Lifecycle
-- Each app is a standalone HTML/JS/CSS bundle
-- Apps receive backend services via API calls
-- Apps can request file/directory pickers through shared endpoints
-- Apps emit messages to the app message service for logging
-
----
-
-## 6. AI Agent Integration
-
-### Agent Components
-- **Ollama:** Local model hosting (`qwen3.5:9b` by default), native tool-calling
-- **Task Queue:** Chat/voice/app requests enqueue and drain in order (voice gets priority) instead of blocking on each other
-- **Deterministic Fast Path:** Trivial commands ("open X", "what time is it") skip the LLM entirely
-- **Tool Catalog:** JSON-schema tool definitions the model can call directly (file ops, calendar CRUD, music control, etc.)
-- **Conversation State:** In-memory chat history with context loading
-- **Context Bundles:** Dynamically built from design documents for prompt enrichment
-
-### Agent Execution Flow
-1. User text → Chatbot input, Voice (Whisper STT), or an app's background message
-2. Request is enqueued; the queue worker processes tasks one at a time (voice preempts text)
-3. Deterministic fast path handles trivial commands with no LLM call
-4. Otherwise, Ollama receives the conversation + tool catalog and returns either a reply or structured tool calls
-5. Tool calls execute, results go back to Ollama, looping until a final reply is produced
-6. Response → Chat history + Event bus + UI update
-
-### Runtime Continuity
-- Agent context persisted to `control-app/agent/AGENT_RUNTIME_CONTEXT.txt`
-- Chat history maintained in-memory; logged to runtime persistence
-- Tool execution audited in app message service
-
----
-
-## 7. Voice Pipeline
-
-### Components
-- **Whisper (STT):** Transcribes user audio to text
-- **Piper (TTS):** Synthesizes text responses to audio
-- **Voice Service:** WebSocket management for bidirectional audio streams
-- **Audio Devices:** Settings tab allows user to select input/output devices
-
-### File Structure
-```
-control-app/voice/
-├── piper/
-│   ├── en_GB-alan-medium.onnx    (Model file)
-│   ├── libtashkeel_model.ort     (Processing model)
-│   └── espeak-ng-data/           (Language data)
-├── whisper/                       (Whisper model)
-└── setup-voice.ps1               (Voice setup script)
-```
-
-### Status
-- WebSocket route active; clients can connect
-- Local voice pipeline partially integrated
-- Settings tab supports voice model and speed selection
-
----
-
-## 8. Data Persistence & Storage
-
-### Runtime State
-- **`logs/control-center-runtime.json`** (ignored in git)
-  - Current mode, Ollama connection state
-  - Recent chat messages (last 60)
-  - App message history (bounded)
-  - Active session metadata
-
-- **`control-app/agent/AGENT_RUNTIME_CONTEXT.txt`** (ignored in git)
-  - AI agent continuity state
-  - Recent interactions formatted for prompt context
-  - Tool access history
-
-### App Data
-- **Calendar:** `control-app/server/data/calendar-events.json`, entirely local
-- **Drawing:** User-selected directories (file picker integration)
-- **Music/News:** Scanned from local folders or external APIs
-- **Server Manager:** Browser storage (persists in Electron storage)
-- **Project/Work:** Local file system access
-
----
-
-## 9. Development & Build
-
-### Scripts
-```json
-{
-  "start": "electron .",              // Run desktop app with auto-starting backend
-  "dev": "electron .",                // Same as start
-  "start:web": "node server/index.js", // Backend only (for web testing)
-  "pack": "electron-builder --dir",   // Package for distribution
-  "dist": "electron-builder --win portable nsis" // Build Windows executable + installer
-}
-```
-
-### Build Output
-- **`control-app/dist/Control Center 1.0.0.exe`** (portable)
-- **`control-app/dist/Control Center Setup 1.0.0.exe`** (installer with Start Menu/desktop shortcut)
-- Data written to user profile (not install folder)
-
-### Dependencies
-```
-Runtime: express, ws, dotenv, fast-xml-parser
-Desktop: electron, electron-builder
-```
-
----
-
-## 10. External Integrations
-
-### Ollama
-- Runs as a local daemon; Control Center spawns/stops it if needed
-- Backend polls `http://127.0.0.1:11434` for status
-- Chat completions via Ollama's native tool-calling API (default model `qwen3.5:9b`)
-
-### External APIs
-- News aggregation services (news-app)
-- Weather/STEM data (future integration points)
-- SSH bridge for server management
-
----
-
-## 11. Security & Permissions
-
-### Design Principles
-- **Tool Gateway:** AI agent cannot access system directly; only through approved tools
-- **App Isolation:** Each app has its own data/API boundary
-- **User Authority:** Primary user holds highest privileges (agent is secondary)
-- **IPC Security:** Electron preload script enforces context isolation
-- **File Access:** Directory picker endpoints validate paths before access
-
-### Implementation
-- Tool permission matrix enforced in `agentToolInterface.js`
-- Command filter validates intent before execution
-- App message service logs all operations for audit trail
-
----
-
-## 12. Key Files & Paths
-
-### Critical Files
-| File | Purpose |
-|------|---------|
-| `control-app/electron/main.js` | Electron app entry, window management |
-| `control-app/server/index.js` | Express server startup, static file routing |
-| `control-app/server/routes/api.js` | Main API endpoint definitions |
-| `control-app/package.json` | Dependencies, build config, scripts |
-| `control-app/server/config.js` | Server configuration (port, host) |
-| `design-documents/control-center-overview.md` | Product overview & per-app spec (used for AI context) |
-| `design-documents/control-center-architecture.md` | Architecture, current status, how to run (used for AI context) |
-
-### Data Directories
-```
-logs/                           (Runtime state, events log)
-control-app/server/data/        (Calendar JSON, app data)
-control-app/agent/              (AI context, tool definitions)
-control-app/voice/              (Piper/Whisper models)
-```
-
----
-
-## 13. Deployment & Running
-
-### Local Development
-```bash
-cd control-app
 npm install
 npm start
 ```
-Launches Electron + embedded Express backend at `http://localhost:3000`
 
-### Production Build
-```bash
-npm run dist
-```
-Creates portable `.exe` and installer in `dist/` folder
+Needs [Node.js](https://nodejs.org) and [Ollama](https://ollama.com) with
+`ollama pull qwen3.5:9b` (the default; any other installed model can be
+picked from the Ollama card on the Overview tab, or in the phone's
+Settings). Optional settings are in
+`control-app/.env.example`. See [`control-app/README.md`](control-app/README.md)
+for the details and the Windows build.
 
-### Standalone Server
-```bash
-npm run start:web
-```
-Runs Express backend only (for mobile companion app development)
+Tests: `npm test` in `control-app/` (server, security and Jarvis-tool tests). The phone app
+builds and runs Android lint with `gradlew assembleDebug lintDebug` in `mobile-app/`.
 
----
+## Using it away from home
 
-## 14. Future/Planned Features
+1. Install [Tailscale](https://tailscale.com) on the PC and on your phone or
+   laptop, signed in to the same account.
+2. On the PC: `tailscale serve --bg 3100`. This publishes Control Center at
+   `https://<pc-name>.<tailnet>.ts.net`, reachable only by your own devices.
+3. In Control Center: Settings > Devices > **Pair a device**, then scan the QR
+   code with the phone app, or enter the address and code in Control Center
+   Remote on a laptop.
 
-- Mobile companion app (audio-only interface, connected to desktop backend)
-- Cloud synchronization for calendar and project data
-- Extended voice pipeline integration (wake words, continuous listening)
-- Additional external API integrations (weather, STEM data)
-- Plugin/extension system for custom apps
-- Enhanced AI context with codebase understanding
+Build and install the phone app from `mobile-app/` with Android Studio, or
+`gradlew assembleDebug` and `adb install`. Install the laptop app with
+`desktop-client/install.ps1` (Windows) or `desktop-client/install.sh` (Linux);
+see [`desktop-client/README.md`](desktop-client/README.md).
 
----
+## Security in short
 
-## 15. Contact & Context
-
-**Author:** Alex Glesser  
-**Version:** 1.0.0  
-**Repository Root:** `d:\Control-Center`  
-**Core App:** `d:\Control-Center\control-app`  
-**Design Docs:** `d:\Control-Center\design-documents`
-
-For questions about specific features, consult the design documents or individual service modules in `control-app/server/services/`.
+- The server listens on `127.0.0.1` only. Remote devices come in through
+  Tailscale.
+- Every API call needs credentials: the desktop window uses a local session
+  cookie; each paired device gets its own token, stored hashed on the PC and
+  encrypted on the phone. Pairing codes last 5 minutes and work once.
+- Paired devices only get an allowlist of endpoints. Opening dialogs or
+  programs on the PC, shutting down, settings, and file changes outside
+  Projects and the IDE's `scripts/` folder stay desktop-only, including
+  when a device asks Jarvis to do them. A device can switch the AI model,
+  but only to one already installed. File System on the phone is read-only
+  and can be switched off on the PC.
+- Remove a device any time from Settings > Devices.

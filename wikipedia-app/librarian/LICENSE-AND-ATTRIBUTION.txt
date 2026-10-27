@@ -1,0 +1,7 @@
+Wikipedia text is licensed under CC BY-SA 4.0 (and GFDL).
+Images in the Kiwix file carry their own licenses (see each file's page on Wikimedia Commons).
+Personal/internal use is fine. If you redistribute or publish any of this content,
+you must credit Wikipedia/its authors, link the license, and share adaptations under
+the same license: https://creativecommons.org/licenses/by-sa/4.0/
+Wikipedia(R) is a trademark of the Wikimedia Foundation; don't present this copy as official.
+Downloaded from https://dumps.wikimedia.org and https://download.kiwix.org

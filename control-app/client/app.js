@@ -127,7 +127,8 @@ async function checkRingingAlarms() {
   try {
     const res = await fetch("/api/alarms/ringing");
     const data = await res.json();
-    const alarms = data.alarms ?? [];
+    // Alarms set from a paired phone ring on that phone, not here.
+    const alarms = (data.alarms ?? []).filter((alarm) => !alarm.deviceId);
     if (alarms.length) {
       showAlarmOverlay({ alarmId: alarms[0].id, label: alarms[0].label });
     }
@@ -167,6 +168,159 @@ async function loadSettings() {
   const data = await res.json();
   state.settings = data.settings;
   state.settingsOptions = data.options;
+  await loadModels();
+}
+
+/* The Overview's Ollama card: the installed models and the one in use. */
+
+async function loadModels() {
+  try {
+    state.models = await (await fetch("/api/ollama/models")).json();
+  } catch {
+    state.models = { ok: false, message: "Can't reach Control Center." };
+  }
+}
+
+async function switchModel(model) {
+  const res = await fetch("/api/ollama/model", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model })
+  });
+  return res.json();
+}
+
+function formatModelSize(bytes) {
+  return bytes ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : "";
+}
+
+
+/* Paired devices (Settings > Devices) for the mobile app. */
+
+async function loadDevices() {
+  try {
+    const [devicesRes, accessRes] = await Promise.all([
+      fetch("/api/devices"),
+      fetch("/api/devices/remote-access?fresh=1")
+    ]);
+    state.devices = (await devicesRes.json()).devices ?? [];
+    state.remoteAccess = (await accessRes.json()).remoteAccess ?? null;
+  } catch {
+    state.devices = state.devices ?? [];
+  }
+}
+
+async function startPairing() {
+  const res = await fetch("/api/devices/pairing-codes", { method: "POST" });
+  const data = await res.json();
+  if (!data.ok) {
+    return;
+  }
+  state.pairing = data;
+  state.remoteAccess = data.remoteAccess ?? state.remoteAccess;
+  startPairingCountdown();
+}
+
+async function cancelPairing() {
+  state.pairing = null;
+  stopPairingCountdown();
+  await fetch("/api/devices/pairing-codes", { method: "DELETE" }).catch(() => {});
+}
+
+async function removeDevice(deviceId) {
+  await fetch(`/api/devices/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+  await loadDevices();
+}
+
+function startPairingCountdown() {
+  stopPairingCountdown();
+  const tick = () => {
+    const remainingMs = state.pairing ? Date.parse(state.pairing.expiresAt) - Date.now() : 0;
+    if (remainingMs <= 0) {
+      state.pairing = null;
+      stopPairingCountdown();
+      if (state.activeTab === "settings") {
+        renderSettings();
+      }
+      return;
+    }
+    const countdown = document.getElementById("pairing-countdown");
+    if (countdown) {
+      const seconds = Math.ceil(remainingMs / 1000);
+      countdown.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    }
+  };
+  tick();
+  state.pairingTimer = setInterval(tick, 1000);
+}
+
+function stopPairingCountdown() {
+  clearInterval(state.pairingTimer);
+  state.pairingTimer = null;
+}
+
+function formatLastSeen(isoTime) {
+  const minutes = Math.round((Date.now() - Date.parse(isoTime)) / 60000);
+  if (!Number.isFinite(minutes)) return "never";
+  if (minutes < 2) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} h ago`;
+  return new Date(isoTime).toLocaleDateString();
+}
+
+function renderDevicesCard() {
+  const access = state.remoteAccess;
+  const steps = access
+    ? [
+        ["Tailscale installed", access.installed],
+        ["Signed in to Tailscale", access.signedIn],
+        ["HTTPS certificates on", access.httpsCertificates],
+        ["Control Center published (tailscale serve)", access.serveConfigured]
+      ]
+    : [];
+  const checklist = steps
+    .map(([label, done]) => `<li>${label} <span class="status ${done ? "ready" : "wip"}">${done ? "Done" : "To do"}</span></li>`)
+    .join("");
+
+  const devices = state.devices ?? [];
+  const deviceRows = devices.length
+    ? devices
+        .map(
+          (device) => `
+          <li>
+            <span>${escapeHtml(device.name)} <span class="muted">· last seen ${formatLastSeen(device.lastSeenAt)}</span></span>
+            <button type="button" class="action-btn remove-device-btn" data-device-id="${escapeHtml(device.id)}">Remove</button>
+          </li>`
+        )
+        .join("")
+    : `<li class="muted">No paired devices yet.</li>`;
+
+  const pairing = state.pairing;
+  const pairingPanel = pairing
+    ? `
+      <div class="pairing-panel">
+        <div class="pairing-qr">${pairing.qrSvg}</div>
+        <div class="stack">
+          <p>Scan this with the Control Center app on your phone. On a laptop, enter the address and code in Control Center Remote.</p>
+          <p class="pairing-code">${escapeHtml(pairing.code.replace(/(.{4})/, "$1 "))}</p>
+          <p class="muted">Or enter the code manually. Expires in <span id="pairing-countdown"></span>.</p>
+          ${pairing.url ? `<p class="muted">Address: ${escapeHtml(pairing.url)}</p>` : `<p class="status wip">Remote access isn't set up yet, so the phone won't be able to connect. See the checklist above.</p>`}
+          <div class="event-controls"><button type="button" class="action-btn" id="cancel-pairing-btn">Cancel</button></div>
+        </div>
+      </div>`
+    : `<div class="event-controls"><button type="button" class="action-btn" id="pair-device-btn">Pair a device</button></div>`;
+
+  return `
+    <article class="card stack" id="devices-card">
+      <h3>Devices</h3>
+      <p class="muted">Phones and laptops paired here can use Control Center from anywhere over Tailscale.</p>
+      ${access?.nextStep ? `<p class="status wip">Next step: ${escapeHtml(access.nextStep)}</p>` : ""}
+      ${checklist ? `<ul class="list">${checklist}</ul>` : ""}
+      <h4>Paired devices</h4>
+      <ul class="list device-list">${deviceRows}</ul>
+      ${pairingPanel}
+    </article>
+  `;
 }
 
 async function loadChatMessages() {
@@ -271,10 +425,6 @@ async function openCalendarAppWindow() {
   await openWindowApp("calendar-app");
 }
 
-async function openWorkAppWindow() {
-  await openWindowApp("work-app");
-}
-
 async function openProjectAppWindow() {
   await openWindowApp("project-app");
 }
@@ -283,18 +433,25 @@ async function openMusicAppWindow() {
   await openWindowApp("music-app");
 }
 
-const WINDOW_APP_IDS = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"];
+const WINDOW_APP_IDS = ["calendar-app", "news-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app", "wikipedia-app", "file-system-app"];
 
 const WINDOW_APP_BRIDGE_NAMES = {
   "calendar-app": "CalendarApp",
   "news-app": "NewsApp",
-  "work-app": "WorkApp",
   "project-app": "ProjectApp",
   "music-app": "MusicApp",
   "drawing-app": "DrawingApp",
   "movie-app": "MovieApp",
-  "server-manager-app": "ServerManagerApp"
+  "server-manager-app": "ServerManagerApp",
+  "wikipedia-app": "WikipediaApp",
+  "file-system-app": "FileSystemApp"
 };
+
+// Window apps whose window is a native process launched by the backend
+// (fileSystemService.js) instead of a web page. In Electron the regular
+// <appId>:open/close IPC already launches/stops it; in a plain browser the
+// equivalent is the app's launch/stop endpoint rather than window.open().
+const NATIVE_WINDOW_APP_IDS = ["file-system-app"];
 
 function getDesktopWindowMethod(appId, action) {
   const bridgeName = WINDOW_APP_BRIDGE_NAMES[appId];
@@ -312,6 +469,11 @@ async function openWindowApp(appId) {
     return;
   }
 
+  if (NATIVE_WINDOW_APP_IDS.includes(appId)) {
+    await fetch(`/api/apps/${appId}/launch`, { method: "POST" });
+    return;
+  }
+
   window.open(`/${appId}/`, "_blank", "noopener");
 }
 
@@ -319,6 +481,15 @@ async function closeWindowApp(appId) {
   const methodName = getDesktopWindowMethod(appId, "close");
   if (window.controlCenterDesktop?.runtime === "electron" && methodName && typeof window.controlCenterDesktop[methodName] === "function") {
     await window.controlCenterDesktop[methodName]();
+    return;
+  }
+
+  if (NATIVE_WINDOW_APP_IDS.includes(appId)) {
+    await fetch(`/api/apps/${appId}/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ process: "all" })
+    });
   }
 }
 
@@ -334,16 +505,16 @@ async function openServerManagerAppWindow() {
   await openWindowApp("server-manager-app");
 }
 
+async function openWikipediaAppWindow() {
+  await openWindowApp("wikipedia-app");
+}
+
 async function closeCalendarAppWindow() {
   await closeWindowApp("calendar-app");
 }
 
 async function closeNewsAppWindow() {
   await closeWindowApp("news-app");
-}
-
-async function closeWorkAppWindow() {
-  await closeWindowApp("work-app");
 }
 
 async function closeProjectAppWindow() {
@@ -366,6 +537,18 @@ async function closeServerManagerAppWindow() {
   await closeWindowApp("server-manager-app");
 }
 
+async function closeWikipediaAppWindow() {
+  await closeWindowApp("wikipedia-app");
+}
+
+async function openFileSystemAppWindow() {
+  await openWindowApp("file-system-app");
+}
+
+async function closeFileSystemAppWindow() {
+  await closeWindowApp("file-system-app");
+}
+
 async function closeKnownAppWindow(appId) {
   if (appId === "all-apps") {
     if (window.controlCenterDesktop?.runtime === "electron" && window.controlCenterDesktop.closeAllAppWindows) {
@@ -383,8 +566,6 @@ async function closeKnownAppWindow(appId) {
     await closeCalendarAppWindow();
   } else if (appId === "news-app") {
     await closeNewsAppWindow();
-  } else if (appId === "work-app") {
-    await closeWorkAppWindow();
   } else if (appId === "project-app") {
     await closeProjectAppWindow();
   } else if (appId === "music-app") {
@@ -395,6 +576,10 @@ async function closeKnownAppWindow(appId) {
     await closeMovieAppWindow();
   } else if (appId === "server-manager-app") {
     await closeServerManagerAppWindow();
+  } else if (appId === "wikipedia-app") {
+    await closeWikipediaAppWindow();
+  } else if (appId === "file-system-app") {
+    await closeFileSystemAppWindow();
   } else {
     return false;
   }
@@ -410,7 +595,9 @@ async function closeKnownAppWindow(appId) {
 async function openKnownAppWindow(appId) {
   if (WINDOW_APP_IDS.includes(appId)) {
     await openWindowApp(appId);
-    return true;
+    // Native apps open their own OS window; returning false also brings up
+    // their tab, whose content is the status/recorder panel.
+    return !NATIVE_WINDOW_APP_IDS.includes(appId);
   }
 
   return false;
@@ -697,7 +884,7 @@ function appCard(app) {
       <p>${app.description}</p>
       <div class="caps">${capHtml}</div>
       <div style="margin-top: 10px">
-        ${appStatusPill(app)}
+        ${appStatusPill(app)}${app.version ? ` <span class="cap">v${app.version}</span>` : ""}
       </div>
     </article>
   `;
@@ -712,6 +899,23 @@ function renderOllamaCard(system) {
   const statusLabel = isConnected ? "Connected" : (status === "error" ? "Error" : "Offline");
   const errorHtml = ollama.lastError ? `<li class="muted" style="font-size:0.78em">Last error: ${ollama.lastError}</li>` : "";
   const modelHtml = model ? `<li>Model: <span class="muted">${model}</span></li>` : "";
+  const installed = state.models?.models ?? [];
+  // The card re-renders on every event; keep a choice the user hasn't applied yet.
+  const chosen = state.modelChoice ?? state.models?.active ?? model;
+  const modelOptionsHtml = installed
+    .map((entry) => {
+      const details = [entry.parameterSize, entry.quantization, formatModelSize(entry.size)].filter(Boolean).join(", ");
+      const isDefault = entry.name === state.models.default ? " (default)" : "";
+      return `<option value="${escapeHtml(entry.name)}" ${entry.name === chosen ? "selected" : ""}>${escapeHtml(entry.name)}${isDefault}${details ? ` — ${escapeHtml(details)}` : ""}</option>`;
+    })
+    .join("");
+  const pickerHtml = installed.length
+    ? `
+      <label class="settings-field">
+        <span>Change model</span>
+        <select id="ai-model-select">${modelOptionsHtml}</select>
+      </label>`
+    : "";
 
   return `
     <article class="card stack">
@@ -725,6 +929,8 @@ function renderOllamaCard(system) {
         <button class="action-btn" data-action="ollama-start" ${isConnected ? "disabled" : ""}>Start Model</button>
         <button class="action-btn" data-action="ollama-stop" ${!isConnected ? "disabled" : ""}>Stop Model</button>
       </div>
+      ${pickerHtml}
+      ${installed.length ? `<div class="event-controls"><button class="action-btn" id="ai-model-switch" ${chosen === (state.models?.active ?? model) ? "disabled" : ""}>Switch Model</button></div>` : ""}
       <p class="muted" id="ollama-feedback" style="font-size:0.8em;min-height:1.2em"></p>
     </article>
   `;
@@ -994,6 +1200,8 @@ function renderSettings() {
       </form>
     </article>
 
+    ${renderDevicesCard()}
+
     <article class="card stack">
       <h3>Mode Notice</h3>
       <p class="muted">
@@ -1130,8 +1338,21 @@ function renderSingleApp(appId) {
     return;
   }
 
+  if (NATIVE_WINDOW_APP_IDS.includes(app.id)) {
+    appView.innerHTML = `
+      <article class="card stack">
+        <h3>${app.name}${app.version ? ` <span class="cap">v${app.version}</span>` : ""}</h3>
+        <p>${app.description}</p>
+        <div><button class="action-btn" data-action="open-app" data-app-id="${app.id}">Open ${app.name}</button></div>
+      </article>
+      <iframe class="card" src="/${app.routeKey}/" title="${app.name} panel"
+        style="width: 100%; min-height: 760px; border: 0; padding: 0; background: transparent"></iframe>
+    `;
+    return;
+  }
+
   const capHtml = app.capabilities.map((cap) => `<li>${cap}</li>`).join("");
-  const launchButton = ["calendar-app", "news-app", "work-app", "project-app", "music-app", "drawing-app", "movie-app", "server-manager-app"].includes(app.id)
+  const launchButton = WINDOW_APP_IDS.includes(app.id)
     ? `<div><button class="action-btn" data-action="open-app" data-app-id="${app.id}">Open ${app.name}</button></div>`
     : "";
 
@@ -1183,6 +1404,10 @@ function activateTab(tab) {
   if (tab === "overview") {
     setVisibleView("view-overview");
     stopQueuePolling();
+    // Re-check what's installed in Ollama, so a model pulled since the last look shows up.
+    loadModels()
+      .then(() => state.system && state.activeTab === "overview" && renderOverview(state.system))
+      .catch(() => {});
     return;
   }
 
@@ -1196,6 +1421,13 @@ function activateTab(tab) {
     renderSettings();
     setVisibleView("view-settings");
     stopQueuePolling();
+    loadDevices()
+      .then(() => {
+        if (state.activeTab === "settings") {
+          renderSettings();
+        }
+      })
+      .catch(() => {});
     return;
   }
 
@@ -1416,6 +1648,57 @@ function wireNavigation() {
       return;
     }
 
+    const pairButton = event.target.closest("#pair-device-btn");
+    if (pairButton) {
+      startPairing()
+        .then(() => renderSettings())
+        .catch(() => {});
+      return;
+    }
+
+    const cancelPairingButton = event.target.closest("#cancel-pairing-btn");
+    if (cancelPairingButton) {
+      cancelPairing()
+        .then(() => renderSettings())
+        .catch(() => {});
+      return;
+    }
+
+    const removeDeviceButton = event.target.closest(".remove-device-btn");
+    if (removeDeviceButton) {
+      const device = (state.devices ?? []).find((entry) => entry.id === removeDeviceButton.dataset.deviceId);
+      if (window.confirm(`Remove ${device?.name || "this device"}? It will need to pair again to connect.`)) {
+        removeDevice(removeDeviceButton.dataset.deviceId)
+          .then(() => renderSettings())
+          .catch(() => {});
+      }
+      return;
+    }
+
+    const switchModelButton = event.target.closest("#ai-model-switch");
+    if (switchModelButton && !switchModelButton.disabled) {
+      const model = document.getElementById("ai-model-select")?.value;
+      if (!model) return;
+      switchModelButton.disabled = true;
+      switchModelButton.textContent = "Switching...";
+      const feedback = document.getElementById("ollama-feedback");
+      if (feedback) feedback.textContent = `Switching to ${model}...`;
+      switchModel(model)
+        .then(async (result) => {
+          if (result.ok) state.modelChoice = null;
+          await loadModels();
+          await refreshSystemStatus();
+          const fb = document.getElementById("ollama-feedback");
+          if (fb) fb.textContent = result.ok ? `Now using ${result.model}. It loads on the next request (a few seconds).` : (result.message || "Couldn't switch models.");
+        })
+        .catch(async () => {
+          await refreshSystemStatus();
+          const fb = document.getElementById("ollama-feedback");
+          if (fb) fb.textContent = "Couldn't switch models.";
+        });
+      return;
+    }
+
     const testVoiceButton = event.target.closest("#test-voice-btn");
     if (testVoiceButton) {
       runVoiceTest("This is a local desktop voice test.")
@@ -1457,6 +1740,15 @@ function wireNavigation() {
     }
 
     activateTab(target.dataset.tab);
+  });
+
+  // The model dropdown on the Overview's Ollama card.
+  document.addEventListener("change", (event) => {
+    const select = event.target.closest("#ai-model-select");
+    if (!select) return;
+    state.modelChoice = select.value;
+    const switchButton = document.getElementById("ai-model-switch");
+    if (switchButton) switchButton.disabled = select.value === state.models?.active;
   });
 
   document.addEventListener("submit", (event) => {
@@ -1771,7 +2063,11 @@ function startEventStream() {
           });
         }
 
-        if (payload.event.type === "open-app" && payload.event.meta?.tab) {
+        // Open/close events carrying targetDeviceId were asked for from a
+        // paired phone and are meant for that phone, not for this desktop.
+        const targetedElsewhere = Boolean(payload.event.meta?.targetDeviceId);
+
+        if (payload.event.type === "open-app" && payload.event.meta?.tab && !targetedElsewhere) {
           const targetTab = String(payload.event.meta.tab);
           if (targetTab === "app:calendar-app") {
             openCalendarAppWindow().catch(() => {
@@ -1779,10 +2075,6 @@ function startEventStream() {
             });
           } else if (targetTab === "app:news-app") {
             openNewsAppWindow().catch(() => {
-              // Ignore launch failures for now.
-            });
-          } else if (targetTab === "app:work-app") {
-            openWorkAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
           } else if (targetTab === "app:project-app") {
@@ -1805,23 +2097,45 @@ function startEventStream() {
             openServerManagerAppWindow().catch(() => {
               // Ignore launch failures for now.
             });
+          } else if (targetTab === "app:wikipedia-app") {
+            openWikipediaAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
+          } else if (targetTab === "app:file-system-app") {
+            openFileSystemAppWindow().catch(() => {
+              // Ignore launch failures for now.
+            });
           } else {
             activateTab(targetTab);
           }
         }
 
-        if (payload.event.type === "close-app") {
+        if (payload.event.type === "close-app" && !targetedElsewhere) {
           const closeTarget = String(payload.event.meta?.target || "").trim();
           closeKnownAppWindow(closeTarget).catch(() => {
             // Ignore close failures for now.
           });
         }
 
-        if (payload.event.type === "alarm-fired") {
+        if (payload.event.type === "device-paired" || payload.event.type === "device-revoked") {
+          if (payload.event.type === "device-paired") {
+            state.pairing = null;
+            stopPairingCountdown();
+          }
+          loadDevices()
+            .then(() => {
+              if (state.activeTab === "settings") {
+                renderSettings();
+              }
+            })
+            .catch(() => {});
+        }
+
+        if (payload.event.type === "alarm-fired" && !targetedElsewhere) {
           showAlarmOverlay(payload.event.meta || {});
         }
 
-        if (payload.event.type === "alarm-stopped") {
+        if (payload.event.type === "alarm-stopped" && !targetedElsewhere) {
           hideAlarmOverlay();
         }
 
@@ -1854,7 +2168,8 @@ function startEventStream() {
         renderChatbot();
       }
 
-      if (state.activeTab.startsWith("app:") && state.activeTab !== "app:news-app") {
+      // Skip the native app's tab too: re-rendering it would reload its panel iframe on every event.
+      if (state.activeTab.startsWith("app:") && state.activeTab !== "app:news-app" && !NATIVE_WINDOW_APP_IDS.includes(state.activeTab.replace("app:", ""))) {
         const appId = state.activeTab.replace("app:", "");
         renderSingleApp(appId);
       }

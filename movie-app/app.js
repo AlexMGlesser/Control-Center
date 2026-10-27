@@ -1,25 +1,22 @@
-const VIDEO_EXTENSIONS = [
-  ".mp4",
-  ".m4v",
-  ".mov",
-  ".mkv",
-  ".webm",
-  ".avi",
-  ".wmv"
-];
+// The library lives on the PC (control-app/server/services/movieLibraryService.js):
+// folders are added once and remembered, and the phone streams from the same list.
+const API = "/api/apps/movie-app";
 
 const state = {
   movies: [],
+  folders: [],
   selectedMovieId: null,
   activeMovieId: null,
-  captionsEnabled: false
+  captionsEnabled: false,
+  thumbnails: new Map()
 };
 
 const elements = {
   importFolderBtn: document.getElementById("import-folder-btn"),
+  rescanBtn: document.getElementById("rescan-btn"),
   overlayImportBtn: document.getElementById("overlay-import-btn"),
   openSelectedBtn: document.getElementById("open-selected-btn"),
-  folderInput: document.getElementById("folder-input"),
+  folderList: document.getElementById("folder-list"),
   movieGrid: document.getElementById("movie-grid"),
   movieCount: document.getElementById("movie-count"),
   video: document.getElementById("movie-player"),
@@ -37,12 +34,15 @@ const elements = {
   captionsBtn: document.getElementById("captions-btn")
 };
 
-function isVideoFile(file) {
-  const name = String(file?.name || "").toLowerCase();
-  if (String(file?.type || "").startsWith("video/")) {
-    return true;
-  }
-  return VIDEO_EXTENSIONS.some((ext) => name.endsWith(ext));
+async function api(path, { method = "GET", body } = {}) {
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json().catch(() => ({ ok: false, message: `Request failed (${res.status}).` }));
+  if (!res.ok || data.ok === false) throw new Error(data.message || `Request failed (${res.status}).`);
+  return data;
 }
 
 function formatDuration(value) {
@@ -68,41 +68,20 @@ function updatePlaybackMeta() {
   elements.playbackMeta.textContent = `${current} / ${total} | x${elements.video.playbackRate.toFixed(2)}`;
 }
 
-function clearObjectUrls() {
-  state.movies.forEach((movie) => {
-    if (movie.url) {
-      URL.revokeObjectURL(movie.url);
-    }
-  });
-}
-
-function createMovieId(file, index) {
-  return `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function prettyMovieName(fileName) {
-  return String(fileName || "")
-    .replace(/\.[a-z0-9]{2,5}$/i, "")
-    .replace(/[._-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-async function captureThumbnail(file) {
-  const tempUrl = URL.createObjectURL(file);
-
+/** A frame from early in the movie, for movies without a poster image. */
+async function captureThumbnail(url) {
   try {
     const video = document.createElement("video");
     video.preload = "metadata";
     video.muted = true;
-    video.src = tempUrl;
+    video.src = url;
 
     await new Promise((resolve, reject) => {
       video.onloadeddata = resolve;
       video.onerror = () => reject(new Error("thumbnail-load-failed"));
     });
 
-    const targetTime = Math.max(0, Math.min(2, (video.duration || 0) * 0.1));
+    const targetTime = Math.max(0, Math.min(120, (video.duration || 0) * 0.1));
     if (Number.isFinite(targetTime) && targetTime > 0) {
       await new Promise((resolve) => {
         video.onseeked = resolve;
@@ -115,11 +94,11 @@ async function captureThumbnail(file) {
     canvas.height = 180;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    video.removeAttribute("src");
+    video.load();
     return canvas.toDataURL("image/jpeg", 0.82);
   } catch {
     return null;
-  } finally {
-    URL.revokeObjectURL(tempUrl);
   }
 }
 
@@ -145,12 +124,25 @@ function updateSelectOverlay() {
   elements.overlay.classList.toggle("hidden", hasMovies);
 }
 
+function renderFolders() {
+  elements.folderList.innerHTML = state.folders
+    .map(
+      (folder) => `
+        <span class="folder-chip ${folder.missing ? "missing" : ""}" title="${escapeHtml(folder.path)}${folder.missing ? " (missing)" : ""}">
+          <span>${escapeHtml(folder.path)}</span>
+          <button type="button" data-action="remove-folder" data-path="${escapeHtml(folder.path)}" aria-label="Remove folder">×</button>
+        </span>`
+    )
+    .join("");
+}
+
 function renderLibrary() {
+  renderFolders();
   elements.movieCount.textContent = String(state.movies.length);
   elements.openSelectedBtn.disabled = !state.selectedMovieId;
 
   if (!state.movies.length) {
-    elements.movieGrid.innerHTML = '<article class="movie-card"><div class="movie-fallback">No movies imported yet</div></article>';
+    elements.movieGrid.innerHTML = `<article class="movie-card"><div class="movie-fallback">${state.folders.length ? "No movies found in these folders" : "No movie folders yet"}</div></article>`;
     updateSelectOverlay();
     return;
   }
@@ -159,7 +151,7 @@ function renderLibrary() {
     .map((movie) => {
       const selectedClass = movie.id === state.selectedMovieId ? "is-selected" : "";
       const thumb = movie.thumbnail
-        ? `<img class="movie-thumb" src="${movie.thumbnail}" alt="${escapeHtml(movie.title)}" />`
+        ? `<img class="movie-thumb" src="${escapeHtml(movie.thumbnail)}" alt="${escapeHtml(movie.title)}" />`
         : '<div class="movie-fallback">MOVIE</div>';
 
       return `
@@ -167,7 +159,7 @@ function renderLibrary() {
           ${thumb}
           <div class="movie-info">
             <div class="movie-title" title="${escapeHtml(movie.title)}">${escapeHtml(movie.title)}</div>
-            <div class="movie-meta">${escapeHtml(movie.file.name)}</div>
+            <div class="movie-meta">${escapeHtml(movie.fileName)}</div>
             <button class="btn movie-open" type="button" data-action="open-movie" data-movie-id="${movie.id}">Open</button>
           </div>
         </article>
@@ -209,7 +201,15 @@ async function openMovie(movieId) {
   state.activeMovieId = movie.id;
   state.selectedMovieId = movie.id;
 
+  elements.video.querySelectorAll("track").forEach((track) => track.remove());
   elements.video.src = movie.url;
+  movie.subtitles.forEach((subtitle) => {
+    const track = document.createElement("track");
+    track.kind = "subtitles";
+    track.label = subtitle.label;
+    track.src = `${API}/subtitles/${movie.id}?index=${subtitle.index}`;
+    elements.video.append(track);
+  });
   elements.video.load();
   elements.emptyPlayer.style.display = "none";
   setNowPlaying(movie);
@@ -236,38 +236,79 @@ function adjustSpeed(delta) {
   updatePlaybackMeta();
 }
 
-async function importMovieFolder() {
-  elements.folderInput.value = "";
-  elements.folderInput.click();
+function applyLibrary(library) {
+  state.folders = library.folders || [];
+  state.movies = (library.movies || []).map((movie) => ({
+    ...movie,
+    url: `${API}/stream/${movie.id}`,
+    thumbnail: movie.hasPoster ? `${API}/poster/${movie.id}` : state.thumbnails.get(movie.id) || null
+  }));
+  if (!state.movies.some((movie) => movie.id === state.selectedMovieId)) {
+    state.selectedMovieId = state.movies[0]?.id || null;
+  }
+  renderLibrary();
+  fillThumbnails();
 }
 
-async function onFolderSelected() {
-  const files = Array.from(elements.folderInput.files || []).filter(isVideoFile);
-  if (!files.length) {
-    return;
-  }
+let thumbnailRun = 0;
 
-  clearObjectUrls();
-  state.movies = files.map((file, index) => ({
-    id: createMovieId(file, index),
-    file,
-    title: prettyMovieName(file.name),
-    url: URL.createObjectURL(file),
-    thumbnail: null
-  }));
-
-  state.selectedMovieId = state.movies[0]?.id || null;
-  state.activeMovieId = null;
-  setNowPlaying(null);
-  elements.video.removeAttribute("src");
-  elements.video.load();
-  elements.emptyPlayer.style.display = "grid";
-
-  renderLibrary();
-
+/** Grabs frames one movie at a time, for movies without a poster. */
+async function fillThumbnails() {
+  const run = ++thumbnailRun;
   for (const movie of state.movies) {
-    movie.thumbnail = await captureThumbnail(movie.file);
-    renderLibrary();
+    if (run !== thumbnailRun) return;
+    if (movie.thumbnail) continue;
+    const frame = await captureThumbnail(movie.url);
+    if (frame) {
+      state.thumbnails.set(movie.id, frame);
+      movie.thumbnail = frame;
+      renderLibrary();
+    }
+  }
+}
+
+async function loadLibrary() {
+  try {
+    applyLibrary(await api("/library"));
+  } catch (error) {
+    elements.nowPlaying.textContent = error.message;
+  }
+}
+
+async function chooseFolder() {
+  const bridge = window.controlCenterDesktop;
+  if (bridge?.chooseDirectory) return bridge.chooseDirectory();
+  const res = await fetch("/api/system/choose-directory", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  return res.json();
+}
+
+async function importMovieFolder() {
+  const result = await chooseFolder();
+  if (!result?.ok || result.canceled || !result.path) return;
+  elements.nowPlaying.textContent = "Scanning…";
+  try {
+    applyLibrary(await api("/folders", { method: "POST", body: { path: result.path } }));
+    setNowPlaying(findMovieById(state.activeMovieId));
+  } catch (error) {
+    elements.nowPlaying.textContent = error.message;
+  }
+}
+
+async function removeFolder(folderPath) {
+  try {
+    applyLibrary(await api("/folders/remove", { method: "POST", body: { path: folderPath } }));
+  } catch (error) {
+    elements.nowPlaying.textContent = error.message;
+  }
+}
+
+async function rescan() {
+  elements.nowPlaying.textContent = "Scanning…";
+  try {
+    applyLibrary(await api("/rescan", { method: "POST" }));
+    setNowPlaying(findMovieById(state.activeMovieId));
+  } catch (error) {
+    elements.nowPlaying.textContent = error.message;
   }
 }
 
@@ -284,10 +325,13 @@ function bindEvents() {
     });
   });
 
-  elements.folderInput.addEventListener("change", () => {
-    onFolderSelected().catch(() => {
-      // Ignore import failures and keep UI usable.
-    });
+  elements.rescanBtn.addEventListener("click", () => {
+    rescan();
+  });
+
+  elements.folderList.addEventListener("click", (event) => {
+    const button = event.target.closest('[data-action="remove-folder"]');
+    if (button) removeFolder(button.dataset.path);
   });
 
   elements.movieGrid.addEventListener("click", (event) => {
@@ -380,10 +424,7 @@ function init() {
   updatePlaybackMeta();
   bindEvents();
   updateSelectOverlay();
+  loadLibrary();
 }
-
-window.addEventListener("beforeunload", () => {
-  clearObjectUrls();
-});
 
 init();

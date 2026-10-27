@@ -47,6 +47,13 @@ export function getRuntimeLogsDirectory() {
   return path.join(getRuntimeDataRoot(), "logs");
 }
 
+// Device tokens and the desktop's local session secret. Kept out of the
+// repo-tracked folders (gitignored in dev, per-user AppData when packaged);
+// CC_SECURITY_DIR overrides it so tests never touch the real one.
+export function getSecurityDirectory() {
+  return process.env.CC_SECURITY_DIR || path.join(getRuntimeDataRoot(), "security");
+}
+
 export function getAgentRuntimeDirectory() {
   if (isPackagedElectronRuntime()) {
     return path.join(getRuntimeDataRoot(), "agent");

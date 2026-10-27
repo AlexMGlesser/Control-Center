@@ -1,6 +1,6 @@
 {
   "name": "control-center-control-app",
-  "version": "1.0.0",
+  "version": "1.2.5",
   "private": true,
   "author": "Alex Glesser",
   "description": "Control Center host app with UI-first shell and backend integration stubs",
@@ -10,6 +10,7 @@
     "start": "electron .",
     "dev": "electron .",
     "start:web": "node server/index.js",
+    "test": "node --test \"tests/**/*.test.mjs\"",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --win portable nsis"
   },
@@ -17,6 +18,7 @@
     "dotenv": "^17.4.2",
     "express": "^4.21.2",
     "fast-xml-parser": "^5.7.0",
+    "qrcode": "1.5.4",
     "ws": "^8.20.0"
   },
   "devDependencies": {
@@ -61,13 +63,6 @@
         ]
       },
       {
-        "from": "../work-app",
-        "to": "apps/work-app",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
         "from": "../project-app",
         "to": "apps/project-app",
         "filter": [
@@ -103,6 +98,25 @@
         ]
       },
       {
+        "from": "../wikipedia-app",
+        "to": "apps/wikipedia-app",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**"
+        ]
+      },
+      {
+        "from": "../file-system-app",
+        "to": "apps/file-system-app",
+        "filter": [
+          "**/*",
+          "!dataset/**",
+          "!gesture_profiles/**",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
         "from": "../design-documents",
         "to": "design-documents",
         "filter": [
@@ -112,12 +126,16 @@
       {
         "from": "voice/whisper",
         "to": "voice/whisper",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "voice/piper",
         "to": "voice/piper",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

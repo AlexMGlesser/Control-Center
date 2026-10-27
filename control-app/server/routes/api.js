@@ -1,8 +1,32 @@
 import { Router } from "express";
-import { existsSync, statSync } from "fs";
+import { existsSync, realpathSync, statSync } from "fs";
 import { spawn } from "child_process";
+import os from "os";
 import path from "path";
+import QRCode from "qrcode";
 import { systemConfig } from "../config.js";
+import {
+  cancelPairingCode,
+  createPairingCode,
+  listDevices,
+  pairDevice,
+  requestSource,
+  revokeDevice
+} from "../services/authService.js";
+import { getRemoteAccessStatus } from "../services/remoteAccessService.js";
+import { executeToolCall } from "../services/agentTools.js";
+import {
+  addMovieFolder,
+  getMovieLibrary,
+  movieFilePath,
+  moviePosterPath,
+  movieSubtitlesVtt,
+  removeMovieFolder,
+  rescanMovies
+} from "../services/movieLibraryService.js";
+import { listServers, saveServers } from "../services/serverListService.js";
+import { assistWithFile, createScriptEntry, listScriptsFolder, readScript, renameScript, saveScript } from "../services/ideService.js";
+import { withTrackTags } from "../services/musicTagsService.js";
 import { getAllApps, getAppById } from "../services/appRegistry.js";
 import { addAppMessage } from "../services/appMessageService.js";
 import { connectApp, getOrchestratorStatus } from "../services/orchestrator.js";
@@ -21,11 +45,21 @@ import {
 } from "../services/settingsService.js";
 import { addUserMessage, getChatMessages } from "../services/chatService.js";
 import { getAgentContextText, getAgentRuntimeStatus, getAgentToolCatalog } from "../services/agentRuntime.js";
-import { startOllama, stopOllama, startOllamaProbe, stopOllamaProbe } from "../services/ollamaService.js";
+import {
+  getOllamaConfig,
+  listOllamaModels,
+  setActiveModel,
+  startOllama,
+  stopOllama,
+  startOllamaProbe,
+  stopOllamaProbe
+} from "../services/ollamaService.js";
+import { getWikipediaConfig, getWikipediaStatus, probeLibrarian, startWikipedia, stopWikipedia } from "../services/wikipediaService.js";
 import { getVoiceStatus } from "../services/voiceService.js";
 import { enqueueUserTurn, getQueueStatus, onReplyDelivered } from "../services/queueWorker.js";
 import {
   createAlarm,
+  getAlarm,
   listAlarms,
   cancelAlarm,
   stopAlarm,
@@ -34,19 +68,31 @@ import {
   stopAlarmScheduler
 } from "../services/alarmService.js";
 import {
-  getWorkProjects,
-  getPersonalProjects,
-  getProjectById,
-  createProject,
+  addProject,
+  availableTools,
+  copyProjectEntry,
+  createProjectEntry,
+  launchTool,
+  listProjectFolder,
+  listProjects,
+  moveProjectEntry,
+  openInVsCode,
+  openWithDefaultApp,
+  readProjectFile,
   removeProject,
-  buildFileTree,
-  createProjectNode,
-  deleteProjectNode,
-  copyProjectNode,
-  moveProjectNode,
-  openProjectNode,
-  launchApp
+  renameProjectEntry,
+  saveProjectFile,
+  trashProjectEntry,
+  updateProject
 } from "../services/projectService.js";
+import {
+  fileInfo,
+  isPhoneFileAccessEnabled,
+  listFolder,
+  listRoots,
+  resolveReadableFile,
+  setPhoneFileAccessEnabled
+} from "../services/remoteFilesService.js";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
@@ -58,6 +104,7 @@ import {
   addTrackToPlaylist,
   createMusicPlaylist,
   getMusicLibraryState,
+  isSyncedLocalTrackPath,
   listMusicArtists,
   listMusicGenres,
   listMusicPlaylists,
@@ -72,8 +119,25 @@ import {
   updateDrawingFile
 } from "../services/drawingFileService.js";
 import { getAllSkills, getSkillById, createSkill, updateSkill, deleteSkill } from "../services/skillsService.js";
+import {
+  getFileSystemStatus,
+  launchGestureRecorder,
+  launchFileExplorer,
+  shutdownFileSystem,
+  stopFileSystem
+} from "../services/fileSystemService.js";
 
 const router = Router();
+
+// Live event streams per paired device, so removing a device cuts it off.
+const deviceStreams = new Map(); // deviceId -> Set<close function>
+
+// Files /apps/music-app/local-file will stream (the music app imports
+// audio/*; video formats are allowed for music videos).
+const MEDIA_FILE_EXTENSIONS = new Set([
+  ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".oga", ".opus", ".wav", ".wma", ".aif", ".aiff", ".ape", ".alac",
+  ".mp4", ".m4v", ".webm", ".mkv", ".mov"
+]);
 let shutdownCallback = null;
 
 export function onShutdownRequested(cb) {
@@ -94,6 +158,12 @@ export async function shutdownAgentSystem() {
   // (stopOllama() no-ops the kill otherwise) — without this, a daemon we
   // started on launch is detached/unref'd and outlives Electron entirely.
   await stopOllama();
+  // Same rule for the Wikipedia App's librarian server: only killed if this
+  // process spawned it (it's started lazily, when the app is opened).
+  await stopWikipedia();
+  // File System's Python processes are plain (non-detached) children, but a
+  // GUI window keeps them alive after we exit unless they're closed here.
+  await shutdownFileSystem();
   return { ok: true, message: "Agent system shut down" };
 }
 
@@ -123,6 +193,33 @@ router.post("/ollama/stop", async (req, res) => {
     meta: {}
   });
   res.json(result);
+});
+
+/* Settings > AI Model (desktop only): which installed model Jarvis and the IDE use. */
+
+router.get("/ollama/models", async (req, res) => {
+  const { model, defaultModel } = getOllamaConfig();
+  try {
+    res.json({ ok: true, active: model, default: defaultModel, models: await listOllamaModels() });
+  } catch (error) {
+    res.status(503).json({ ok: false, code: "OLLAMA_UNAVAILABLE", message: `Can't reach Ollama: ${error.message}`, active: model, default: defaultModel });
+  }
+});
+
+router.put("/ollama/model", async (req, res) => {
+  try {
+    const result = await setActiveModel(req.body?.model);
+    publishEvent({
+      source: "ollama",
+      appId: "control-center",
+      type: "ollama",
+      message: `AI model switched to ${result.model}.`,
+      meta: result
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(error.status || 503).json({ ok: false, code: error.code || "OLLAMA_UNAVAILABLE", message: error.message });
+  }
 });
 
 router.get("/system", (req, res) => {
@@ -255,7 +352,7 @@ router.post("/agent/respond", async (req, res) => {
     return;
   }
 
-  const { turnId } = enqueueUserTurn(userText, { origin: { type: "user" } });
+  const { turnId } = enqueueUserTurn(userText, { origin: { type: "user", device: req.auth?.device } });
   const agentText = await new Promise((resolve) => {
     const unsubscribe = onReplyDelivered(({ turnId: completedTurnId, message }) => {
       if (completedTurnId !== turnId) {
@@ -276,13 +373,15 @@ router.post("/chat/messages", (req, res) => {
     return;
   }
 
-  const userMessageResult = addUserMessage(userText);
+  // req.auth is set by apiAuthMiddleware: the PC, or the paired device that sent it.
+  const device = req.auth?.device || null;
+  const userMessageResult = addUserMessage(userText, device);
   if (!userMessageResult.ok) {
     res.status(400).json(userMessageResult);
     return;
   }
 
-  const { task, turnId } = enqueueUserTurn(userText, { origin: { type: "user" } });
+  const { task, turnId } = enqueueUserTurn(userText, { origin: { type: "user", device } });
 
   publishEvent({
     source: "chat",
@@ -297,6 +396,8 @@ router.post("/chat/messages", (req, res) => {
     queued: true,
     userMessage: userMessageResult.message,
     task,
+    // Lets the sender match this turn's tool updates and reply events.
+    turnId,
     queue: getQueueStatus()
   });
 });
@@ -411,6 +512,24 @@ router.get("/apps/news-app/briefing", async (req, res) => {
   }
 });
 
+router.get("/apps/wikipedia-app/server", async (req, res) => {
+  res.json({ ok: true, ...(await getWikipediaStatus()) });
+});
+
+router.post("/apps/wikipedia-app/server/start", async (req, res) => {
+  const result = await startWikipedia();
+  if (result.ok && !result.alreadyRunning) {
+    publishEvent({
+      source: "wikipedia-app",
+      appId: "wikipedia-app",
+      type: "status",
+      message: "Wikipedia librarian server started.",
+      meta: { url: result.url }
+    });
+  }
+  res.status(result.ok ? 200 : 503).json(result);
+});
+
 router.get("/apps/music-app/library", (req, res) => {
   res.json(getMusicLibraryState());
 });
@@ -457,7 +576,26 @@ router.get("/apps/music-app/local-file", (req, res) => {
     return;
   }
 
-  res.sendFile(resolvedPath, (error) => {
+  // This used to serve any file on disk. Now: media files only (judged on
+  // the real target, so a renamed symlink/junction can't point elsewhere),
+  // and remote devices only get tracks that are in a synced playlist.
+  let realPath = resolvedPath;
+  try {
+    realPath = realpathSync(resolvedPath);
+  } catch {
+    res.status(500).json({ ok: false, code: "MUSIC_FILE_STAT_FAILED", message: "Could not read local file metadata." });
+    return;
+  }
+  if (!MEDIA_FILE_EXTENSIONS.has(path.extname(realPath).toLowerCase())) {
+    res.status(403).json({ ok: false, code: "MUSIC_FILE_NOT_MEDIA", message: "Only audio and video files can be streamed." });
+    return;
+  }
+  if (req.auth?.scope === "remote" && !isSyncedLocalTrackPath(resolvedPath) && !isSyncedLocalTrackPath(realPath)) {
+    res.status(403).json({ ok: false, code: "MUSIC_FILE_NOT_IN_LIBRARY", message: "That file isn't in your music library." });
+    return;
+  }
+
+  res.sendFile(realPath, (error) => {
     if (error && !res.headersSent) {
       res.status(500).json({ ok: false, code: "MUSIC_FILE_STREAM_FAILED", message: "Could not stream local music file." });
     }
@@ -465,7 +603,9 @@ router.get("/apps/music-app/local-file", (req, res) => {
 });
 
 router.get("/apps/music-app/playlists", (req, res) => {
-  res.json(listMusicPlaylists());
+  const result = listMusicPlaylists();
+  // Real titles from the files' tags (cached), for screens that show them.
+  res.json({ ...result, playlists: withTrackTags(result.playlists) });
 });
 
 router.post("/apps/music-app/local-playlists/sync", (req, res) => {
@@ -488,6 +628,68 @@ router.post("/apps/music-app/playlists/:playlistName/tracks", (req, res) => {
   handleProjectAction(res, () =>
     addTrackToPlaylist({ playlistName: req.params.playlistName, trackId: req.body?.trackId, trackName: req.body?.trackName })
   );
+});
+
+/* "Play on PC" from the phone: the same path as Jarvis's control_music. */
+router.post("/apps/music-app/command", async (req, res) => {
+  const result = await executeToolCall(
+    "control_music",
+    { action: req.body?.action, playlistName: req.body?.playlistName, artistName: req.body?.artistName },
+    { origin: { type: "user", device: req.auth?.device } }
+  );
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+/* Movie library on the PC (mobile architecture 5.6). The phone reads and
+   streams; adding folders and rescanning are desktop-only. */
+
+function movieRoute(res, action) {
+  try {
+    res.json({ ok: true, ...action() });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "MOVIE_ERROR", message: error.message });
+  }
+}
+
+router.get("/apps/movie-app/library", (req, res) => movieRoute(res, getMovieLibrary));
+router.post("/apps/movie-app/folders", (req, res) => movieRoute(res, () => addMovieFolder(req.body?.path)));
+router.post("/apps/movie-app/folders/remove", (req, res) => movieRoute(res, () => removeMovieFolder(req.body?.path)));
+router.post("/apps/movie-app/rescan", (req, res) => movieRoute(res, rescanMovies));
+
+function sendMovieFile(res, resolve, options = {}) {
+  let filePath;
+  try {
+    filePath = resolve();
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "MOVIE_ERROR", message: error.message });
+    return;
+  }
+  // sendFile answers Range requests, so players can seek.
+  res.sendFile(filePath, options, (error) => {
+    if (error && !res.headersSent) res.status(500).json({ ok: false, code: "MOVIE_STREAM_FAILED", message: "Could not stream the file." });
+  });
+}
+
+router.get("/apps/movie-app/stream/:movieId", (req, res) => sendMovieFile(res, () => movieFilePath(req.params.movieId)));
+router.get("/apps/movie-app/poster/:movieId", (req, res) =>
+  sendMovieFile(res, () => moviePosterPath(req.params.movieId), { maxAge: "1d" })
+);
+router.get("/apps/movie-app/subtitles/:movieId", (req, res) => {
+  try {
+    res.type("text/vtt").send(movieSubtitlesVtt(req.params.movieId, req.query.index));
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "MOVIE_ERROR", message: error.message });
+  }
+});
+
+/* Server Manager's list (mobile architecture 5.7). The phone only reads it. */
+router.get("/apps/server-manager-app/servers", (req, res) => res.json({ ok: true, ...listServers() }));
+router.put("/apps/server-manager-app/servers", (req, res) => {
+  try {
+    res.json({ ok: true, ...saveServers(req.body?.servers) });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "SERVERS_SAVE_FAILED", message: error.message });
+  }
 });
 
 router.get("/apps/drawing-app/files", (req, res) => {
@@ -578,106 +780,200 @@ router.delete("/apps/calendar-app/events/:eventId", async (req, res) => {
   }
 });
 
-router.get("/apps/work-app/projects", (req, res) => {
-  res.json({ ok: true, projects: getWorkProjects() });
-});
+/* Projects (one app for personal and work projects). The phone may list,
+   browse, read, save and create; everything else is desktop-only via the
+   remote allowlist. */
 
-router.post("/apps/work-app/projects", (req, res) => {
-  handleProjectAction(res, () => createProject("work-app", req.body?.name, req.body?.path));
-});
+async function projectRoute(res, action) {
+  try {
+    res.json({ ok: true, ...(await action()) });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, code: error.code || "PROJECT_ERROR", message: error.message, ...(error.details || {}) });
+  }
+}
 
-router.delete("/apps/work-app/projects/:projectId", (req, res) => {
-  handleProjectAction(res, () => removeProject("work-app", req.params.projectId));
-});
+router.get("/apps/project-app/projects", (req, res) => projectRoute(res, () => ({ projects: listProjects() })));
+router.post("/apps/project-app/projects", (req, res) => projectRoute(res, () => ({ project: addProject(req.body || {}) })));
+router.patch("/apps/project-app/projects/:projectId", (req, res) =>
+  projectRoute(res, () => ({ project: updateProject(req.params.projectId, req.body || {}) }))
+);
+router.delete("/apps/project-app/projects/:projectId", (req, res) => projectRoute(res, () => ({ project: removeProject(req.params.projectId) })));
 
-router.get("/apps/work-app/projects/:projectId/tree", (req, res) => {
-  const project = getProjectById("work-app", req.params.projectId);
-  if (!project) {
-    res.status(404).json({ ok: false, code: "PROJECT_NOT_FOUND", message: `Project '${req.params.projectId}' not found.` });
+router.get("/apps/project-app/projects/:projectId/list", (req, res) =>
+  projectRoute(res, () => listProjectFolder(req.params.projectId, req.query.path))
+);
+router.get("/apps/project-app/projects/:projectId/file", (req, res) =>
+  projectRoute(res, () => readProjectFile(req.params.projectId, req.query.path))
+);
+router.put("/apps/project-app/projects/:projectId/file", (req, res) =>
+  projectRoute(res, () => saveProjectFile(req.params.projectId, req.body?.path, req.body?.content, req.body?.expectedModified))
+);
+router.post("/apps/project-app/projects/:projectId/entries", (req, res) =>
+  projectRoute(res, () => createProjectEntry(req.params.projectId, req.body?.parentPath, req.body?.name, req.body?.type))
+);
+router.post("/apps/project-app/projects/:projectId/rename", (req, res) =>
+  projectRoute(res, () => renameProjectEntry(req.params.projectId, req.body?.path, req.body?.newName))
+);
+router.post("/apps/project-app/projects/:projectId/copy", (req, res) =>
+  projectRoute(res, () => copyProjectEntry(req.params.projectId, req.body?.path, req.body?.destination))
+);
+router.post("/apps/project-app/projects/:projectId/move", (req, res) =>
+  projectRoute(res, () => moveProjectEntry(req.params.projectId, req.body?.path, req.body?.destination))
+);
+router.post("/apps/project-app/projects/:projectId/trash", (req, res) =>
+  projectRoute(res, () => trashProjectEntry(req.params.projectId, req.body?.path))
+);
+router.post("/apps/project-app/projects/:projectId/open", (req, res) =>
+  projectRoute(res, () =>
+    req.body?.with === "default" ? openWithDefaultApp(req.params.projectId, req.body?.path) : openInVsCode(req.params.projectId, req.body?.path)
+  )
+);
+router.get("/apps/project-app/tools", (req, res) => projectRoute(res, () => ({ tools: availableTools() })));
+router.post("/apps/project-app/launch-tool", (req, res) =>
+  projectRoute(res, () => launchTool(String(req.body?.tool || "").trim(), req.body?.projectId || null))
+);
+
+/* The phone's IDE: the scripts folder, plus the AI panel. */
+
+router.get("/ide/list", (req, res) => projectRoute(res, () => listScriptsFolder(req.query.path)));
+router.get("/ide/file", (req, res) => projectRoute(res, () => readScript(req.query.path)));
+router.put("/ide/file", (req, res) =>
+  projectRoute(res, () => saveScript(req.body?.path, req.body?.content, req.body?.expectedModified))
+);
+router.post("/ide/entries", (req, res) =>
+  projectRoute(res, () => createScriptEntry(req.body?.parentPath, req.body?.name, req.body?.type, req.body?.content))
+);
+router.post("/ide/rename", (req, res) => projectRoute(res, () => renameScript(req.body?.path, req.body?.newName)));
+router.post("/ide/assist", (req, res) => projectRoute(res, () => assistWithFile(req.body || {})));
+
+/* The phone's Wikipedia view: read-only proxy to the librarian, which only
+   listens on 127.0.0.1 (mobile architecture 5.4). */
+const WIKI_PROXY_ENDPOINTS = new Set(["search", "article", "related", "random", "suggest"]);
+
+router.get("/apps/wikipedia-app/proxy/:endpoint", async (req, res) => {
+  const endpoint = String(req.params.endpoint || "");
+  if (!WIKI_PROXY_ENDPOINTS.has(endpoint)) {
+    res.status(404).json({ ok: false, code: "UNKNOWN_ENDPOINT", message: "Not a librarian read endpoint." });
     return;
   }
-  res.json({ ok: true, project, tree: buildFileTree(project.path) });
+  if (!(await probeLibrarian())) {
+    const started = await startWikipedia();
+    if (!started.ok) {
+      res.status(503).json(started);
+      return;
+    }
+  }
+  const query = new URLSearchParams(req.query).toString();
+  try {
+    // Cold searches on the hard drive can take over a minute.
+    const upstream = await fetch(`${getWikipediaConfig().baseUrl}/api/v1/${endpoint}${query ? `?${query}` : ""}`, {
+      signal: AbortSignal.timeout(150_000)
+    });
+    res.status(upstream.status).type("application/json").send(await upstream.text());
+  } catch (error) {
+    res.status(504).json({ ok: false, code: "WIKIPEDIA_TIMEOUT", message: error?.message || "The archive didn't answer." });
+  }
 });
 
-router.post("/apps/work-app/projects/:projectId/files/create", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () =>
-    createProjectNode("work-app", req.params.projectId, req.body?.parentPath, req.body?.name, req.body?.nodeType)
-  );
+/* The phone's File System app: read-only, whole PC (mobile architecture 5.10).
+   There are no write routes here by design. */
+
+function requirePhoneFileAccess(req, res) {
+  if (req.auth?.scope === "remote" && !isPhoneFileAccessEnabled()) {
+    res.status(403).json({ ok: false, code: "PHONE_FILE_ACCESS_OFF", message: "File access from the phone is switched off on the PC." });
+    return false;
+  }
+  return true;
+}
+
+function sendFilesError(res, error) {
+  res.status(error.status || 500).json({ ok: false, code: error.code || "FILES_ERROR", message: error.message });
+}
+
+router.get("/files/roots", (req, res) => {
+  if (!requirePhoneFileAccess(req, res)) return;
+  res.json({ ok: true, ...listRoots() });
 });
 
-router.post("/apps/work-app/projects/:projectId/files/delete", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () => deleteProjectNode("work-app", req.params.projectId, req.body?.targetPath));
+router.get("/files/list", async (req, res) => {
+  if (!requirePhoneFileAccess(req, res)) return;
+  try {
+    res.json({ ok: true, ...(await listFolder(req.query.path, { showHidden: req.query.hidden === "1" })) });
+  } catch (error) {
+    sendFilesError(res, error);
+  }
 });
 
-router.post("/apps/work-app/projects/:projectId/files/copy", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () =>
-    copyProjectNode("work-app", req.params.projectId, req.body?.sourcePath, req.body?.destinationPath)
-  );
+router.get("/files/info", (req, res) => {
+  if (!requirePhoneFileAccess(req, res)) return;
+  try {
+    res.json({ ok: true, ...fileInfo(req.query.path) });
+  } catch (error) {
+    sendFilesError(res, error);
+  }
 });
 
-router.post("/apps/work-app/projects/:projectId/files/move", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () =>
-    moveProjectNode("work-app", req.params.projectId, req.body?.sourcePath, req.body?.destinationPath)
-  );
-});
-
-router.post("/apps/work-app/projects/:projectId/files/open", (req, res) => {
-  handleProjectFileAction(req, res, "work-app", () => openProjectNode("work-app", req.params.projectId, req.body?.targetPath));
-});
-
-router.post("/apps/work-app/launch-tool", (req, res) => {
-  res.json(launchApp(String(req.body?.tool || "").trim()));
-});
-
-router.get("/apps/project-app/projects", (req, res) => {
-  res.json({ ok: true, projects: getPersonalProjects() });
-});
-
-router.post("/apps/project-app/projects", (req, res) => {
-  handleProjectAction(res, () => createProject("project-app", req.body?.name, req.body?.path));
-});
-
-router.delete("/apps/project-app/projects/:projectId", (req, res) => {
-  handleProjectAction(res, () => removeProject("project-app", req.params.projectId));
-});
-
-router.get("/apps/project-app/projects/:projectId/tree", (req, res) => {
-  const project = getProjectById("project-app", req.params.projectId);
-  if (!project) {
-    res.status(404).json({ ok: false, code: "PROJECT_NOT_FOUND", message: `Project '${req.params.projectId}' not found.` });
+router.get("/files/content", (req, res) => {
+  if (!requirePhoneFileAccess(req, res)) return;
+  let file;
+  try {
+    file = resolveReadableFile(req.query.path);
+  } catch (error) {
+    sendFilesError(res, error);
     return;
   }
-  res.json({ ok: true, project, tree: buildFileTree(project.path) });
+  if (req.query.download === "1") {
+    res.attachment(file.name);
+    // Audit trail for whole-file downloads (5.10).
+    console.log(`[Files] ${req.auth?.device?.name || "PC"} downloaded ${file.path} (${file.size} bytes)`);
+    publishEvent({
+      source: "files",
+      appId: "file-system-app",
+      type: "file-download",
+      message: `${req.auth?.device?.name || "PC"} downloaded ${file.name}.`,
+      meta: { path: file.path, size: file.size, deviceId: req.auth?.device?.id || null }
+    });
+  }
+  // sendFile handles Range requests, so previews and video can seek.
+  res.sendFile(file.path, { dotfiles: "allow" }, (error) => {
+    if (error && !res.headersSent) {
+      sendFilesError(res, { status: 500, code: "STREAM_FAILED", message: "Couldn't read that file." });
+    }
+  });
 });
 
-router.post("/apps/project-app/projects/:projectId/files/create", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () =>
-    createProjectNode("project-app", req.params.projectId, req.body?.parentPath, req.body?.name, req.body?.nodeType)
-  );
+router.get("/devices/phone-file-access", (req, res) => {
+  res.json({ ok: true, enabled: isPhoneFileAccessEnabled() });
 });
 
-router.post("/apps/project-app/projects/:projectId/files/delete", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () => deleteProjectNode("project-app", req.params.projectId, req.body?.targetPath));
+router.put("/devices/phone-file-access", (req, res) => {
+  res.json({ ok: true, enabled: setPhoneFileAccessEnabled(req.body?.enabled !== false) });
 });
 
-router.post("/apps/project-app/projects/:projectId/files/copy", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () =>
-    copyProjectNode("project-app", req.params.projectId, req.body?.sourcePath, req.body?.destinationPath)
-  );
+router.get("/apps/file-system-app/status", (req, res) => {
+  res.json(getFileSystemStatus());
 });
 
-router.post("/apps/project-app/projects/:projectId/files/move", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () =>
-    moveProjectNode("project-app", req.params.projectId, req.body?.sourcePath, req.body?.destinationPath)
-  );
+router.post("/apps/file-system-app/launch", async (req, res) => {
+  const result = await launchFileExplorer();
+  res.status(result.ok ? 200 : 500).json(result);
 });
 
-router.post("/apps/project-app/projects/:projectId/files/open", (req, res) => {
-  handleProjectFileAction(req, res, "project-app", () => openProjectNode("project-app", req.params.projectId, req.body?.targetPath));
+router.post("/apps/file-system-app/recorder/launch", async (req, res) => {
+  const result = await launchGestureRecorder({
+    label: req.body?.label,
+    reps: req.body?.reps,
+    duration: req.body?.duration,
+    saveVideo: req.body?.saveVideo === true,
+    autostart: req.body?.autostart === true
+  });
+  const isLaunchFailure = ["FILE_SYSTEM_START_FAILED", "FILE_SYSTEM_SPAWN_FAILED", "FILE_SYSTEM_SCRIPT_MISSING"].includes(result.code);
+  res.status(result.ok ? 200 : isLaunchFailure ? 500 : 400).json(result);
 });
 
-router.post("/apps/project-app/launch-tool", (req, res) => {
-  res.json(launchApp(String(req.body?.tool || "").trim()));
+router.post("/apps/file-system-app/stop", async (req, res) => {
+  const result = await stopFileSystem(String(req.body?.process || "all").trim().toLowerCase());
+  res.status(result.ok ? 200 : 400).json(result);
 });
 
 router.post("/apps/:appId/connect", (req, res) => {
@@ -746,20 +1042,126 @@ router.get("/events/stream", (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  res.write(`data: ${JSON.stringify({ type: "snapshot", events: getRecentEvents(15) })}\n\n`);
+  // Never write to a stream that has ended (e.g. its device was just
+  // removed): that throws "write after end" and would crash the server.
+  const send = (chunk) => {
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(chunk);
+    }
+  };
+
+  // Remote devices don't show the PC's console log, so it isn't sent to them.
+  const remote = req.auth?.scope === "remote";
+  const wanted = (event) => !(remote && event.source === "console");
+
+  send(`data: ${JSON.stringify({ type: "snapshot", events: getRecentEvents(15).filter(wanted) })}\n\n`);
 
   const unsubscribe = subscribeToEvents((event) => {
-    res.write(`data: ${JSON.stringify({ type: "event", event })}\n\n`);
+    if (wanted(event)) send(`data: ${JSON.stringify({ type: "event", event })}\n\n`);
   });
 
+  // Heartbeat: lets a phone tell a quiet connection from a dead one.
   const keepAliveId = setInterval(() => {
-    res.write(`event: ping\ndata: ${Date.now()}\n\n`);
+    send(`event: ping\ndata: ${Date.now()}\n\n`);
   }, 20000);
 
-  req.on("close", () => {
+  const deviceId = req.auth?.scope === "remote" ? req.auth.device.id : null;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
     clearInterval(keepAliveId);
     unsubscribe();
+    deviceStreams.get(deviceId)?.delete(close);
+    if (!res.writableEnded) {
+      res.end();
+    }
+  };
+
+  if (deviceId) {
+    if (!deviceStreams.has(deviceId)) {
+      deviceStreams.set(deviceId, new Set());
+    }
+    deviceStreams.get(deviceId).add(close);
+  }
+
+  req.on("close", close);
+});
+
+/* Paired devices (mobile app). Management is desktop-only via the remote
+   allowlist; POST /devices/pair is the one public route. */
+
+router.get("/devices", (req, res) => {
+  res.json({ ok: true, devices: listDevices() });
+});
+
+router.delete("/devices/:deviceId(dev_[a-f0-9]+)", (req, res) => {
+  const deviceId = String(req.params.deviceId || "");
+  if (!revokeDevice(deviceId)) {
+    res.status(404).json({ ok: false, code: "DEVICE_NOT_FOUND", message: "No paired device with that id." });
+    return;
+  }
+  // A removed device loses its live event stream now, not on its next request.
+  for (const closeStream of [...(deviceStreams.get(deviceId) || [])]) {
+    closeStream();
+  }
+  deviceStreams.delete(deviceId);
+  publishEvent({ source: "auth", appId: "control-center", type: "device-revoked", message: "A paired device was removed.", meta: { deviceId } });
+  res.json({ ok: true });
+});
+
+// A paired device signing itself out (the phone's "Sign out of this device").
+router.delete("/devices/self", (req, res) => {
+  const deviceId = req.auth?.scope === "remote" ? req.auth.device.id : null;
+  if (!deviceId || !revokeDevice(deviceId)) {
+    res.status(400).json({ ok: false, code: "NOT_A_PAIRED_DEVICE", message: "Only a paired device can sign itself out." });
+    return;
+  }
+  publishEvent({ source: "auth", appId: "control-center", type: "device-revoked", message: "A paired device signed out.", meta: { deviceId } });
+  res.json({ ok: true });
+});
+
+router.get("/devices/remote-access", async (req, res) => {
+  res.json({ ok: true, remoteAccess: await getRemoteAccessStatus({ fresh: req.query.fresh === "1" }) });
+});
+
+router.post("/devices/pairing-codes", async (req, res) => {
+  const remoteAccess = await getRemoteAccessStatus({ fresh: true });
+  const { code, expiresAt } = createPairingCode();
+  const serverName = remoteAccess.dnsName ? remoteAccess.dnsName.split(".")[0] : os.hostname();
+  // The QR code carries everything the phone needs: where to connect and the code.
+  const payload = JSON.stringify({ v: 1, url: remoteAccess.publicUrl, code, name: serverName });
+  const qrSvg = await QRCode.toString(payload, { type: "svg", errorCorrectionLevel: "M", margin: 1 });
+  res.json({ ok: true, code, expiresAt, serverName, url: remoteAccess.publicUrl, qrSvg, remoteAccess });
+});
+
+router.delete("/devices/pairing-codes", (req, res) => {
+  cancelPairingCode();
+  res.json({ ok: true });
+});
+
+router.post("/devices/pair", async (req, res) => {
+  const result = pairDevice({
+    code: req.body?.code,
+    deviceName: req.body?.deviceName,
+    kind: req.body?.kind === "laptop" ? "laptop" : "phone",
+    source: requestSource(req)
   });
+  if (!result.ok) {
+    console.warn(`[Auth] Pairing failed (${result.code}) from ${requestSource(req)}`);
+    res.status(result.status).json({ ok: false, code: result.code, message: result.message });
+    return;
+  }
+  publishEvent({
+    source: "auth",
+    appId: "control-center",
+    type: "device-paired",
+    message: `Paired ${result.device.name}.`,
+    meta: { deviceId: result.device.id, name: result.device.name }
+  });
+  const remoteAccess = await getRemoteAccessStatus();
+  const serverName = remoteAccess.dnsName ? remoteAccess.dnsName.split(".")[0] : os.hostname();
+  res.json({ ok: true, deviceId: result.device.id, token: result.token, device: result.device, serverName });
 });
 
 router.get("/skills", (req, res) => {
@@ -834,9 +1236,18 @@ router.get("/alarms/ringing", (req, res) => {
   res.json({ ok: true, alarms: getRingingAlarms() });
 });
 
+// A phone may only touch its own alarms (they ring on that phone).
+function rejectIfNotOwnAlarm(req, res) {
+  if (req.auth?.scope !== "remote") return false;
+  const alarm = getAlarm(req.params.id);
+  if (alarm && alarm.deviceId === req.auth.device.id) return false;
+  res.status(403).json({ ok: false, code: "NOT_YOUR_ALARM", message: "That alarm belongs to another device." });
+  return true;
+}
+
 router.post("/alarms", (req, res) => {
   try {
-    const alarm = createAlarm(req.body || {});
+    const alarm = createAlarm({ ...(req.body || {}), device: req.auth?.device || null });
     res.status(201).json({ ok: true, alarm });
   } catch (error) {
     res.status(400).json({ ok: false, code: error.code || "CREATE_ALARM_FAILED", message: error.message });
@@ -844,6 +1255,7 @@ router.post("/alarms", (req, res) => {
 });
 
 router.delete("/alarms/:id", (req, res) => {
+  if (rejectIfNotOwnAlarm(req, res)) return;
   try {
     const alarm = cancelAlarm(req.params.id);
     res.json({ ok: true, alarm });
@@ -853,6 +1265,7 @@ router.delete("/alarms/:id", (req, res) => {
 });
 
 router.post("/alarms/:id/stop", (req, res) => {
+  if (rejectIfNotOwnAlarm(req, res)) return;
   try {
     const alarms = stopAlarm(req.params.id);
     res.json({ ok: true, alarms });
@@ -862,20 +1275,6 @@ router.post("/alarms/:id/stop", (req, res) => {
 });
 
 export default router;
-
-function handleProjectFileAction(req, res, appId, action) {
-  const project = getProjectById(appId, req.params.projectId);
-  if (!project) {
-    res.status(404).json({ ok: false, code: "PROJECT_NOT_FOUND", message: `Project '${req.params.projectId}' not found.` });
-    return;
-  }
-
-  try {
-    res.json(action());
-  } catch (error) {
-    res.status(error.status || 500).json({ ok: false, code: error.code || "PROJECT_FILE_ACTION_FAILED", message: error.message || "Project file action failed." });
-  }
-}
 
 function handleProjectAction(res, action) {
   try {

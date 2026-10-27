@@ -14,8 +14,46 @@ let nextId = 1;
 let alarms = loadAlarms();
 const ringingAlarmIds = new Set();
 let checkTimer = null;
+let preciseTimer = null;
 
-export function createAlarm({ time, date, recurrence = "once", daysOfWeek = [], label = "", kind = "alarm" } = {}) {
+// Relative alarms ("in 30 seconds", "a 2 minute alarm") are capped at a week.
+const MAX_RELATIVE_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * Creates an alarm. Either `time` (local HH:mm, with optional `date` and
+ * recurrence) or `inSeconds` (fires that many seconds from now, once).
+ * `device` ({ id, kind, name }) is where it was asked from: an alarm set from
+ * a paired phone rings on that phone, one set on the PC rings on the PC.
+ */
+export function createAlarm({ time, date, recurrence = "once", daysOfWeek = [], label = "", kind = "alarm", inSeconds, device = null } = {}) {
+  const ringsOn = device && device.kind !== "desktop" ? { deviceId: device.id, deviceName: device.name || "phone" } : {};
+
+  if (inSeconds !== undefined && inSeconds !== null && inSeconds !== "") {
+    const seconds = Math.round(Number(inSeconds));
+    if (!Number.isFinite(seconds) || seconds < 1 || seconds > MAX_RELATIVE_SECONDS) {
+      throw alarmError("INVALID_DURATION", "inSeconds must be a whole number of seconds from 1 to 604800 (7 days).");
+    }
+    const fireAt = new Date(Date.now() + seconds * 1000);
+    const parts = getZonedParts(fireAt);
+    const alarm = {
+      id: `alarm_${nextId++}`,
+      label: String(label || "").trim() || "Alarm",
+      kind: kind === "wakeup" ? "wakeup" : "alarm",
+      time: `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`,
+      recurrence: { type: "once", date: null },
+      enabled: true,
+      createdAt: new Date().toISOString(),
+      // Exact instant, to the second, for relative alarms.
+      fireAt: fireAt.toISOString(),
+      nextFireAt: fireAt.toISOString(),
+      ...ringsOn
+    };
+    alarms.push(alarm);
+    persistAlarms();
+    alarmsChanged(alarm);
+    return describeAlarm(alarm);
+  }
+
   const timeMatch = String(time || "").trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!timeMatch) {
     throw alarmError("INVALID_TIME", "time must be in HH:mm 24-hour format.");
@@ -35,14 +73,21 @@ export function createAlarm({ time, date, recurrence = "once", daysOfWeek = [], 
     time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
     recurrence: normalizedRecurrence,
     enabled: true,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ...ringsOn
   };
 
   alarm.nextFireAt = computeNextFireAt(alarm, new Date()).toISOString();
 
   alarms.push(alarm);
   persistAlarms();
+  alarmsChanged(alarm);
   return describeAlarm(alarm);
+}
+
+export function getAlarm(id) {
+  const alarm = alarms.find((entry) => entry.id === id);
+  return alarm ? describeAlarm(alarm) : null;
 }
 
 export function listAlarms() {
@@ -57,6 +102,7 @@ export function cancelAlarm(id) {
   const [removed] = alarms.splice(index, 1);
   ringingAlarmIds.delete(id);
   persistAlarms();
+  alarmsChanged(removed);
   return describeAlarm(removed);
 }
 
@@ -66,14 +112,32 @@ export function cancelAlarm(id) {
 // evening timestamp as "the next day" is an easy, systematic mistake since
 // LA evenings are already the next calendar day in UTC.
 function describeAlarm(alarm) {
+  // Relative alarms ("in 30 seconds") get seconds in the time and a plain
+  // "firesIn", so Jarvis doesn't say "in about a minute" for 30 seconds.
+  const relative = Boolean(alarm.fireAt);
   return {
     ...alarm,
     nextFireAtLocal: alarm.nextFireAt
-      ? new Intl.DateTimeFormat("en-US", { timeZone: CALENDAR_TIMEZONE, dateStyle: "full", timeStyle: "short" }).format(
+      ? new Intl.DateTimeFormat("en-US", { timeZone: CALENDAR_TIMEZONE, dateStyle: "full", timeStyle: relative ? "medium" : "short" }).format(
           new Date(alarm.nextFireAt)
         )
-      : null
+      : null,
+    ...(relative && alarm.enabled ? { firesIn: describeDuration(new Date(alarm.nextFireAt).getTime() - Date.now()) } : {})
   };
+}
+
+/** 30000 -> "30 seconds", 120000 -> "2 minutes", 5400000 -> "1 hour 30 minutes". */
+function describeDuration(ms) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const unit = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  const parts = [];
+  if (hours) parts.push(unit(hours, "hour"));
+  if (minutes) parts.push(unit(minutes, "minute"));
+  if (seconds && !hours) parts.push(unit(seconds, "second"));
+  return parts.join(" ") || "now";
 }
 
 export function getRingingAlarms() {
@@ -94,7 +158,7 @@ export function stopAlarm(id) {
       appId: "control-center",
       type: "alarm-stopped",
       message: `Alarm stopped: ${alarm.label}.`,
-      meta: { alarmId: alarm.id, label: alarm.label, kind: alarm.kind }
+      meta: { alarmId: alarm.id, label: alarm.label, kind: alarm.kind, ...targetMeta(alarm) }
     });
 
     if (alarm.kind === "wakeup") {
@@ -120,6 +184,8 @@ export function stopAlarmScheduler() {
     clearInterval(checkTimer);
     checkTimer = null;
   }
+  clearTimeout(preciseTimer);
+  preciseTimer = null;
 }
 
 // --- Internal ---
@@ -141,6 +207,45 @@ function checkAlarms() {
   if (changed) {
     persistAlarms();
   }
+  schedulePreciseCheck();
+}
+
+// The 15 s interval alone would let a 30-second alarm ring up to 15 s late,
+// so there's also a timer for exactly when the next alarm is due.
+function schedulePreciseCheck() {
+  clearTimeout(preciseTimer);
+  preciseTimer = null;
+  if (!checkTimer) {
+    return;
+  }
+  const next = alarms
+    .filter((alarm) => alarm.enabled && !ringingAlarmIds.has(alarm.id))
+    .map((alarm) => new Date(alarm.nextFireAt).getTime())
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b)[0];
+  if (next === undefined) {
+    return;
+  }
+  // setTimeout can't take more than ~24.8 days; the interval covers the rest.
+  const delay = Math.min(Math.max(next - Date.now(), 0) + 50, 2 ** 31 - 1);
+  preciseTimer = setTimeout(checkAlarms, delay);
+}
+
+/** Who should ring: a phone's alarm carries its device id; PC alarms carry none. */
+function targetMeta(alarm) {
+  return alarm.deviceId ? { targetDeviceId: alarm.deviceId } : {};
+}
+
+/** Lets open screens and paired phones resync their alarm lists. */
+function alarmsChanged(alarm) {
+  publishEvent({
+    source: "alarm",
+    appId: "alarms",
+    type: "data-changed",
+    message: `Alarms changed (${alarm.label}).`,
+    meta: { entity: "alarm", id: alarm.id, ...targetMeta(alarm) }
+  });
+  schedulePreciseCheck();
 }
 
 function fireAlarm(alarm) {
@@ -151,7 +256,7 @@ function fireAlarm(alarm) {
     appId: "control-center",
     type: "alarm-fired",
     message: `Alarm fired: ${alarm.label}.`,
-    meta: { alarmId: alarm.id, label: alarm.label, kind: alarm.kind, time: alarm.time }
+    meta: { alarmId: alarm.id, label: alarm.label, kind: alarm.kind, time: alarm.time, firedFor: alarm.nextFireAt, ...targetMeta(alarm) }
   });
 
   if (alarm.recurrence.type === "once") {
@@ -159,6 +264,7 @@ function fireAlarm(alarm) {
   } else {
     alarm.nextFireAt = computeNextFireAt(alarm, new Date(Date.now() + 60000)).toISOString();
   }
+  alarmsChanged(alarm);
 }
 
 async function deliverWakeUpBriefing() {

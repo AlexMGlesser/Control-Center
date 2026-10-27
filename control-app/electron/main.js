@@ -1,10 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import { startServer, stopServer } from "../server/index.js";
 import { serverConfig } from "../server/config.js";
 import { onShutdownRequested } from "../server/routes/api.js";
 import { registerWindowControlHandler } from "../server/services/windowControlBridge.js";
+import {
+  LOCAL_SESSION_COOKIE,
+  getLocalSessionSecret,
+  readPersistedLocalSessionSecret
+} from "../server/services/authService.js";
+import { isFileSystemRunning, launchFileExplorer, stopFileSystem } from "../server/services/fileSystemService.js";
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
@@ -15,15 +21,27 @@ let backendServer = null;
 let mainWindow = null;
 let isShuttingDown = false;
 let shutdownPromise = null;
+const SHUTDOWN_TIMEOUT_MS = 15000;
 const APP_WINDOW_CONFIGS = {
   "calendar-app": { title: "Calendar App", backgroundColor: "#0d1417" },
   "news-app": { title: "News App", backgroundColor: "#070f13" },
-  "work-app": { title: "Work App", backgroundColor: "#070f13" },
-  "project-app": { title: "Personal Projects", backgroundColor: "#070f13" },
+  "project-app": { title: "Projects", backgroundColor: "#070f13" },
   "music-app": { title: "Music App", backgroundColor: "#070f13" },
   "drawing-app": { title: "Drawing App", backgroundColor: "#070f13" },
   "movie-app": { title: "Movie App", backgroundColor: "#160b0e" },
-  "server-manager-app": { title: "Server Manager App", backgroundColor: "#0e1216" }
+  "server-manager-app": { title: "Server Manager App", backgroundColor: "#0e1216" },
+  "wikipedia-app": { title: "Wikipedia App", backgroundColor: "#04060d" },
+  // Native Python/Tkinter window, not a BrowserWindow: "open" launches the
+  // process and "close" stops it (see NATIVE_APP_HANDLERS).
+  "file-system-app": { title: "File System App", backgroundColor: "#081114" }
+};
+
+const NATIVE_APP_HANDLERS = {
+  "file-system-app": {
+    open: () => launchFileExplorer(),
+    close: () => stopFileSystem("all"),
+    isOpen: () => isFileSystemRunning()
+  }
 };
 
 const appWindows = Object.fromEntries(Object.keys(APP_WINDOW_CONFIGS).map((appId) => [appId, null]));
@@ -38,7 +56,7 @@ function createMainWindow() {
     backgroundColor: "#081114",
     title: "Control Center",
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -53,6 +71,10 @@ function createMainWindow() {
 }
 
 function openAppWindow(appId) {
+  if (NATIVE_APP_HANDLERS[appId]) {
+    return NATIVE_APP_HANDLERS[appId].open();
+  }
+
   const existingWindow = appWindows[appId];
   if (existingWindow && !existingWindow.isDestroyed()) {
     existingWindow.focus();
@@ -78,7 +100,7 @@ function openAppWindow(appId) {
     title: config.title,
     parent: mainWindow || undefined,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -98,6 +120,14 @@ function openAppWindow(appId) {
 }
 
 function closeAppWindow(appId) {
+  if (NATIVE_APP_HANDLERS[appId]) {
+    // Fire-and-forget like BrowserWindow.close(); shutdown still awaits the
+    // same stop through stopServer() -> shutdownFileSystem().
+    const wasOpen = NATIVE_APP_HANDLERS[appId].isOpen();
+    NATIVE_APP_HANDLERS[appId].close().catch(() => {});
+    return wasOpen;
+  }
+
   const appWindow = appWindows[appId];
   if (!appWindow || appWindow.isDestroyed()) {
     return false;
@@ -182,6 +212,9 @@ function closeAppWindowByTarget(target) {
 }
 
 async function ensureBackendServer() {
+  // Read before startServer(): starting writes this launch's secret over the
+  // file, and an already-running instance only accepts its own secret.
+  const previousInstanceSecret = readPersistedLocalSessionSecret();
   try {
     backendServer = await startServer();
     onShutdownRequested(() => app.quit());
@@ -196,7 +229,7 @@ async function ensureBackendServer() {
       throw error;
     }
 
-    const shutDown = await shutdownExistingServer();
+    const shutDown = await shutdownExistingServer(previousInstanceSecret);
     if (!shutDown) {
       throw new Error(`Control Center backend port ${serverConfig.port} is already in use by another process.`);
     }
@@ -204,6 +237,18 @@ async function ensureBackendServer() {
     backendServer = await startServer();
     onShutdownRequested(() => app.quit());
   }
+}
+
+// Every desktop page, app window, fetch, EventSource and the voice socket
+// authenticate with this cookie automatically — no page code needs to know.
+async function setLocalSessionCookie() {
+  await session.defaultSession.cookies.set({
+    url: `http://localhost:${serverConfig.port}`,
+    name: LOCAL_SESSION_COOKIE,
+    value: getLocalSessionSecret(),
+    httpOnly: true,
+    sameSite: "strict"
+  });
 }
 
 async function isExistingServerHealthy() {
@@ -215,9 +260,12 @@ async function isExistingServerHealthy() {
   }
 }
 
-async function shutdownExistingServer() {
+async function shutdownExistingServer(instanceSecret) {
   try {
-    await fetch(`http://localhost:${serverConfig.port}/api/shutdown`, { method: "POST" });
+    await fetch(`http://localhost:${serverConfig.port}/api/shutdown`, {
+      method: "POST",
+      headers: instanceSecret ? { Cookie: `${LOCAL_SESSION_COOKIE}=${encodeURIComponent(instanceSecret)}` } : {}
+    });
   } catch {
     return false;
   }
@@ -238,10 +286,14 @@ async function shutdownExistingServer() {
 app.whenReady()
   .then(async () => {
     await ensureBackendServer();
+    await setLocalSessionCookie();
     registerWindowControlHandler({ closeAppWindow: closeAppWindowByTarget });
     createMainWindow();
     Object.keys(APP_WINDOW_CONFIGS).forEach((appId) => {
-      ipcMain.handle(`${appId}:open`, () => {
+      ipcMain.handle(`${appId}:open`, async () => {
+        if (NATIVE_APP_HANDLERS[appId]) {
+          return openAppWindow(appId);
+        }
         openAppWindow(appId);
         return { ok: true };
       });
@@ -324,11 +376,20 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", (event) => {
   if (isShuttingDown) {
+    // shutdownRuntime() destroys every window, which fires window-all-closed
+    // -> app.quit() again. Letting that second quit through would exit the
+    // process mid-shutdown (before Ollama etc. are stopped); app.exit(0)
+    // below doesn't emit before-quit, so blocking here is safe.
+    event.preventDefault();
     return;
   }
 
   isShuttingDown = true;
   event.preventDefault();
+  // Child-process cleanup normally takes a few seconds (the File System's
+  // graceful-then-forced stop is the slowest); if anything ever hangs, exit
+  // anyway rather than leave a windowless Control Center running.
+  setTimeout(() => app.exit(0), SHUTDOWN_TIMEOUT_MS).unref();
   shutdownRuntime()
     .catch((error) => {
       console.error("Failed to fully shut down Control Center runtime:", error?.message || error);

@@ -1,0 +1,454 @@
+package com.alexmglesser.controlcenter.mobile.data.api
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+// Shapes of the Control Center server's JSON (control-app/server/routes/api.js).
+
+@Serializable
+data class DeviceRef(val id: String = "", val kind: String = "", val name: String = "")
+
+@Serializable
+data class AppInfo(
+    val id: String,
+    val name: String,
+    val description: String = "",
+    val status: String = "",
+    val version: String? = null,
+    val icon: String? = null
+)
+
+@Serializable
+data class AppsResponse(val apps: List<AppInfo> = emptyList())
+
+@Serializable
+data class ChatMessage(
+    val id: Long,
+    val role: String,
+    val text: String,
+    val timestamp: String = "",
+    val device: DeviceRef? = null
+)
+
+@Serializable
+data class ChatMessagesResponse(val messages: List<ChatMessage> = emptyList())
+
+@Serializable
+data class SendChatRequest(val text: String)
+
+@Serializable
+data class SendChatResponse(val ok: Boolean = false, val turnId: String? = null, val userMessage: ChatMessage? = null)
+
+@Serializable
+data class QueueTask(val task_id: String = "", val priority: String = "")
+
+@Serializable
+data class QueueStatus(val queueLength: Int = 0, val tasks: List<QueueTask> = emptyList())
+
+@Serializable
+data class QueueStatusResponse(val queue: QueueStatus = QueueStatus())
+
+@Serializable
+data class PairRequest(val code: String, val deviceName: String, val kind: String = "phone")
+
+@Serializable
+data class PairResponse(
+    val ok: Boolean = false,
+    val deviceId: String? = null,
+    val token: String? = null,
+    val serverName: String? = null,
+    val code: String? = null,
+    val message: String? = null
+)
+
+@Serializable
+data class AlarmInfo(
+    val id: String,
+    val label: String = "Alarm",
+    val kind: String = "alarm",
+    val time: String = "",
+    val enabled: Boolean = true,
+    val nextFireAt: String? = null,
+    val nextFireAtLocal: String? = null,
+    /** Set when the alarm was created from a paired device: only that device rings. */
+    val deviceId: String? = null
+)
+
+@Serializable
+data class AlarmsResponse(val alarms: List<AlarmInfo> = emptyList())
+
+/* Calendar (control-app/server/services/calendarService.js) */
+
+@Serializable
+data class CalendarEvent(
+    val id: String,
+    val title: String,
+    /** ISO instants. */
+    val startAt: String,
+    val endAt: String,
+    val location: String = "",
+    val notes: String = "",
+    /** The local (PC time zone) date, yyyy-MM-dd. */
+    val startDateKey: String = "",
+    val startLabel: String = "",
+    val endLabel: String = ""
+)
+
+@Serializable
+data class CalendarEventsResponse(val events: List<CalendarEvent> = emptyList())
+
+@Serializable
+data class CalendarDay(
+    val date: String,
+    val dayNumber: Int = 0,
+    val inMonth: Boolean = true,
+    val isToday: Boolean = false,
+    val events: List<CalendarEvent> = emptyList(),
+    val eventCount: Int = 0
+)
+
+@Serializable
+data class CalendarMonth(
+    val year: Int,
+    val month: Int,
+    val monthLabel: String = "",
+    val today: String = "",
+    val days: List<CalendarDay> = emptyList()
+)
+
+@Serializable
+data class CreateEventRequest(val title: String, val startsAt: String, val endsAt: String? = null)
+
+@Serializable
+data class CreateEventResponse(val event: CalendarEvent? = null)
+
+/* News (control-app/server/services/newsService.js) */
+
+@Serializable
+data class WeatherNow(
+    val temperatureC: Double? = null,
+    val apparentTemperatureC: Double? = null,
+    val windSpeedKph: Double? = null,
+    val label: String = ""
+)
+
+@Serializable
+data class WeatherDay(
+    val day: String = "",
+    val maxC: Double? = null,
+    val minC: Double? = null,
+    val precipitationChance: Double? = null,
+    val label: String = ""
+)
+
+@Serializable
+data class Weather(
+    val ok: Boolean = false,
+    val location: String = "",
+    val current: WeatherNow? = null,
+    val forecast: List<WeatherDay> = emptyList()
+)
+
+@Serializable
+data class NewsStory(
+    val title: String = "",
+    val link: String = "",
+    val summary: String = "",
+    val publishedAt: String = "",
+    val source: String = ""
+)
+
+@Serializable
+data class NewsBriefing(
+    val fetchedAt: String = "",
+    val weather: Weather? = null,
+    val headlines: List<NewsStory> = emptyList(),
+    val moreStories: List<NewsStory> = emptyList(),
+    val technology: List<NewsStory> = emptyList(),
+    val stemFeature: NewsStory? = null
+)
+
+/* Wikipedia (the librarian's /api/v1, through the PC's proxy) */
+
+@Serializable
+data class WikiSearchResult(val title: String, val snippet: String = "")
+
+@Serializable
+data class WikiSearchResponse(
+    @SerialName("total_matches") val totalMatches: Int = 0,
+    val results: List<WikiSearchResult> = emptyList(),
+    val error: String? = null
+)
+
+@Serializable
+data class WikiArticle(
+    val title: String = "",
+    val sections: List<String> = emptyList(),
+    val text: String = "",
+    val truncated: Boolean = false,
+    @SerialName("links_to") val linksTo: List<String> = emptyList(),
+    val error: String? = null
+)
+
+@Serializable
+data class WikiRandom(val title: String = "")
+
+/* File System: the whole PC, read-only (control-app/server/services/remoteFilesService.js) */
+
+@Serializable
+data class FileRoot(
+    val name: String,
+    val path: String,
+    val type: String = "folder",
+    val freeBytes: Long? = null,
+    val totalBytes: Long? = null
+)
+
+@Serializable
+data class FileRoots(val quick: List<FileRoot> = emptyList(), val drives: List<FileRoot> = emptyList())
+
+@Serializable
+data class PcFile(
+    val name: String,
+    val path: String,
+    val type: String = "file",
+    /** folder, text, image, pdf, audio, video or other. */
+    val kind: String = "other",
+    val size: Long? = null,
+    val created: String? = null,
+    val modified: String? = null,
+    val hidden: Boolean = false,
+    val noAccess: Boolean = false
+)
+
+@Serializable
+data class PcFolder(val path: String, val parent: String? = null, val entries: List<PcFile> = emptyList())
+
+/* Music: saved playlists of files on the PC (control-app/server/services/musicLibraryService.js) */
+
+@Serializable
+data class MusicTrack(
+    val name: String = "",
+    val sourcePath: String? = null,
+    /** From the file's own tags, read on the PC. */
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null
+)
+
+@Serializable
+data class MusicPlaylist(val name: String, val count: Int = 0, val source: String = "", val tracks: List<MusicTrack> = emptyList())
+
+@Serializable
+data class MusicPlaylistsResponse(val playlists: List<MusicPlaylist> = emptyList())
+
+@Serializable
+data class MusicCommandRequest(val action: String, val playlistName: String? = null)
+
+/* Movies (control-app/server/services/movieLibraryService.js) */
+
+@Serializable
+data class MovieSubtitle(val index: Int = 0, val label: String = "Subtitles")
+
+@Serializable
+data class MovieInfo(
+    val id: String,
+    val title: String,
+    val fileName: String = "",
+    val container: String = "",
+    val size: Long = 0,
+    val hasPoster: Boolean = false,
+    val subtitles: List<MovieSubtitle> = emptyList()
+)
+
+@Serializable
+data class MovieFolder(val path: String, val missing: Boolean = false)
+
+@Serializable
+data class MovieLibrary(val folders: List<MovieFolder> = emptyList(), val movies: List<MovieInfo> = emptyList())
+
+/* Server Manager (control-app/server/services/serverListService.js) */
+
+@Serializable
+data class SshInfo(val host: String = "", val username: String = "", val port: Int = 22)
+
+@Serializable
+data class ServerInfo(val id: String, val name: String = "Server", val environment: String = "", val ssh: SshInfo = SshInfo())
+
+@Serializable
+data class ServersResponse(val servers: List<ServerInfo> = emptyList())
+
+/* Drawing (control-app/server/services/drawingFileService.js) */
+
+@Serializable
+data class DrawingSummary(val id: Long, val name: String = "Drawing", val mode: String = "2d", val updatedAt: String = "")
+
+@Serializable
+data class DrawingsResponse(val files: List<DrawingSummary> = emptyList())
+
+@Serializable
+data class DrawingContent(val imageDataUrl: String? = null, val objects: List<JsonObject> = emptyList())
+
+@Serializable
+data class DrawingFile(val id: Long, val name: String = "", val mode: String = "2d", val content: DrawingContent = DrawingContent())
+
+@Serializable
+data class DrawingResponse(val file: DrawingFile)
+
+/* Projects (control-app/server/services/projectService.js) */
+
+@Serializable
+data class ProjectInfo(
+    val id: String,
+    val name: String,
+    val path: String = "",
+    /** "personal" or "work". */
+    val category: String = "personal",
+    val missing: Boolean = false
+)
+
+@Serializable
+data class ProjectsResponse(val projects: List<ProjectInfo> = emptyList())
+
+@Serializable
+data class FolderEntry(
+    val name: String,
+    val path: String,
+    /** "folder" or "file". */
+    val type: String = "file",
+    val size: Long? = null,
+    val hidden: Boolean = false
+)
+
+@Serializable
+data class FolderListing(
+    val project: ProjectInfo,
+    val path: String,
+    val relativePath: String = "",
+    /** Null at the project's root folder. */
+    val parent: String? = null,
+    val entries: List<FolderEntry> = emptyList()
+)
+
+@Serializable
+data class ProjectFile(
+    val name: String,
+    val path: String,
+    val size: Long = 0,
+    /** The file's mtime in ms; sent back on save so edits made elsewhere aren't overwritten. */
+    val modified: Double = 0.0,
+    /** Over 512 KB: only the start was sent, so it can't be saved from the phone. */
+    val truncated: Boolean = false,
+    val text: String = ""
+)
+
+@Serializable
+data class SaveFileRequest(val path: String, val content: String, val expectedModified: Double? = null)
+
+@Serializable
+data class SavedFile(val name: String, val path: String, val size: Long = 0, val modified: Double = 0.0)
+
+@Serializable
+data class CreateEntryRequest(val parentPath: String, val name: String, val type: String)
+
+@Serializable
+data class CreatedEntry(val name: String, val path: String, val type: String = "file")
+
+@Serializable
+data class SystemInfo(val name: String = "", val version: String = "")
+
+@Serializable
+data class ApiErrorBody(val ok: Boolean = false, val code: String? = null, val message: String? = null)
+
+@Serializable
+data class ServerEvent(
+    val id: Long = 0,
+    val timestamp: String = "",
+    val source: String = "",
+    val appId: String = "",
+    val type: String = "",
+    val message: String = "",
+    val meta: JsonObject? = null,
+    val isAIThought: Boolean = false
+) {
+    fun metaString(key: String): String? = (meta?.get(key) as? JsonPrimitive)?.contentOrNull
+
+    /** The device a chat turn came from (meta.origin.device.id), if any. */
+    fun originDeviceId(): String? = runCatching {
+        meta?.get("origin")?.jsonObject?.get("device")?.jsonObject?.get("id")?.jsonPrimitive?.contentOrNull
+    }.getOrNull()
+}
+
+/** One `data:` line of the event stream. */
+@Serializable
+data class StreamMessage(
+    val type: String,
+    val event: ServerEvent? = null,
+    val events: List<ServerEvent> = emptyList()
+)
+
+/* The phone's IDE: the PC's scripts folder and the AI panel. */
+
+@Serializable
+data class IdeListing(
+    /** The scripts folder itself. */
+    val root: String = "",
+    val path: String,
+    val relativePath: String = "",
+    /** Null at the scripts folder. */
+    val parent: String? = null,
+    val entries: List<FolderEntry> = emptyList()
+)
+
+@Serializable
+data class IdeCreateRequest(val parentPath: String, val name: String, val type: String, val content: String? = null)
+
+@Serializable
+data class IdeCreated(val name: String, val path: String, val type: String = "file", val modified: Double? = null)
+
+@Serializable
+data class IdeRenameRequest(val path: String, val newName: String)
+
+@Serializable
+data class IdeRenamed(val path: String, val name: String)
+
+@Serializable
+data class AssistTurn(val role: String, val text: String)
+
+@Serializable
+data class AssistRequest(val fileName: String, val content: String, val instruction: String, val history: List<AssistTurn> = emptyList())
+
+@Serializable
+data class AssistResponse(
+    val reply: String = "",
+    /** The whole proposed file, or null when the model only answered. */
+    val content: String? = null
+)
+
+/* The AI model Jarvis and the IDE use (Settings > AI model). */
+
+@Serializable
+data class OllamaModel(
+    val name: String,
+    val size: Long? = null,
+    val parameterSize: String? = null,
+    val quantization: String? = null
+)
+
+@Serializable
+data class OllamaModelsResponse(
+    val active: String? = null,
+    val default: String? = null,
+    val models: List<OllamaModel> = emptyList()
+)
+
+@Serializable
+data class SetModelRequest(val model: String)
+
+@Serializable
+data class SetModelResponse(val model: String = "", val previous: String? = null)
