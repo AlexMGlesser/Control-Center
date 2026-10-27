@@ -11,7 +11,8 @@ of it from anywhere, over a private Tailscale network.
  Laptop (Remote app) ──┤
                        ▼
  Home PC: Control Center (Electron + Express on 127.0.0.1:3100)
-   ├─ Jarvis: local AI agent on Ollama (qwen3.5:9b), with tools for the apps
+   ├─ Jarvis: local AI agent on Ollama (any installed model; qwen3.5:9b by
+   │          default), with tools for the apps, PC health and ArtCraft
    ├─ Apps: Projects, Calendar, News, Music, Movies, Drawing,
    │        Server Manager, Wikipedia (offline), File System
    └─ Data stays on the PC: nothing is synced to a cloud service
@@ -44,13 +45,15 @@ of it from anywhere, over a private Tailscale network.
 | Server Manager | Server list, SSH from the PC | List and Open SSH in an Android SSH app |
 | Wikipedia | Offline search and articles | Same, through the PC |
 | File System | Hand-tracking file explorer | Read-only browsing of the whole PC: previews, download, share; behind a fingerprint lock |
-| IDE | — | A VS Code-style editor for the PC's `scripts/` folder: explorer, tabs, syntax colors, Save / Save As. Its AI tab on the right reads the open file and proposes changes as a diff you apply or discard (local model, nothing saved until you tap Save) |
+| IDE | — | A VS Code-style editor for the PC's `scripts/` folder: explorer, tabs, syntax colors, Save / Save As, rename. Its AI tab on the right reads the open file and proposes changes as a diff you apply or discard (local model, nothing saved until you tap Save). **Save to phone** copies a script to the phone's `Download/scripts`, which Termux reaches as `~/storage/downloads/scripts` (run `termux-setup-storage` once) |
+| AI model | The Ollama card on the Overview tab lists the installed models; pick one to switch | Settings > Jarvis > AI model, the same list |
 | Hack the mainframe | — | Just for fun: a full-screen fake hacker console with six animated panels (tap one to make it the big one). Built into the phone, works offline |
 
 ### Things to ask Jarvis
 
-Besides answering questions with the apps' data (schedule, news, music,
-projects, Wikipedia), Jarvis can:
+Jarvis answers general questions (how-to, explanations, writing, advice)
+from the model's own knowledge, and questions about the apps' data
+(schedule, news, music, projects, Wikipedia). It can also:
 
 - set alarms and timers ("set an alarm in 30 seconds"), which ring on the
   device you asked from
@@ -72,6 +75,14 @@ projects, Wikipedia), Jarvis can:
   isn't included
 - run a **system diagnostic**: the process check plus whether the apps are
   online and whether Ollama is connected with its model loaded
+- use the **ArtCraft** apps installed on the PC (PhotoCraft, WordCraft,
+  VectorCraft, FilmCraft and the rest, found under `ARTCRAFT_DIR`, default
+  `D:\ArtCraft`): open one, optionally with a file; read a file's details
+  (pages, slides, sheets, layers, length); get the text of a PDF or document;
+  and convert between formats (never overwriting, never writing into the
+  ArtCraft folder). These run on the PC only, not when asked from the phone,
+  except listing the installed apps
+- shut down Control Center ("shut down", from the PC only)
 - "hack the mainframe" (from the phone)
 
 ## Running it
@@ -117,6 +128,8 @@ see [`desktop-client/README.md`](desktop-client/README.md).
   encrypted on the phone. Pairing codes last 5 minutes and work once.
 - Paired devices only get an allowlist of endpoints. Opening dialogs or
   programs on the PC, shutting down, settings, and file changes outside
-  Projects and the IDE's `scripts/` folder stay desktop-only. File System on the phone is read-only and can
-  be switched off on the PC.
+  Projects and the IDE's `scripts/` folder stay desktop-only, including
+  when a device asks Jarvis to do them. A device can switch the AI model,
+  but only to one already installed. File System on the phone is read-only
+  and can be switched off on the PC.
 - Remove a device any time from Settings > Devices.
